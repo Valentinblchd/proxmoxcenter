@@ -1,0 +1,251 @@
+import { NextRequest, NextResponse } from "next/server";
+import {
+  AUTH_COOKIE_NAME,
+  createSessionToken,
+  getAuthStatus,
+  hashPasswordWithSalt,
+  randomHex,
+} from "@/lib/auth/session";
+import { getPasswordPolicyError } from "@/lib/auth/password-policy";
+import {
+  deleteRuntimeAuthConfig,
+  readRuntimeAuthConfig,
+  writeRuntimeAuthConfig,
+} from "@/lib/auth/runtime-config";
+import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
+import { consumeRateLimit } from "@/lib/security/rate-limit";
+import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+
+const AUTH_SETUP_POST_LIMIT = {
+  windowMs: 10 * 60_000,
+  max: 10,
+  blockMs: 15 * 60_000,
+} as const;
+
+type AuthSetupBody = {
+  username?: unknown;
+  email?: unknown;
+  password?: unknown;
+  sessionSecret?: unknown;
+  secureCookie?: unknown;
+  sessionTtlSeconds?: unknown;
+  autoLogin?: unknown;
+};
+
+function asNonEmptyString(value: unknown) {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function asBoolean(value: unknown, fallback = false) {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const normalized = value.trim().toLowerCase();
+    if (["1", "true", "yes", "on"].includes(normalized)) return true;
+    if (["0", "false", "no", "off"].includes(normalized)) return false;
+  }
+  return fallback;
+}
+
+function asPositiveInt(value: unknown, fallback: number) {
+  if (typeof value === "number" && Number.isInteger(value) && value > 0) return value;
+  if (typeof value === "string" && value.trim()) {
+    const parsed = Number.parseInt(value, 10);
+    if (Number.isInteger(parsed) && parsed > 0) return parsed;
+  }
+  return fallback;
+}
+
+function normalizeEmail(value: unknown) {
+  if (typeof value !== "string") return null;
+  const email = value.trim().toLowerCase();
+  if (!email) return null;
+  if (!email.includes("@") || email.startsWith("@") || email.endsWith("@")) return null;
+  return email;
+}
+
+function maskSecret(secret: string) {
+  if (!secret) return "";
+  if (secret.length <= 4) return "****";
+  return `${"*".repeat(Math.max(4, secret.length - 4))}${secret.slice(-4)}`;
+}
+
+function buildAuthSetupStatus() {
+  const runtime = readRuntimeAuthConfig();
+  const status = getAuthStatus();
+  const proxmoxRuntime = readRuntimeProxmoxConfig();
+  const localAccountRequired = Boolean(proxmoxRuntime?.ldap.enabled);
+
+  return {
+    auth: status,
+    localAccountRequired,
+    runtimeSaved: runtime
+      ? {
+          enabled: runtime.enabled,
+          username: runtime.username,
+          email: runtime.email,
+          sessionTtlSeconds: runtime.sessionTtlSeconds,
+          secureCookie: runtime.secureCookie,
+          sessionSecretMasked: maskSecret(runtime.sessionSecret),
+          updatedAt: runtime.updatedAt,
+        }
+      : null,
+    envOverridesRuntime: false,
+  };
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    ...buildAuthSetupStatus(),
+  });
+}
+
+export async function POST(request: NextRequest) {
+  const originCheck = ensureSameOriginRequest(request);
+  if (!originCheck.ok) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden: origine de requête invalide." },
+      { status: 403 },
+    );
+  }
+
+  const gate = consumeRateLimit(`setup-auth:post:${getClientIp(request)}`, AUTH_SETUP_POST_LIMIT);
+  if (!gate.ok) {
+    return NextResponse.json(
+      { ok: false, error: "Trop de tentatives. Réessaie plus tard." },
+      { status: 429 },
+    );
+  }
+
+  let body: AuthSetupBody;
+  try {
+    body = (await request.json()) as AuthSetupBody;
+  } catch {
+    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+  }
+
+  const username = asNonEmptyString(body.username);
+  const email = normalizeEmail(body.email);
+  const password = asNonEmptyString(body.password);
+  const autoLogin = asBoolean(body.autoLogin, false);
+  const hadRuntimeAuth = Boolean(readRuntimeAuthConfig());
+
+  if (!username || !password) {
+    return NextResponse.json(
+      { ok: false, error: "Fields required: username, email, password." },
+      { status: 400 },
+    );
+  }
+
+  if (!email) {
+    return NextResponse.json(
+      { ok: false, error: "Adresse e-mail invalide." },
+      { status: 400 },
+    );
+  }
+
+  const passwordPolicyError = getPasswordPolicyError(password);
+  if (passwordPolicyError) {
+    return NextResponse.json(
+      { ok: false, error: passwordPolicyError },
+      { status: 400 },
+    );
+  }
+
+  const passwordSalt = randomHex(16);
+  const passwordHash = await hashPasswordWithSalt(password, passwordSalt);
+
+  try {
+    writeRuntimeAuthConfig({
+      enabled: true,
+      username,
+      email,
+      passwordHash,
+      passwordSalt,
+      sessionSecret: asNonEmptyString(body.sessionSecret) ?? randomHex(32),
+      sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, 60 * 60 * 12),
+      secureCookie: asBoolean(body.secureCookie, false),
+    });
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Failed to save auth config.",
+      },
+      { status: 500 },
+    );
+  }
+
+  const response = NextResponse.json({
+    ok: true,
+    message: hadRuntimeAuth ? "Configuration d’auth enregistrée." : "Compte administrateur créé.",
+    ...buildAuthSetupStatus(),
+  });
+
+  if (autoLogin) {
+    try {
+      const session = await createSessionToken(username);
+      response.cookies.set({
+        name: AUTH_COOKIE_NAME,
+        value: session.token,
+        httpOnly: true,
+        sameSite: "lax",
+        secure: session.secureCookie,
+        path: "/",
+        maxAge: session.maxAge,
+      });
+    } catch {
+      // Account creation succeeded even if cookie bootstrap failed.
+    }
+  }
+
+  return response;
+}
+
+export async function DELETE(request: NextRequest) {
+  const originCheck = ensureSameOriginRequest(request);
+  if (!originCheck.ok) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden: origine de requête invalide." },
+      { status: 403 },
+    );
+  }
+
+  const authRuntime = readRuntimeAuthConfig();
+  const secureCookie = authRuntime?.secureCookie ?? false;
+  const proxmoxRuntime = readRuntimeProxmoxConfig();
+  if (proxmoxRuntime?.ldap.enabled) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Suppression bloquée: LDAP secondaire activé. Un compte local UI doit rester disponible en permanence.",
+        ...buildAuthSetupStatus(),
+      },
+      { status: 409 },
+    );
+  }
+
+  deleteRuntimeAuthConfig();
+  const response = NextResponse.json({
+    ok: true,
+    message: "Configuration d’auth UI supprimée.",
+    ...buildAuthSetupStatus(),
+  });
+
+  // Expire current session cookie if present.
+  response.cookies.set({
+    name: AUTH_COOKIE_NAME,
+    value: "",
+    path: "/",
+    httpOnly: true,
+    sameSite: "lax",
+    secure: secureCookie,
+    maxAge: 0,
+  });
+
+  return response;
+}
