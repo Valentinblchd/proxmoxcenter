@@ -2,10 +2,12 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import AssistantMemorySettings from "@/components/assistant-memory-settings";
 import AuthUiSettingsPanel from "@/components/auth-ui-settings-panel";
+import CloudOauthSettings from "@/components/cloud-oauth-settings";
 import LocalUsersSettings from "@/components/local-users-settings";
 import ThemeSettingsPanel from "@/components/theme-settings-panel";
 import { readAssistantMemory } from "@/lib/assistant/memory";
 import { AUTH_COOKIE_NAME, getAuthStatus, verifySessionToken } from "@/lib/auth/session";
+import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
 import { readRuntimeAuthConfig } from "@/lib/auth/runtime-config";
 import { readRuntimePbsConfig } from "@/lib/pbs/runtime-config";
 import { readPbsToolingStatus } from "@/lib/pbs/tooling";
@@ -55,11 +57,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const proxmoxRuntime = readRuntimeProxmoxConfig();
   const pbsRuntime = readRuntimePbsConfig();
   const pbsTooling = await readPbsToolingStatus();
+  const cloudOauthProviders = getPublicCloudOauthAppStatus();
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
   const assistantMemory = readAssistantMemory(session?.username ?? "default");
   const proxmoxConnected = Boolean(proxmoxEffective);
+  const canAdmin = session?.role === "admin";
   const localUsers =
     runtimeAuth?.users.map((user) => ({
       id: user.id,
@@ -184,6 +188,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 </div>
               </div>
             </section>
+
+            {canAdmin ? <CloudOauthSettings initialProviders={cloudOauthProviders} canAdmin={canAdmin} /> : null}
           </div>
         ) : null}
 

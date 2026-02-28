@@ -3423,6 +3423,13 @@ code {
   flex-wrap: wrap;
 }
 
+.inventory-update-actions {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
 .inventory-update-title {
   display: grid;
   gap: 0.15rem;
@@ -3498,6 +3505,34 @@ code {
   flex-wrap: wrap;
   font-size: 0.72rem;
   color: rgba(201, 213, 255, 0.7);
+}
+
+.inventory-update-log {
+  display: grid;
+  gap: 0.35rem;
+}
+
+.inventory-update-log code {
+  display: block;
+  overflow-x: auto;
+  border-radius: 10px;
+  padding: 0.5rem 0.6rem;
+  background: rgba(0, 0, 0, 0.22);
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  color: rgba(235, 241, 255, 0.84);
+  font-size: 0.73rem;
+  white-space: pre-wrap;
+}
+
+.settings-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.55rem;
+  font-size: 0.84rem;
+}
+
+.settings-toggle input {
+  accent-color: var(--brand);
 }
 
 .inventory-remote-panel {

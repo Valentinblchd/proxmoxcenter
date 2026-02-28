@@ -25,6 +25,7 @@ pnpm-debug.log*
 
 # runtime app data (Proxmox UI connection config, etc.)
 data/*.json
+data/*.key
 !data/.gitkeep
 
 # typescript

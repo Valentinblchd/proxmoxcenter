@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 
@@ -54,6 +55,14 @@ type BackupConfigResponse = {
   ok: boolean;
   mode: "offline" | "live";
   warnings: string[];
+  oauthApps?: {
+    onedrive: {
+      configured: boolean;
+    };
+    gdrive: {
+      configured: boolean;
+    };
+  };
   plans: BackupPlan[];
   cloudTargets: BackupCloudTarget[];
   workloads: BackupWorkloadOption[];
@@ -159,7 +168,7 @@ type CloudOauthMessage = {
 };
 
 type CloudOauthUiState = {
-  state: "imported" | "connected" | "invalid";
+  state: "setup" | "imported" | "folder" | "connected" | "invalid";
   label: string;
 };
 
@@ -368,14 +377,8 @@ const PROVIDER_SETTING_FIELDS: Record<
   BackupCloudProvider,
   Array<{ key: string; label: string; placeholder: string }>
 > = {
-  onedrive: [
-    { key: "clientid", label: "Client ID", placeholder: "App Microsoft client id" },
-    { key: "rootpath", label: "Dossier cible", placeholder: "/proxmox/backups" },
-  ],
-  gdrive: [
-    { key: "clientid", label: "Client ID", placeholder: "Google OAuth client id" },
-    { key: "folderid", label: "Folder ID", placeholder: "ID dossier Google Drive" },
-  ],
+  onedrive: [],
+  gdrive: [],
   "aws-s3": [
     { key: "region", label: "Région", placeholder: "eu-west-3" },
     { key: "bucket", label: "Bucket", placeholder: "my-proxmox-backups" },
@@ -394,14 +397,8 @@ const PROVIDER_SECRET_FIELDS: Record<
   BackupCloudProvider,
   Array<{ key: string; label: string; placeholder: string }>
 > = {
-  onedrive: [
-    { key: "clientsecret", label: "Client Secret (optionnel)", placeholder: "Secret OAuth (si app confidentielle)" },
-    { key: "refreshtoken", label: "Refresh Token", placeholder: "Token de refresh OneDrive" },
-  ],
-  gdrive: [
-    { key: "clientsecret", label: "Client Secret", placeholder: "Secret OAuth" },
-    { key: "refreshtoken", label: "Refresh Token", placeholder: "Token de refresh Google" },
-  ],
+  onedrive: [],
+  gdrive: [],
   "aws-s3": [
     { key: "accesskeyid", label: "Access Key ID", placeholder: "AKIA..." },
     { key: "secretaccesskey", label: "Secret Access Key", placeholder: "Secret AWS" },
@@ -703,11 +700,51 @@ function aggregateUsage(entries: Array<{ usedBytes: number | null; totalBytes: n
   };
 }
 
-function getStatusBadgeClass(state: "imported" | "connected" | "invalid" | "setup") {
+function getStatusBadgeClass(state: "setup" | "imported" | "folder" | "connected" | "invalid") {
   if (state === "connected") return "status-running";
   if (state === "invalid") return "status-stopped";
+  if (state === "folder") return "status-template";
   if (state === "imported") return "status-pending";
   return "status-template";
+}
+
+function getDraftCloudOauthStatus(options: {
+  provider: BackupCloudProvider;
+  oauthReady: boolean;
+  refreshToken: string;
+  folderValue: string;
+  explicitState: CloudOauthUiState | null;
+  verified: boolean;
+  hasError: boolean;
+}) {
+  if (options.explicitState?.state === "invalid") {
+    return options.explicitState;
+  }
+
+  if (!options.oauthReady || !options.refreshToken.trim()) {
+    return {
+      state: "setup" as const,
+      label: "Non configuré",
+    };
+  }
+
+  if (!options.folderValue.trim()) {
+    return options.explicitState?.state === "connected"
+      ? { state: "connected" as const, label: "Prêt" }
+      : { state: "imported" as const, label: "Token importé" };
+  }
+
+  if (options.verified && !options.hasError) {
+    return {
+      state: "connected" as const,
+      label: "Prêt",
+    };
+  }
+
+  return {
+    state: "folder" as const,
+    label: "Dossier détecté",
+  };
 }
 
 function looksLikeInvalidTokenError(error: string | null) {
@@ -720,6 +757,19 @@ function isEnabledSetting(value: string | undefined) {
   return ["1", "true", "yes", "on"].includes(value.trim().toLowerCase());
 }
 
+function getVisibleCloudTargetSettings(target: BackupCloudTarget) {
+  if (target.provider === "onedrive") {
+    return target.settings.rootpath ? [{ key: "dossier", value: target.settings.rootpath }] : [];
+  }
+  if (target.provider === "gdrive") {
+    return target.settings.folderid ? [{ key: "dossier", value: target.settings.folderid }] : [];
+  }
+  return Object.entries(target.settings)
+    .filter(([key]) => !["clientid", "authority", "tenantid"].includes(key))
+    .slice(0, 3)
+    .map(([key, value]) => ({ key, value }));
+}
+
 function getCloudTargetConnectionState(
   target: BackupCloudTarget,
   metric:
@@ -729,11 +779,42 @@ function getCloudTargetConnectionState(
     | undefined,
 ) {
   const hasRefreshToken = Boolean(target.secretState.refreshtoken);
+  const hasFolder = Boolean(
+    target.provider === "gdrive"
+      ? target.settings.folderid?.trim()
+      : target.provider === "onedrive"
+        ? target.settings.rootpath?.trim()
+        : false,
+  );
   if (!hasRefreshToken) {
     return {
       state: "setup" as const,
-      label: "A configurer",
+      label: "Non configuré",
       detail: "Aucun refresh token enregistré.",
+    };
+  }
+
+  if (metric?.error && looksLikeInvalidTokenError(metric.error)) {
+    return {
+      state: "invalid" as const,
+      label: "Token invalide",
+      detail: metric.error,
+    };
+  }
+
+  if (hasFolder && metric && !metric.error) {
+    return {
+      state: "connected" as const,
+      label: "Prêt",
+      detail: "Token, dossier et accès cloud validés.",
+    };
+  }
+
+  if (hasFolder) {
+    return {
+      state: "folder" as const,
+      label: "Dossier détecté",
+      detail: "Le dossier cloud est défini pour cette cible.",
     };
   }
 
@@ -746,13 +827,6 @@ function getCloudTargetConnectionState(
   }
 
   if (metric.error) {
-    if (looksLikeInvalidTokenError(metric.error)) {
-      return {
-        state: "invalid" as const,
-        label: "Token invalide",
-        detail: metric.error,
-      };
-    }
     return {
       state: "imported" as const,
       label: "Token importé",
@@ -1471,11 +1545,9 @@ export default function BackupPlannerPanel({
   }
 
   function onConnectOneDrive() {
-    const clientId = targetForm.settings.clientid?.trim() ?? "";
-    const authority = targetForm.settings.authority?.trim() ?? "";
-    if (!clientId) {
+    if (!currentProviderOauthReady) {
       setOneDriveOauthStatus({ state: "invalid", label: "Token invalide" });
-      setError("Renseigne d'abord le Client ID OneDrive.");
+      setError("Configure d'abord OneDrive OAuth dans Paramètres -> Connexions.");
       return;
     }
 
@@ -1484,13 +1556,7 @@ export default function BackupPlannerPanel({
     setError(null);
     setNotice(null);
 
-    const query = new URLSearchParams({
-      clientId,
-    });
-    if (authority) {
-      query.set("authority", authority);
-    }
-    const url = `/api/backups/oauth/onedrive/start?${query.toString()}`;
+    const url = "/api/backups/oauth/onedrive/start";
     openOauthPopup(
       url,
       "proxcenter-onedrive-oauth",
@@ -1506,11 +1572,9 @@ export default function BackupPlannerPanel({
   }
 
   async function onConnectGoogleDrive() {
-    const clientId = targetForm.settings.clientid?.trim() ?? "";
-    const clientSecret = targetForm.secrets.clientsecret?.trim() ?? "";
-    if (!clientId || !clientSecret) {
+    if (!currentProviderOauthReady) {
       setGoogleOauthStatus({ state: "invalid", label: "Token invalide" });
-      setError("Renseigne d'abord le Client ID et le Client Secret Google.");
+      setError("Configure d'abord Google Drive OAuth dans Paramètres -> Connexions.");
       return;
     }
 
@@ -1526,10 +1590,7 @@ export default function BackupPlannerPanel({
           "Content-Type": "application/json",
           Accept: "application/json",
         },
-        body: JSON.stringify({
-          clientId,
-          clientSecret,
-        }),
+        body: JSON.stringify({}),
       });
       const payload = (await response.json()) as { ok?: boolean; error?: string; authorizeUrl?: string };
       if (!response.ok || !payload.ok || typeof payload.authorizeUrl !== "string") {
@@ -1599,9 +1660,15 @@ export default function BackupPlannerPanel({
         setCloudFolders(payload.folders);
         setCloudFolderLoaded(true);
         if (targetForm.provider === "onedrive") {
-          setOneDriveOauthStatus({ state: "connected", label: "Connecté" });
+          setOneDriveOauthStatus({
+            state: targetForm.settings.rootpath?.trim() ? "connected" : "imported",
+            label: targetForm.settings.rootpath?.trim() ? "Prêt" : "Token importé",
+          });
         } else {
-          setGoogleOauthStatus({ state: "connected", label: "Connecté" });
+          setGoogleOauthStatus({
+            state: targetForm.settings.folderid?.trim() ? "connected" : "imported",
+            label: targetForm.settings.folderid?.trim() ? "Prêt" : "Token importé",
+          });
         }
       } catch (browseError) {
         const message = browseError instanceof Error ? browseError.message : "Erreur de lecture cloud.";
@@ -1705,9 +1772,9 @@ export default function BackupPlannerPanel({
         },
       }));
       if (targetForm.provider === "onedrive") {
-        setOneDriveOauthStatus({ state: "connected", label: "Connecté" });
+        setOneDriveOauthStatus({ state: "folder", label: "Dossier détecté" });
       } else {
-        setGoogleOauthStatus({ state: "connected", label: "Connecté" });
+        setGoogleOauthStatus({ state: "folder", label: "Dossier détecté" });
       }
       setNotice(`Dossier ${payload.folder.name} créé et sélectionné.`);
       setCloudFolderModalOpen(false);
@@ -1734,9 +1801,9 @@ export default function BackupPlannerPanel({
       },
     }));
     if (targetForm.provider === "onedrive") {
-      setOneDriveOauthStatus({ state: "connected", label: "Connecté" });
+      setOneDriveOauthStatus({ state: "folder", label: "Dossier détecté" });
     } else if (targetForm.provider === "gdrive") {
-      setGoogleOauthStatus({ state: "connected", label: "Connecté" });
+      setGoogleOauthStatus({ state: "folder", label: "Dossier détecté" });
     }
     setNotice(`Dossier ${item.name} sélectionné.`);
     setCloudFolderModalOpen(false);
@@ -2104,12 +2171,35 @@ export default function BackupPlannerPanel({
       .map((target) => spaceByTarget[target.id])
       .filter((item): item is NonNullable<typeof item> => Boolean(item)),
   );
-  const currentCloudOauthStatus =
+  const currentProviderOauthConfig =
+    targetForm.provider === "onedrive"
+      ? config?.oauthApps?.onedrive
+      : targetForm.provider === "gdrive"
+        ? config?.oauthApps?.gdrive
+        : null;
+  const currentProviderOauthReady = Boolean(currentProviderOauthConfig?.configured);
+  const hasTargetRefreshToken = Boolean(targetForm.secrets.refreshtoken?.trim());
+  const explicitCloudOauthStatus =
     targetForm.provider === "onedrive"
       ? oneDriveOauthStatus
       : targetForm.provider === "gdrive"
         ? googleOauthStatus
         : null;
+  const currentCloudOauthStatus =
+    targetForm.provider === "onedrive" || targetForm.provider === "gdrive"
+      ? getDraftCloudOauthStatus({
+          provider: targetForm.provider,
+          oauthReady: currentProviderOauthReady,
+          refreshToken: targetForm.secrets.refreshtoken ?? "",
+          folderValue:
+            targetForm.provider === "gdrive"
+              ? targetForm.settings.folderid ?? ""
+              : targetForm.settings.rootpath ?? "",
+          explicitState: explicitCloudOauthStatus,
+          verified: cloudFolderLoaded,
+          hasError: Boolean(cloudFolderError),
+        })
+      : null;
   const currentCloudFolder = getCloudFolderRoot(targetForm.provider);
   const activeCloudFolder = cloudFolderTrail.at(-1) ?? currentCloudFolder;
   const activeCloudFolderPath = formatCloudFolderPath(targetForm.provider, cloudFolderTrail);
@@ -2793,16 +2883,23 @@ export default function BackupPlannerPanel({
               <div className="hint-box">
                 <p className="muted">
                   {targetForm.provider === "onedrive"
-                    ? "OneDrive perso: Client ID + Refresh Token. Client Secret optionnel (app confidentielle). Pas de Tenant ID requis."
-                    : "Google Drive: Client ID + Client Secret, puis consentement OAuth pour récupérer le refresh token."}
+                    ? "Connexion OneDrive via OAuth global. Clique, connecte-toi à Microsoft, autorise l'accès, puis choisis le dossier."
+                    : "Connexion Google Drive via OAuth global. Clique, connecte-toi à Google, autorise l'accès, puis choisis le dossier."}
                 </p>
+                {!currentProviderOauthReady ? (
+                  <div className="setup-actions">
+                    <Link className="action-btn" href="/settings?tab=connections">
+                      Configurer OAuth cloud
+                    </Link>
+                  </div>
+                ) : null}
                 <div className="quick-actions">
                   {targetForm.provider === "onedrive" ? (
                     <button
                       type="button"
                       className="action-btn"
                       onClick={onConnectOneDrive}
-                      disabled={oneDriveOauthBusy || busy}
+                      disabled={oneDriveOauthBusy || busy || !currentProviderOauthReady}
                     >
                       {oneDriveOauthBusy ? "Connexion OneDrive..." : "Connecter OneDrive"}
                     </button>
@@ -2811,7 +2908,7 @@ export default function BackupPlannerPanel({
                       type="button"
                       className="action-btn"
                       onClick={() => void onConnectGoogleDrive()}
-                      disabled={googleOauthBusy || busy}
+                      disabled={googleOauthBusy || busy || !currentProviderOauthReady}
                     >
                       {googleOauthBusy ? "Connexion Google Drive..." : "Connecter Google Drive"}
                     </button>
@@ -2820,7 +2917,7 @@ export default function BackupPlannerPanel({
                     type="button"
                     className="action-btn"
                     onClick={() => setCloudFolderModalOpen(true)}
-                    disabled={cloudFolderBusy || busy}
+                    disabled={cloudFolderBusy || busy || !hasTargetRefreshToken}
                   >
                     {cloudFolderBusy ? "Lecture..." : "Choisir le dossier cloud"}
                   </button>
@@ -2891,57 +2988,61 @@ export default function BackupPlannerPanel({
               ) : null}
             </div>
 
-            <div className="provision-grid">
-              {PROVIDER_SETTING_FIELDS[targetForm.provider].map((field) => (
-                <label key={field.key} className="provision-field">
-                  <span className="provision-field-label">{field.label}</span>
-                  <input
-                    className="provision-input"
-                    value={targetForm.settings[field.key] ?? ""}
-                    onChange={(event) =>
-                      setTargetForm((current) => ({
-                        ...current,
-                        settings: {
-                          ...current.settings,
-                          [field.key]: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={field.placeholder}
-                  />
-                </label>
-              ))}
-            </div>
+            {PROVIDER_SETTING_FIELDS[targetForm.provider].length > 0 ? (
+              <div className="provision-grid">
+                {PROVIDER_SETTING_FIELDS[targetForm.provider].map((field) => (
+                  <label key={field.key} className="provision-field">
+                    <span className="provision-field-label">{field.label}</span>
+                    <input
+                      className="provision-input"
+                      value={targetForm.settings[field.key] ?? ""}
+                      onChange={(event) =>
+                        setTargetForm((current) => ({
+                          ...current,
+                          settings: {
+                            ...current.settings,
+                            [field.key]: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={field.placeholder}
+                    />
+                  </label>
+                ))}
+              </div>
+            ) : null}
 
-            <div className="provision-grid">
-              {PROVIDER_SECRET_FIELDS[targetForm.provider].map((field) => (
-                <label key={field.key} className="provision-field">
-                  <span className="provision-field-label">
-                    {field.label}
-                    <small>
-                      {targetForm.id
-                        ? "Laisser vide pour conserver le secret existant."
-                        : "Stocké chiffré côté serveur."}
-                    </small>
-                  </span>
-                  <input
-                    className="provision-input"
-                    type="password"
-                    value={targetForm.secrets[field.key] ?? ""}
-                    onChange={(event) =>
-                      setTargetForm((current) => ({
-                        ...current,
-                        secrets: {
-                          ...current.secrets,
-                          [field.key]: event.target.value,
-                        },
-                      }))
-                    }
-                    placeholder={field.placeholder}
-                  />
-                </label>
-              ))}
-            </div>
+            {PROVIDER_SECRET_FIELDS[targetForm.provider].length > 0 ? (
+              <div className="provision-grid">
+                {PROVIDER_SECRET_FIELDS[targetForm.provider].map((field) => (
+                  <label key={field.key} className="provision-field">
+                    <span className="provision-field-label">
+                      {field.label}
+                      <small>
+                        {targetForm.id
+                          ? "Laisser vide pour conserver le secret existant."
+                          : "Stocké chiffré côté serveur."}
+                      </small>
+                    </span>
+                    <input
+                      className="provision-input"
+                      type="password"
+                      value={targetForm.secrets[field.key] ?? ""}
+                      onChange={(event) =>
+                        setTargetForm((current) => ({
+                          ...current,
+                          secrets: {
+                            ...current.secrets,
+                            [field.key]: event.target.value,
+                          },
+                        }))
+                      }
+                      placeholder={field.placeholder}
+                    />
+                  </label>
+                ))}
+              </div>
+            ) : null}
 
             <div className="provision-actions">
               <button className="action-btn primary" type="submit" disabled={busy}>
@@ -3016,9 +3117,7 @@ export default function BackupPlannerPanel({
                     </div>
                   ) : null}
                   <div className="backup-target-meta">
-                    {Object.entries(target.settings)
-                      .slice(0, 3)
-                      .map(([key, value]) => (
+                    {getVisibleCloudTargetSettings(target).map(({ key, value }) => (
                         <span key={`${target.id}-${key}`} className="inventory-tag">
                           {key}: {value}
                         </span>

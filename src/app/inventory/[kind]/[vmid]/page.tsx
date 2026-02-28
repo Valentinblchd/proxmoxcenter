@@ -149,6 +149,14 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             },
           ]
         : [];
+  const updateShellHref =
+    proxmox && detail.kind === "lxc"
+      ? buildProxmoxWorkloadXtermUrl({
+          baseUrl: proxmox.baseUrl,
+          node: detail.node,
+          vmid: detail.vmid,
+        })
+      : consoleHref;
 
   return (
     <section className="content content-wide workload-page">
@@ -275,6 +283,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
           vmid={detail.vmid}
           kind={detail.kind}
           status={detail.status === "running" ? "running" : "stopped"}
+          shellHref={updateShellHref}
         />
       </section>
 

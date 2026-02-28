@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readRuntimeCloudOauthAppConfig } from "@/lib/backups/oauth-app-config";
 import { issueOneDriveOauthState } from "@/lib/backups/onedrive-oauth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import {
@@ -49,14 +50,20 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  const clientId = asNonEmptyString(request.nextUrl.searchParams.get("clientId"), 180);
+  const runtimeConfig = readRuntimeCloudOauthAppConfig();
+  const clientId =
+    asNonEmptyString(request.nextUrl.searchParams.get("clientId"), 180) ??
+    runtimeConfig.onedrive?.clientId ??
+    null;
   if (!clientId) {
     return NextResponse.json(
-      { ok: false, error: "Client ID OneDrive requis." },
+      { ok: false, error: "OneDrive OAuth n'est pas encore configuré dans Paramètres -> Connexions." },
       { status: 400 },
     );
   }
-  const authority = normalizeAuthority(request.nextUrl.searchParams.get("authority"));
+  const authority = normalizeAuthority(
+    request.nextUrl.searchParams.get("authority") ?? runtimeConfig.onedrive?.authority ?? null,
+  );
   const origin = getTrustedOriginForRequest(request) ?? request.nextUrl.origin;
   const redirectUri = `${origin}/api/backups/oauth/onedrive/callback`;
   const oauth = issueOneDriveOauthState({

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
 import { readCloudTargetsSpaceMetrics, type CloudTargetSpaceMetrics } from "@/lib/backups/cloud-providers";
 import { readLocalBackupStorageMetrics, type LocalBackupStorageMetrics } from "@/lib/backups/local-storage-metrics";
 import {
@@ -97,12 +98,12 @@ const PROVIDER_RULES: Record<
   }
 > = {
   onedrive: {
-    requiredSettings: ["clientid"],
+    requiredSettings: [],
     requiredSecrets: ["refreshtoken"],
   },
   gdrive: {
-    requiredSettings: ["clientid"],
-    requiredSecrets: ["clientsecret", "refreshtoken"],
+    requiredSettings: [],
+    requiredSecrets: ["refreshtoken"],
   },
   "aws-s3": {
     requiredSettings: ["region", "bucket"],
@@ -202,10 +203,19 @@ function buildPayload(
   localStorages: LocalBackupStorageMetrics[],
 ) {
   const runtimeState = readRuntimeBackupState();
+  const oauthApps = getPublicCloudOauthAppStatus();
   return {
     ok: true,
     mode,
     warnings,
+    oauthApps: {
+      onedrive: {
+        configured: oauthApps.onedrive.configured,
+      },
+      gdrive: {
+        configured: oauthApps.gdrive.configured,
+      },
+    },
     plans: config.plans,
     cloudTargets: config.cloudTargets.map((target) => toPublicTarget(target)),
     workloads: workloads.map((item) => ({

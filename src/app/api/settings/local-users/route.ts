@@ -199,6 +199,9 @@ export async function PATCH(request: NextRequest) {
     } else if (action === "enabled") {
       setRuntimeAuthUserEnabled(userId, asBoolean(body.enabled, true));
     } else if (action === "role") {
+      if (capability.session.authMethod === "local" && capability.session.userId === userId) {
+        throw new Error("Ton propre rôle ne peut pas être modifié depuis ta session active.");
+      }
       updateRuntimeAuthUserRole(userId, normalizeRuntimeAuthUserRole(body.role));
     } else if (action === "password") {
       const password = asNonEmptyString(body.password);

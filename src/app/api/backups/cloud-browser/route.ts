@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getEffectiveCloudOauthCredentials } from "@/lib/backups/oauth-app-config";
 import { readRuntimeBackupConfig } from "@/lib/backups/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -385,11 +386,15 @@ export async function POST(request: NextRequest) {
     ...(persistedTarget?.secrets ?? {}),
     ...sanitizeMap(body.secrets, { maxValueLength: 4000 }),
   };
+  const effectiveOauth =
+    provider === "onedrive" || provider === "gdrive"
+      ? getEffectiveCloudOauthCredentials(provider, settings, secrets)
+      : { settings, secrets };
 
   try {
     if (provider === "gdrive") {
       if (action === "list-folders") {
-        const folders = await listGoogleDriveFolders(settings, secrets, parentId);
+        const folders = await listGoogleDriveFolders(effectiveOauth.settings, effectiveOauth.secrets, parentId);
         return NextResponse.json({ ok: true, folders });
       }
 
@@ -397,12 +402,17 @@ export async function POST(request: NextRequest) {
       if (!folderName) {
         return NextResponse.json({ ok: false, error: "Nom du dossier requis." }, { status: 400 });
       }
-      const folder = await createGoogleDriveFolder(settings, secrets, folderName, parentId);
+      const folder = await createGoogleDriveFolder(
+        effectiveOauth.settings,
+        effectiveOauth.secrets,
+        folderName,
+        parentId,
+      );
       return NextResponse.json({ ok: true, folder });
     }
 
     if (action === "list-folders") {
-      const folders = await listOneDriveFolders(settings, secrets, parentPath);
+      const folders = await listOneDriveFolders(effectiveOauth.settings, effectiveOauth.secrets, parentPath);
       return NextResponse.json({ ok: true, folders });
     }
 
@@ -410,7 +420,12 @@ export async function POST(request: NextRequest) {
     if (!folderName) {
       return NextResponse.json({ ok: false, error: "Nom du dossier requis." }, { status: 400 });
     }
-    const folder = await createOneDriveFolder(settings, secrets, folderName, parentPath);
+    const folder = await createOneDriveFolder(
+      effectiveOauth.settings,
+      effectiveOauth.secrets,
+      folderName,
+      parentPath,
+    );
     return NextResponse.json({ ok: true, folder });
   } catch (error) {
     return NextResponse.json(

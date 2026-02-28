@@ -12,6 +12,7 @@ type InventoryUpdateStatusProps = {
   vmid?: number;
   kind?: WorkloadKind;
   status?: WorkloadStatus;
+  shellHref?: string | null;
 };
 
 type UpdateScanResponse = {
@@ -23,6 +24,8 @@ type UpdateScanResponse = {
   checkedAt?: string;
   message?: string;
   error?: string;
+  scanMode?: "guest-agent" | "manual-shell" | "unsupported";
+  commands?: string[];
 };
 
 type ViewTone = "neutral" | "ok" | "warn" | "error";
@@ -37,6 +40,7 @@ export default function InventoryUpdateStatus({
   vmid,
   kind,
   status,
+  shellHref = null,
 }: InventoryUpdateStatusProps) {
   const [loading, setLoading] = useState(false);
   const [result, setResult] = useState<UpdateScanResponse | null>(null);
@@ -44,7 +48,7 @@ export default function InventoryUpdateStatus({
   const autoScanKeyRef = useRef("");
 
   const hasTarget = Boolean(node) && typeof vmid === "number" && vmid > 0 && Boolean(kind) && Boolean(status);
-  const canScan = live && hasTarget && kind === "qemu" && status === "running";
+  const canScan = live && hasTarget && status === "running" && (kind === "qemu" || kind === "lxc");
   const scopeKey = `${live ? "1" : "0"}:${node ?? ""}:${vmid ?? ""}:${kind ?? ""}:${status ?? ""}`;
 
   async function requestScan(nodeName: string, vmId: number, workloadKind: WorkloadKind) {
@@ -126,12 +130,9 @@ export default function InventoryUpdateStatus({
   } else if (!hasTarget) {
     title = "Aucune VM sélectionnée";
     message = "Sélectionne une VM dans la liste pour vérifier ses mises à jour.";
-  } else if (kind !== "qemu") {
-    title = "Type non supporté";
-    message = "Scan updates invité disponible uniquement pour les VM QEMU.";
   } else if (status !== "running") {
-    title = "VM arrêtée";
-    message = "Démarre la VM puis relance le scan des mises à jour.";
+    title = kind === "lxc" ? "CT arrêté" : "VM arrêtée";
+    message = `Démarre ${kind === "lxc" ? "le conteneur" : "la VM"} puis relance le scan des mises à jour.`;
   } else if (loading) {
     title = "Scan en cours";
     message = "Interrogation guest-agent en cours…";
@@ -141,7 +142,11 @@ export default function InventoryUpdateStatus({
     message = error;
   } else if (result) {
     const pending = typeof result.pendingCount === "number" ? result.pendingCount : null;
-    if (result.supported === false) {
+    if (result.scanMode === "manual-shell") {
+      tone = "warn";
+      title = kind === "lxc" ? "MAJ CT via shell" : "MAJ Linux via shell";
+      message = asText(result.message) || "Ouvre le shell invité pour vérifier les mises à jour.";
+    } else if (result.supported === false) {
       title = "Scan indisponible";
       message = asText(result.message) || "Cette VM ne permet pas le scan automatique.";
     } else if (pending !== null && pending > 0) {
@@ -169,18 +174,25 @@ export default function InventoryUpdateStatus({
       <div className="inventory-update-head">
         <div className="inventory-update-title">
           <span className="muted">Mises à jour invité</span>
-          <strong>Windows + Debian/Ubuntu</strong>
+          <strong>{kind === "lxc" ? "CT / LXC" : "VM invitée"}</strong>
         </div>
-        <button
-          type="button"
-          className="inventory-ghost-btn"
-          onClick={() => {
-            void runScan();
-          }}
-          disabled={!canScan || loading}
-        >
-          {loading ? "Scan..." : "Scanner MAJ OS"}
-        </button>
+        <div className="inventory-update-actions">
+          {shellHref && result?.scanMode === "manual-shell" ? (
+            <a href={shellHref} target="_blank" rel="noreferrer" className="inventory-ghost-btn">
+              Ouvrir shell
+            </a>
+          ) : null}
+          <button
+            type="button"
+            className="inventory-ghost-btn"
+            onClick={() => {
+              void runScan();
+            }}
+            disabled={!canScan || loading}
+          >
+            {loading ? "Scan..." : "Scanner MAJ OS"}
+          </button>
+        </div>
       </div>
 
       <div className={`inventory-update-card tone-${tone}`}>
@@ -198,6 +210,13 @@ export default function InventoryUpdateStatus({
           {asText(result?.osLabel) ? <span>OS: {result?.osLabel}</span> : null}
           {checkedAtText ? <span>Dernier scan: {checkedAtText}</span> : null}
         </div>
+        {result?.commands?.length ? (
+          <div className="inventory-update-log">
+            {result.commands.map((command) => (
+              <code key={command}>{command}</code>
+            ))}
+          </div>
+        ) : null}
       </div>
     </section>
   );

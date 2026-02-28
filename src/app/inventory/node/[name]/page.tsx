@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import NodeUpdateStatus from "@/components/node-update-status";
+import NodeRollingUpdatePanel from "@/components/node-rolling-update-panel";
+import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { getNodeDetailByName } from "@/lib/proxmox/nodes";
@@ -86,6 +90,10 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
         node: detail.name,
       })
     : null;
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const canOperate = hasRuntimeCapability(session?.role, "operate");
 
   return (
     <section className="content content-wide workload-page">
@@ -182,6 +190,15 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
       <section className="workload-grid">
         <section className="panel">
           <NodeUpdateStatus live={Boolean(proxmox)} node={detail.name} />
+        </section>
+
+        <section className="panel">
+          <NodeRollingUpdatePanel
+            live={Boolean(proxmox)}
+            node={detail.name}
+            canOperate={canOperate}
+            shellHref={shellHref}
+          />
         </section>
 
         <section className="panel">

@@ -445,6 +445,7 @@ export default function LocalUsersSettings({ initialUsers, currentUsername }: Pr
         <div className="mini-list">
           {filteredUsers.map((user) => {
             const isSelf = currentUsername?.toLowerCase() === user.username.toLowerCase();
+            const isOnlyUser = users.length === 1;
             const isOnlyEnabledUser = users.filter((entry) => entry.enabled).length <= 1 && user.enabled;
             const resetOpen = resetTargetId === user.id;
             const canSubmitReset =
@@ -475,7 +476,7 @@ export default function LocalUsersSettings({ initialUsers, currentUsername }: Pr
                   <select
                     className="field-input settings-role-select"
                     value={user.role}
-                    disabled={rowBusy !== null}
+                    disabled={rowBusy !== null || isSelf || isOnlyUser}
                     onChange={(event) =>
                       void updateUser(user.id, {
                         action: "role",
@@ -554,10 +555,20 @@ export default function LocalUsersSettings({ initialUsers, currentUsername }: Pr
                     className="action-btn"
                     disabled={rowBusy !== null || user.isPrimary || isSelf}
                     onClick={() => setPendingDelete(user)}
-                    >
-                      Supprimer
-                    </button>
+                  >
+                    Supprimer
+                  </button>
                 </div>
+                {isSelf ? (
+                  <div className="item-subtitle">
+                    Ton rôle est verrouillé depuis cette session. Utilise un autre admin local pour le modifier.
+                  </div>
+                ) : null}
+                {isOnlyUser ? (
+                  <div className="item-subtitle">
+                    Le compte local unique reste admin tant qu’aucun second compte n’existe.
+                  </div>
+                ) : null}
 
                 {resetOpen ? (
                   <div className="stack-xs" style={{ marginTop: "0.85rem" }}>

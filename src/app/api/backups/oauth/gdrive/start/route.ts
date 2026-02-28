@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { readRuntimeCloudOauthAppConfig } from "@/lib/backups/oauth-app-config";
 import { issueGoogleOauthState } from "@/lib/backups/google-oauth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp, getTrustedOriginForRequest } from "@/lib/security/request-guards";
@@ -45,14 +46,16 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as { clientId?: unknown; clientSecret?: unknown };
   } catch {
-    return NextResponse.json({ ok: false, error: "JSON invalide." }, { status: 400 });
+    body = {};
   }
 
-  const clientId = asNonEmptyString(body.clientId, 200);
-  const clientSecret = asNonEmptyString(body.clientSecret, 600);
+  const runtimeConfig = readRuntimeCloudOauthAppConfig();
+  const clientId = asNonEmptyString(body.clientId, 200) ?? runtimeConfig.gdrive?.clientId ?? null;
+  const clientSecret =
+    asNonEmptyString(body.clientSecret, 600) ?? runtimeConfig.gdrive?.clientSecret ?? null;
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { ok: false, error: "Client ID et Client Secret Google requis." },
+      { ok: false, error: "Google Drive OAuth n'est pas encore configuré dans Paramètres -> Connexions." },
       { status: 400 },
     );
   }

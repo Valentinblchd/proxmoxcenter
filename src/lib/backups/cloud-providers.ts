@@ -1,5 +1,6 @@
 import "server-only";
 import { createHmac, createHash } from "node:crypto";
+import { getEffectiveCloudOauthCredentials } from "@/lib/backups/oauth-app-config";
 import type { RuntimeBackupCloudTarget } from "@/lib/backups/runtime-config";
 
 type UploadPayload = {
@@ -247,6 +248,24 @@ function isEncryptedObjectName(name: string) {
   return /\.pxenc$/i.test(name);
 }
 
+function withEffectiveGoogleOauth(target: RuntimeBackupCloudTarget): RuntimeBackupCloudTarget {
+  const effective = getEffectiveCloudOauthCredentials("gdrive", target.settings, target.secrets);
+  return {
+    ...target,
+    settings: effective.settings,
+    secrets: effective.secrets,
+  };
+}
+
+function withEffectiveOneDriveOauth(target: RuntimeBackupCloudTarget): RuntimeBackupCloudTarget {
+  const effective = getEffectiveCloudOauthCredentials("onedrive", target.settings, target.secrets);
+  return {
+    ...target,
+    settings: effective.settings,
+    secrets: effective.secrets,
+  };
+}
+
 function getMicrosoftOauthTokenEndpoint(target: RuntimeBackupCloudTarget) {
   const authorityRaw = (target.settings.authority ?? target.settings.tenantid ?? "").trim();
   const authority = authorityRaw || "consumers";
@@ -423,6 +442,7 @@ async function getOAuthToken(
 }
 
 async function uploadGoogleDrive(target: RuntimeBackupCloudTarget, payload: UploadPayload): Promise<UploadResult> {
+  target = withEffectiveGoogleOauth(target);
   const clientId = target.settings.clientid;
   const folderId = target.settings.folderid;
   const clientSecret = target.secrets.clientsecret;
@@ -492,6 +512,7 @@ async function uploadGoogleDrive(target: RuntimeBackupCloudTarget, payload: Uplo
 }
 
 async function uploadOneDrive(target: RuntimeBackupCloudTarget, payload: UploadPayload): Promise<UploadResult> {
+  target = withEffectiveOneDriveOauth(target);
   const clientId = target.settings.clientid;
   const rootPath = target.settings.rootpath ?? "/proxmox";
   const clientSecret = target.secrets.clientsecret;
@@ -765,6 +786,7 @@ async function probeAzureBlobSpace(target: RuntimeBackupCloudTarget): Promise<Sp
 }
 
 async function probeGoogleDriveSpace(target: RuntimeBackupCloudTarget): Promise<SpaceProbeResult> {
+  target = withEffectiveGoogleOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;
@@ -818,6 +840,7 @@ async function probeGoogleDriveSpace(target: RuntimeBackupCloudTarget): Promise<
 }
 
 async function probeOneDriveSpace(target: RuntimeBackupCloudTarget): Promise<SpaceProbeResult> {
+  target = withEffectiveOneDriveOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;
@@ -1000,6 +1023,7 @@ export async function uploadBackupObjectToCloud(
 }
 
 async function listGoogleDriveObjects(target: RuntimeBackupCloudTarget): Promise<CloudBackupObject[]> {
+  target = withEffectiveGoogleOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;
@@ -1057,6 +1081,7 @@ async function downloadGoogleDriveObject(
   target: RuntimeBackupCloudTarget,
   objectKey: string,
 ): Promise<DownloadedCloudObject> {
+  target = withEffectiveGoogleOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;
@@ -1114,6 +1139,7 @@ async function downloadGoogleDriveObject(
 }
 
 async function listOneDriveObjects(target: RuntimeBackupCloudTarget): Promise<CloudBackupObject[]> {
+  target = withEffectiveOneDriveOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;
@@ -1170,6 +1196,7 @@ async function downloadOneDriveObject(
   target: RuntimeBackupCloudTarget,
   objectKey: string,
 ): Promise<DownloadedCloudObject> {
+  target = withEffectiveOneDriveOauth(target);
   const clientId = target.settings.clientid;
   const clientSecret = target.secrets.clientsecret;
   const refreshToken = target.secrets.refreshtoken;

@@ -29,6 +29,7 @@ type GuestExecStatus = {
 };
 
 type OsFamily = "windows" | "debian" | "linux" | "unknown";
+type ScanMode = "guest-agent" | "manual-shell" | "unsupported";
 
 function asNonEmptyString(value: unknown, maxLength = 80) {
   if (typeof value !== "string") return null;
@@ -207,12 +208,24 @@ function getOsLabel(osInfo: Record<string, unknown>) {
   );
 }
 
+async function scanPackageUpdates(node: string, vmid: number, command: string) {
+  const result = await guestExec(node, vmid, "sh", ["-lc", command]);
+  const raw = (result.stdout || result.stderr || "").trim();
+  if (/UNSUPPORTED/i.test(raw)) return null;
+  return readPendingCount(raw);
+}
+
 async function scanDebianUpdates(node: string, vmid: number) {
-  const command = "sh";
-  const args = [
-    "-lc",
+  return scanPackageUpdates(
+    node,
+    vmid,
     "if command -v apt-get >/dev/null 2>&1; then apt-get update -qq >/dev/null 2>&1 || true; if command -v apt >/dev/null 2>&1; then apt list --upgradable 2>/dev/null | sed '1d' | grep -c '/'; else apt-get -s upgrade 2>/dev/null | awk '/^Inst / {c++} END {print c+0}'; fi; else echo UNSUPPORTED; fi",
-  ];
+  );
+}
+
+async function scanGenericLinuxUpdates(node: string, vmid: number) {
+  const command = "sh";
+  const args = ["-lc", "if command -v dnf >/dev/null 2>&1; then dnf -q check-update 2>/dev/null | awk 'BEGIN{c=0} /^[A-Za-z0-9_.-]+\\./ {c++} END {print c+0}'; elif command -v yum >/dev/null 2>&1; then yum -q check-update 2>/dev/null | awk 'BEGIN{c=0} /^[A-Za-z0-9_.-]+\\./ {c++} END {print c+0}'; elif command -v zypper >/dev/null 2>&1; then zypper --non-interactive list-updates 2>/dev/null | awk 'BEGIN{c=0} /^v / {c++} END {print c+0}'; else echo UNSUPPORTED; fi"];
   const result = await guestExec(node, vmid, command, args);
   const raw = (result.stdout || result.stderr || "").trim();
   if (/UNSUPPORTED/i.test(raw)) return null;
@@ -280,20 +293,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: `Invalid kind: ${kind}` }, { status: 400 });
   }
 
-  if (kind === "lxc") {
-    return NextResponse.json({
-      ok: true,
-      supported: false,
-      osFamily: "linux" satisfies OsFamily,
-      pendingCount: null,
-      checkedAt: new Date().toISOString(),
-      message: "Scan MAJ invité non implémenté pour LXC (VM QEMU uniquement).",
-    });
-  }
-
   try {
     const current = await proxmoxRequest<Record<string, unknown>>(
-      `nodes/${encodeURIComponent(node)}/qemu/${vmid}/status/current`,
+      `nodes/${encodeURIComponent(node)}/${kind}/${vmid}/status/current`,
     );
     const running = asString(current.status) === "running";
     if (!running) {
@@ -302,14 +304,41 @@ export async function POST(request: NextRequest) {
         supported: false,
         osFamily: "unknown" satisfies OsFamily,
         pendingCount: null,
+        scanMode: "unsupported" satisfies ScanMode,
         checkedAt: new Date().toISOString(),
-        message: "VM arrêtée. Démarre la VM pour scanner les mises à jour.",
+        message: `${kind === "lxc" ? "CT" : "VM"} arrêté${kind === "lxc" ? "" : "e"}. Démarre-le pour vérifier les mises à jour.`,
       });
     }
 
-    const osInfoRaw = await proxmoxRequest<Record<string, unknown>>(
-      `nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/get-osinfo`,
-    );
+    if (kind === "lxc") {
+      const config = await proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/lxc/${vmid}/config`);
+      const ostemplate = asString(config.ostemplate);
+      const hostname = asString(config.hostname);
+      const combined = `${ostemplate ?? ""} ${hostname ?? ""}`.toLowerCase();
+      const osFamily = /(debian|ubuntu)/.test(combined)
+        ? ("debian" satisfies OsFamily)
+        : /(alma|rocky|centos|rhel|fedora|suse|opensuse)/.test(combined)
+          ? ("linux" satisfies OsFamily)
+          : ("linux" satisfies OsFamily);
+      const manualCommand =
+        osFamily === "debian"
+          ? "apt update && apt list --upgradable"
+          : "dnf check-update || yum check-update || zypper list-updates";
+
+      return NextResponse.json({
+        ok: true,
+        supported: true,
+        scanMode: "manual-shell" satisfies ScanMode,
+        osFamily,
+        osLabel: ostemplate ?? hostname ?? "Linux container",
+        pendingCount: null,
+        checkedAt: new Date().toISOString(),
+        commands: [manualCommand],
+        message: `CT détecté. Ouvre xtermjs puis lance: ${manualCommand}`,
+      });
+    }
+
+    const osInfoRaw = await proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/get-osinfo`);
     const osFamily = detectOsFamily(osInfoRaw);
     const osLabel = getOsLabel(osInfoRaw);
 
@@ -319,6 +348,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           ok: true,
           supported: false,
+          scanMode: "unsupported" satisfies ScanMode,
           osFamily,
           osLabel,
           pendingCount: null,
@@ -329,6 +359,36 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         supported: true,
+        scanMode: "guest-agent" satisfies ScanMode,
+        osFamily,
+        osLabel,
+        pendingCount,
+        checkedAt: new Date().toISOString(),
+        message:
+          pendingCount > 0
+            ? `${pendingCount} mise(s) à jour disponible(s).`
+            : "Aucune mise à jour disponible.",
+      });
+    }
+
+    if (osFamily === "linux") {
+      const pendingCount = await scanGenericLinuxUpdates(node, vmid);
+      if (pendingCount === null) {
+        return NextResponse.json({
+          ok: true,
+          supported: false,
+          scanMode: "unsupported" satisfies ScanMode,
+          osFamily,
+          osLabel,
+          pendingCount: null,
+          checkedAt: new Date().toISOString(),
+          message: "Gestionnaire de paquets invité non supporté pour le scan automatique.",
+        });
+      }
+      return NextResponse.json({
+        ok: true,
+        supported: true,
+        scanMode: "guest-agent" satisfies ScanMode,
         osFamily,
         osLabel,
         pendingCount,
@@ -346,6 +406,7 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({
           ok: true,
           supported: false,
+          scanMode: "unsupported" satisfies ScanMode,
           osFamily,
           osLabel,
           pendingCount: null,
@@ -356,6 +417,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         supported: true,
+        scanMode: "guest-agent" satisfies ScanMode,
         osFamily,
         osLabel,
         pendingCount,
@@ -370,6 +432,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({
       ok: true,
       supported: false,
+      scanMode: "unsupported" satisfies ScanMode,
       osFamily,
       osLabel,
       pendingCount: null,

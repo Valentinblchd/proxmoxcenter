@@ -543,6 +543,9 @@ export function updateRuntimeAuthUserRole(userId: string, role: RuntimeAuthUserR
   }
 
   const normalizedRole = normalizeRuntimeAuthUserRole(role);
+  if (current.users.length === 1 && normalizedRole !== "admin") {
+    throw new Error("Le compte local unique doit rester admin.");
+  }
   let found = false;
   const now = new Date().toISOString();
   const nextUsers = current.users.map((user) => {
