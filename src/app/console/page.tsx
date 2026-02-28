@@ -1,10 +1,7 @@
 import Link from "next/link";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
-import {
-  buildProxmoxNodeShellUrl,
-  buildProxmoxWorkloadConsoleUrl,
-} from "@/lib/proxmox/console-url";
+import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
 
 export const dynamic = "force-dynamic";
 
@@ -17,8 +14,6 @@ type ConsolePageProps = {
 const TABS = [
   { id: "overview", label: "Vue globale" },
   { id: "nodes", label: "Shell nœuds" },
-  { id: "workloads", label: "Console VM/CT" },
-  { id: "rdp", label: "RDP / prise en main" },
 ] as const;
 
 async function readSearchParams(
@@ -51,7 +46,7 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
       <header className="topbar">
         <div>
           <p className="eyebrow">Console</p>
-          <h1>Console / Shell / Prise en main</h1>
+          <h1>Shell nœuds</h1>
         </div>
         <div className="topbar-meta">
           {proxmox ? (
@@ -105,18 +100,12 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
           </section>
           <section className="panel">
             <div className="panel-head">
-              <h2>Accès rapide</h2>
-              <span className="muted">Actions</span>
+              <h2>Accès workload</h2>
+              <span className="muted">Depuis l’inventaire</span>
             </div>
             <div className="quick-actions">
-              <Link href="/console?tab=nodes" className="action-btn">
-                Shell nœuds
-              </Link>
-              <Link href="/console?tab=workloads" className="action-btn">
-                Console VM/CT
-              </Link>
-              <Link href="/console?tab=rdp" className="action-btn primary">
-                Prise en main RDP
+              <Link href="/inventory" className="action-btn primary">
+                Ouvrir l’inventaire
               </Link>
             </div>
           </section>
@@ -136,93 +125,34 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
               {snapshot.nodes.map((node) => (
                 <article key={node.name} className="mini-list-item">
                   <div>
-                    <div className="item-title">{node.name}</div>
+                    <div className="item-title">
+                      <Link href={`/inventory/node/${encodeURIComponent(node.name)}`} className="mini-list-link">
+                        {node.name}
+                      </Link>
+                    </div>
                     <div className="item-subtitle">Shell xtermjs Proxmox</div>
                   </div>
-                  {proxmox ? (
-                    <a
-                      className="action-btn"
-                      href={buildProxmoxNodeShellUrl({ baseUrl: proxmox.baseUrl, node: node.name })}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Ouvrir shell
-                    </a>
-                  ) : (
-                    <span className="muted">Connexion requise</span>
-                  )}
-                </article>
-              ))}
-            </div>
-          )}
-        </section>
-      ) : null}
-
-      {activeTab === "workloads" ? (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Console VM / CT</h2>
-            <span className="muted">{runningWorkloads.length} workload(s) en marche</span>
-          </div>
-          {runningWorkloads.length === 0 ? (
-            <p className="muted">Aucun workload running détecté.</p>
-          ) : (
-            <div className="mini-list">
-              {runningWorkloads.map((workload) => (
-                <article key={workload.id} className="mini-list-item">
-                  <div>
-                    <div className="item-title">
-                      {workload.name}
-                      <span className="inventory-badge status-running">{workload.kind.toUpperCase()}</span>
-                    </div>
-                    <div className="item-subtitle">
-                      {workload.node} • VMID {workload.vmid}
-                    </div>
+                  <div className="quick-actions">
+                    <Link href={`/inventory/node/${encodeURIComponent(node.name)}`} className="action-btn">
+                      Détails
+                    </Link>
+                    {proxmox ? (
+                      <a
+                        className="action-btn"
+                        href={buildProxmoxNodeShellUrl({ baseUrl: proxmox.baseUrl, node: node.name })}
+                        target="_blank"
+                        rel="noreferrer"
+                      >
+                        Ouvrir shell
+                      </a>
+                    ) : (
+                      <span className="muted">Connexion requise</span>
+                    )}
                   </div>
-                  {proxmox ? (
-                    <a
-                      className="action-btn"
-                      href={buildProxmoxWorkloadConsoleUrl({
-                        baseUrl: proxmox.baseUrl,
-                        node: workload.node,
-                        vmid: workload.vmid,
-                        kind: workload.kind,
-                      })}
-                      target="_blank"
-                      rel="noreferrer"
-                    >
-                      Ouvrir console
-                    </a>
-                  ) : (
-                    <span className="muted">Connexion requise</span>
-                  )}
                 </article>
               ))}
             </div>
           )}
-        </section>
-      ) : null}
-
-      {activeTab === "rdp" ? (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>RDP / prise en main</h2>
-            <span className="muted">Prochaine étape</span>
-          </div>
-          <div className="stack-sm">
-            <div className="row-line">
-              <span>Étape 1</span>
-              <strong>Consoles Proxmox noVNC/xtermjs</strong>
-            </div>
-            <div className="row-line">
-              <span>Étape 2</span>
-              <strong>Passerelle RDP web centralisée</strong>
-            </div>
-            <div className="row-line">
-              <span>Étape 3</span>
-              <strong>RBAC + traçabilité des sessions</strong>
-            </div>
-          </div>
         </section>
       ) : null}
     </section>

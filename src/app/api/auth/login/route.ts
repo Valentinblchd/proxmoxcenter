@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from "next/server";
 import { isLdapSecondaryAuthEnabled, verifyLdapCredentials } from "@/lib/auth/ldap";
 import {
   AUTH_COOKIE_NAME,
+  authenticateLocalCredentials,
   createSessionToken,
   getAuthStatus,
   sanitizeNextPath,
-  verifyLoginCredentials,
+  type AuthMethod,
 } from "@/lib/auth/session";
+import { touchRuntimeAuthUserLastLogin } from "@/lib/auth/runtime-config";
+import { getDefaultSecondaryAuthRole } from "@/lib/auth/rbac";
 import { consumeRateLimit, resetRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
 
@@ -24,8 +27,6 @@ const LOGIN_USER_LIMIT = {
   max: 8,
   blockMs: 20 * 60_000,
 } as const;
-
-type AuthMethod = "local" | "ldap";
 
 function asAuthMethod(value: unknown): AuthMethod {
   if (typeof value !== "string") return "local";
@@ -96,11 +97,23 @@ export async function POST(request: NextRequest) {
     );
   }
 
-  let authenticatedUsername: string | null = null;
+  let authenticatedUser:
+    | {
+        userId: string | null;
+        username: string;
+        role: ReturnType<typeof getDefaultSecondaryAuthRole>;
+        authMethod: AuthMethod;
+      }
+    | null = null;
   if (authMethod === "local") {
-    const localValid = await verifyLoginCredentials(username, password);
-    if (localValid) {
-      authenticatedUsername = username;
+    const localUser = await authenticateLocalCredentials(username, password);
+    if (localUser) {
+      authenticatedUser = {
+        userId: localUser.userId,
+        username: localUser.username,
+        role: localUser.role,
+        authMethod,
+      };
     }
   } else {
     if (!isLdapSecondaryAuthEnabled()) {
@@ -108,17 +121,25 @@ export async function POST(request: NextRequest) {
     }
     const ldapResult = await verifyLdapCredentials(username, password);
     if (ldapResult.ok) {
-      authenticatedUsername = ldapResult.username;
+      authenticatedUser = {
+        userId: null,
+        username: ldapResult.username,
+        role: getDefaultSecondaryAuthRole(),
+        authMethod,
+      };
     }
   }
 
-  if (!authenticatedUsername) {
+  if (!authenticatedUser) {
     return redirectToLogin(request, "invalid", nextPath, authMethod);
   }
 
   resetRateLimit(`login:user:${clientIp}:${authMethod}:${normalizedUser}`);
+  if (authMethod === "local") {
+    touchRuntimeAuthUserLastLogin(authenticatedUser.username);
+  }
 
-  const session = await createSessionToken(authenticatedUsername);
+  const session = await createSessionToken(authenticatedUser);
   const response = new NextResponse(null, {
     status: 303,
     headers: {

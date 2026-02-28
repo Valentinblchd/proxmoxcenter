@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { readCloudTargetsSpaceMetrics, type CloudTargetSpaceMetrics } from "@/lib/backups/cloud-providers";
 import { readLocalBackupStorageMetrics, type LocalBackupStorageMetrics } from "@/lib/backups/local-storage-metrics";
 import {
@@ -23,6 +24,7 @@ import { readRuntimeBackupState } from "@/lib/backups/runtime-state";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -42,6 +44,7 @@ type ConfigBody = {
   target?: unknown;
   targetId?: unknown;
   executionId?: unknown;
+  confirmationText?: unknown;
 };
 
 type PlanInput = {
@@ -402,6 +405,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -462,6 +470,12 @@ export async function POST(request: NextRequest) {
       if (!planId) {
         throw new Error("planId requis.");
       }
+      const plan = config.plans.find((item) => item.id === planId) ?? null;
+      assertStrongConfirmation(
+        body.confirmationText,
+        `DELETE PLAN ${plan?.name ?? planId}`,
+        `Confirmation forte requise. Tape "DELETE PLAN ${plan?.name ?? planId}".`,
+      );
       config.plans = config.plans.filter((item) => item.id !== planId);
     }
 
@@ -478,6 +492,12 @@ export async function POST(request: NextRequest) {
       if (!targetId) {
         throw new Error("targetId requis.");
       }
+      const target = config.cloudTargets.find((item) => item.id === targetId) ?? null;
+      assertStrongConfirmation(
+        body.confirmationText,
+        `DELETE CLOUD TARGET ${target?.name ?? targetId}`,
+        `Confirmation forte requise. Tape "DELETE CLOUD TARGET ${target?.name ?? targetId}".`,
+      );
 
       const usedByPlan = config.plans.some(
         (plan) => plan.targetMode === "cloud" && plan.cloudTargetId === targetId,

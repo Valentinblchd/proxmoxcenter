@@ -1,6 +1,7 @@
 "use client";
 
 import { FormEvent, useCallback, useEffect, useState } from "react";
+import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 
 type BackupWorkloadKind = "qemu" | "lxc";
 type BackupScopeMode = "all" | "selected";
@@ -8,6 +9,7 @@ type BackupTargetMode = "local" | "cloud";
 type BackupCloudProvider = "onedrive" | "gdrive" | "aws-s3" | "azure-blob";
 type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
 type BackupWorkspaceMode = "simple" | "advanced";
+type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
 
 type BackupPlan = {
   id: string;
@@ -146,6 +148,7 @@ type TargetFormState = {
 
 type BackupPlannerPanelProps = {
   initialTab?: BackupWorkspaceTab;
+  canOperate?: boolean;
 };
 
 type CloudOauthMessage = {
@@ -303,6 +306,28 @@ type PbsSnapshotItem = {
   comment: string | null;
   sizeBytes: number | null;
 };
+
+type ConfirmRequest =
+  | {
+      kind: "delete-plan";
+      planId: string;
+      expectedText: string;
+      title: string;
+      message: string;
+    }
+  | {
+      kind: "delete-cloud-target";
+      targetId: string;
+      expectedText: string;
+      title: string;
+      message: string;
+    }
+  | {
+      kind: "restore";
+      expectedText: string;
+      title: string;
+      message: string;
+    };
 
 type PbsFileItem = {
   id: string;
@@ -742,7 +767,10 @@ function getCloudTargetConnectionState(
   };
 }
 
-export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPlannerPanelProps) {
+export default function BackupPlannerPanel({
+  initialTab = "overview",
+  canOperate = true,
+}: BackupPlannerPanelProps) {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -752,6 +780,7 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   const [backupMode, setBackupMode] = useState<BackupWorkspaceMode>(
     initialTab === "plans" || initialTab === "pbs" ? "advanced" : "simple",
   );
+  const [historyFilter, setHistoryFilter] = useState<BackupHistoryFilter>("all");
   const [planForm, setPlanForm] = useState<PlanFormState>(defaultPlanForm);
   const [targetForm, setTargetForm] = useState<TargetFormState>(defaultTargetForm);
   const [restoreForm, setRestoreForm] = useState<RestoreFormState>(defaultRestoreForm);
@@ -788,6 +817,7 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   const [pbsError, setPbsError] = useState<string | null>(null);
   const [pbsNotice, setPbsNotice] = useState<string | null>(null);
   const [pbsLoaded, setPbsLoaded] = useState(false);
+  const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
 
   const loadConfig = useCallback(async function loadConfig() {
     setLoading(true);
@@ -1200,6 +1230,10 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   }, [activeTab, refreshRestoreHistory, restoreJobId]);
 
   async function submitAction(body: Record<string, unknown>, successMessage: string) {
+    if (!canOperate) {
+      setError("Mode lecture: modifications backup bloquées.");
+      return;
+    }
     setBusy(true);
     setError(null);
     setNotice(null);
@@ -1309,17 +1343,14 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   }
 
   async function onDeletePlan(planId: string) {
-    if (!window.confirm("Supprimer ce plan backup ?")) return;
-    await submitAction(
-      {
-        action: "delete-plan",
-        planId,
-      },
-      "Plan backup supprimé.",
-    );
-    if (planForm.id === planId) {
-      resetPlanForm();
-    }
+    const plan = config?.plans.find((item) => item.id === planId) ?? null;
+    setConfirmRequest({
+      kind: "delete-plan",
+      planId,
+      expectedText: `DELETE PLAN ${plan?.name ?? planId}`,
+      title: "Supprimer le plan backup",
+      message: "Cette suppression retire le plan de planification sélectionné.",
+    });
   }
 
   async function onSaveCloudTarget(event: FormEvent<HTMLFormElement>) {
@@ -1349,17 +1380,14 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   }
 
   async function onDeleteCloudTarget(targetId: string) {
-    if (!window.confirm("Supprimer cette cible cloud ?")) return;
-    await submitAction(
-      {
-        action: "delete-cloud-target",
-        targetId,
-      },
-      "Cible cloud supprimée.",
-    );
-    if (targetForm.id === targetId) {
-      resetTargetForm();
-    }
+    const target = config?.cloudTargets.find((item) => item.id === targetId) ?? null;
+    setConfirmRequest({
+      kind: "delete-cloud-target",
+      targetId,
+      expectedText: `DELETE CLOUD TARGET ${target?.name ?? targetId}`,
+      title: "Supprimer la cible cloud",
+      message: "Cette suppression retire la cible cloud et ses secrets stockés localement.",
+    });
   }
 
   async function onRunNow() {
@@ -1379,6 +1407,46 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
       },
       "Annulation du run demandée.",
     );
+  }
+
+  async function confirmPendingAction(confirmationText: string) {
+    if (!confirmRequest) return;
+
+    if (confirmRequest.kind === "delete-plan") {
+      await submitAction(
+        {
+          action: "delete-plan",
+          planId: confirmRequest.planId,
+          confirmationText,
+        },
+        "Plan backup supprimé.",
+      );
+      if (planForm.id === confirmRequest.planId) {
+        resetPlanForm();
+      }
+      setConfirmRequest(null);
+      return;
+    }
+
+    if (confirmRequest.kind === "delete-cloud-target") {
+      await submitAction(
+        {
+          action: "delete-cloud-target",
+          targetId: confirmRequest.targetId,
+          confirmationText,
+        },
+        "Cible cloud supprimée.",
+      );
+      if (targetForm.id === confirmRequest.targetId) {
+        resetTargetForm();
+      }
+      setConfirmRequest(null);
+      return;
+    }
+
+    if (confirmRequest.kind === "restore") {
+      await confirmRestoreFromCloud(confirmationText);
+    }
   }
 
   function openOauthPopup(url: string, popupName: string, onBlocked: () => void, onClosed: () => void) {
@@ -1770,6 +1838,10 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   }
 
   async function onRestoreFromCloud() {
+    if (!canOperate) {
+      setRestoreError("Mode lecture: restauration cloud bloquée.");
+      return;
+    }
     if (!restoreForm.targetId || !restoreForm.objectKey) {
       setRestoreError("Complète cible cloud et objet.");
       return;
@@ -1788,13 +1860,23 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
       return;
     }
 
-    if (
-      !window.confirm(
+    setConfirmRequest({
+      kind: "restore",
+      expectedText:
         restoreForm.destination === "pbs"
-          ? "Importer ce backup cloud directement dans PBS ?"
-          : "Lancer la restauration depuis le backup cloud sélectionné ?",
-      )
-    ) {
+          ? "RESTORE PBS"
+          : `RESTORE ${restoreForm.kind.toUpperCase()} ${restoreForm.vmid}`,
+      title: restoreForm.destination === "pbs" ? "Importer vers PBS" : "Restaurer vers Proxmox",
+      message:
+        restoreForm.destination === "pbs"
+          ? "Cette action injecte le backup cloud dans PBS."
+          : "Cette action lance une restauration Proxmox depuis le backup cloud sélectionné.",
+    });
+  }
+
+  async function confirmRestoreFromCloud(confirmationText: string) {
+    if (!canOperate) {
+      setRestoreError("Mode lecture: restauration cloud bloquée.");
       return;
     }
 
@@ -1820,6 +1902,7 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
           backupStorage: restoreForm.destination === "proxmox" ? restoreForm.backupStorage : null,
           restoreStorage: restoreForm.restoreStorage || null,
           force: restoreForm.force,
+          confirmationText,
         }),
       });
       const payload = (await response.json()) as CloudRestoreResponse;
@@ -1833,11 +1916,13 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
         setRestoreHistory((current) => [payload.job as RestoreJobItem, ...current.filter((item) => item.id !== payload.job?.id)]);
       }
       setRestoreNotice(payload.message || "Restore lancé.");
+      setConfirmRequest(null);
     } catch (restoreActionError) {
       setRestoreError(
         restoreActionError instanceof Error ? restoreActionError.message : "Erreur de restauration.",
       );
     } finally {
+      setConfirmRequest(null);
       setRestoreBusy(false);
     }
   }
@@ -2041,20 +2126,27 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
   const selectedPbsGroup = pbsGroups.find((item) => item.path === pbsSelectedGroup) ?? null;
   const selectedPbsSnapshot = pbsSnapshots.find((item) => item.path === pbsSelectedSnapshot) ?? null;
   const selectedPbsFile = pbsFiles.find((item) => item.archiveName === pbsSelectedArchive) ?? null;
+  const filteredExecutions = executions.filter((execution) => {
+    if (historyFilter === "all") return true;
+    if (historyFilter === "failed") {
+      return execution.status === "failed" || execution.status === "partial";
+    }
+    return execution.status === historyFilter;
+  });
   const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> =
     backupMode === "simple"
       ? [
-          { id: "overview", label: "Accueil backups" },
-          { id: "targets", label: "Configuration" },
+          { id: "overview", label: "Vue" },
+          { id: "targets", label: "Configurer" },
           { id: "history", label: "Historique" },
-          { id: "restore", label: "Restauration" },
+          { id: "restore", label: "Restaurer" },
         ]
       : [
-          { id: "overview", label: "Accueil backups" },
+          { id: "overview", label: "Vue" },
           { id: "plans", label: "Plans" },
-          { id: "targets", label: "Stockages local/cloud" },
+          { id: "targets", label: "Cibles" },
           { id: "history", label: "Historique" },
-          { id: "restore", label: "Restauration cloud" },
+          { id: "restore", label: "Restaurer" },
           ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
         ];
   const showCombinedSetup = backupMode === "simple" && activeTab === "targets";
@@ -2065,7 +2157,7 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
     <section className="backup-planner-shell">
       <section className="panel">
         <div className="panel-head">
-          <h2>Vue sauvegardes</h2>
+          <h2>Sauvegardes</h2>
           <span className="muted">
             {config?.mode === "live" ? "Proxmox live" : "Mode offline"}
           </span>
@@ -2077,14 +2169,14 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
             className={`provision-seg-btn${backupMode === "simple" ? " is-active" : ""}`}
             onClick={() => setBackupMode("simple")}
           >
-            Mode simple
+            Simple
           </button>
           <button
             type="button"
             className={`provision-seg-btn${backupMode === "advanced" ? " is-active" : ""}`}
             onClick={() => setBackupMode("advanced")}
           >
-            Mode avancé
+            Avancé
           </button>
         </div>
 
@@ -2335,9 +2427,11 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
           <button className="action-btn" type="button" onClick={() => void loadConfig()} disabled={busy || loading}>
             Recharger
           </button>
-          <button className="action-btn primary" type="button" onClick={() => void onRunNow()} disabled={busy}>
-            Lancer maintenant
-          </button>
+          {(activeTab === "overview" || activeTab === "history") && canOperate ? (
+            <button className="action-btn primary" type="button" onClick={() => void onRunNow()} disabled={busy}>
+              Lancer maintenant
+            </button>
+          ) : null}
         </div>
 
         {loading ? (
@@ -3235,11 +3329,48 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
         <div className="panel-head">
           <h2>Historique d’exécution</h2>
           <span className="muted">
-            {config?.state?.executions?.length ?? 0} run(s)
+            {filteredExecutions.length} affiché(s) / {executions.length}
           </span>
         </div>
+        <div className="provision-segment">
+          <button
+            type="button"
+            className={`provision-seg-btn${historyFilter === "all" ? " is-active" : ""}`}
+            onClick={() => setHistoryFilter("all")}
+          >
+            Tous
+          </button>
+          <button
+            type="button"
+            className={`provision-seg-btn${historyFilter === "running" ? " is-active" : ""}`}
+            onClick={() => setHistoryFilter("running")}
+          >
+            Running
+          </button>
+          <button
+            type="button"
+            className={`provision-seg-btn${historyFilter === "queued" ? " is-active" : ""}`}
+            onClick={() => setHistoryFilter("queued")}
+          >
+            Queued
+          </button>
+          <button
+            type="button"
+            className={`provision-seg-btn${historyFilter === "failed" ? " is-active" : ""}`}
+            onClick={() => setHistoryFilter("failed")}
+          >
+            Failed
+          </button>
+          <button
+            type="button"
+            className={`provision-seg-btn${historyFilter === "cancelled" ? " is-active" : ""}`}
+            onClick={() => setHistoryFilter("cancelled")}
+          >
+            Cancelled
+          </button>
+        </div>
         <div className="mini-list">
-          {(config?.state?.executions ?? []).slice(0, 15).map((execution) => (
+          {filteredExecutions.slice(0, 15).map((execution) => (
             <article key={execution.id} className="mini-list-item">
               <div>
                 <div className="item-title">
@@ -3277,9 +3408,9 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
               </div>
             </article>
           ))}
-          {(config?.state?.executions ?? []).length === 0 ? (
+          {filteredExecutions.length === 0 ? (
             <div className="hint-box">
-              <p className="muted">Aucune exécution backup pour le moment.</p>
+              <p className="muted">Aucune exécution pour ce filtre.</p>
             </div>
           ) : null}
         </div>
@@ -4111,6 +4242,20 @@ export default function BackupPlannerPanel({ initialTab = "overview" }: BackupPl
           </section>
         </>
       ) : null}
+
+      <StrongConfirmDialog
+        key={confirmRequest ? `${confirmRequest.kind}-${confirmRequest.expectedText}` : "backup-confirm-closed"}
+        open={Boolean(confirmRequest)}
+        title={confirmRequest?.title ?? "Confirmer l’action"}
+        message={confirmRequest?.message ?? ""}
+        expectedText={confirmRequest?.expectedText ?? "CONFIRM"}
+        confirmLabel={confirmRequest?.kind === "restore" ? "Lancer" : "Confirmer"}
+        busy={busy || restoreBusy}
+        onCancel={() => setConfirmRequest(null)}
+        onConfirm={(confirmationText) => {
+          void confirmPendingAction(confirmationText);
+        }}
+      />
     </section>
   );
 }

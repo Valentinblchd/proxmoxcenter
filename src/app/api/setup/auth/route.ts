@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import {
   AUTH_COOKIE_NAME,
   createSessionToken,
@@ -9,12 +10,14 @@ import {
 import { getPasswordPolicyError } from "@/lib/auth/password-policy";
 import {
   deleteRuntimeAuthConfig,
+  normalizeLocalUsernameInput,
   readRuntimeAuthConfig,
   writeRuntimeAuthConfig,
 } from "@/lib/auth/runtime-config";
 import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -30,6 +33,7 @@ type AuthSetupBody = {
   email?: unknown;
   password?: unknown;
   sessionSecret?: unknown;
+  confirmationText?: unknown;
   secureCookie?: unknown;
   sessionTtlSeconds?: unknown;
   autoLogin?: unknown;
@@ -96,7 +100,14 @@ function buildAuthSetupStatus() {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  if (getAuthStatus().active) {
+    const capability = await requireRequestCapability(request, "admin");
+    if (!capability.ok) {
+      return capability.response;
+    }
+  }
+
   return NextResponse.json({
     ok: true,
     ...buildAuthSetupStatus(),
@@ -104,6 +115,13 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  if (getAuthStatus().active) {
+    const capability = await requireRequestCapability(request, "admin");
+    if (!capability.ok) {
+      return capability.response;
+    }
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -131,11 +149,23 @@ export async function POST(request: NextRequest) {
   const email = normalizeEmail(body.email);
   const password = asNonEmptyString(body.password);
   const autoLogin = asBoolean(body.autoLogin, false);
-  const hadRuntimeAuth = Boolean(readRuntimeAuthConfig());
+  const existingRuntimeAuth = readRuntimeAuthConfig();
+  const hadRuntimeAuth = Boolean(existingRuntimeAuth);
 
   if (!username || !password) {
     return NextResponse.json(
       { ok: false, error: "Fields required: username, email, password." },
+      { status: 400 },
+    );
+  }
+
+  const normalizedUsername = normalizeLocalUsernameInput(username);
+  if (!normalizedUsername) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: "Nom d’utilisateur invalide. Utilise 3-64 caractères alphanumériques, ., _ ou -.",
+      },
       { status: 400 },
     );
   }
@@ -159,16 +189,62 @@ export async function POST(request: NextRequest) {
   const passwordHash = await hashPasswordWithSalt(password, passwordSalt);
 
   try {
-    writeRuntimeAuthConfig({
-      enabled: true,
-      username,
-      email,
-      passwordHash,
-      passwordSalt,
-      sessionSecret: asNonEmptyString(body.sessionSecret) ?? randomHex(32),
-      sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, 60 * 60 * 12),
-      secureCookie: asBoolean(body.secureCookie, false),
-    });
+    if (existingRuntimeAuth) {
+      const now = new Date().toISOString();
+      const nextUsers = existingRuntimeAuth.users.map((user) =>
+        user.id === existingRuntimeAuth.primaryUserId
+          ? {
+              ...user,
+              username: normalizedUsername,
+              email,
+              passwordHash,
+              passwordSalt,
+              updatedAt: now,
+            }
+          : user,
+      );
+
+      writeRuntimeAuthConfig({
+        ...existingRuntimeAuth,
+        enabled: true,
+        username: normalizedUsername,
+        email,
+        passwordHash,
+        passwordSalt,
+        users: nextUsers,
+        primaryUserId: existingRuntimeAuth.primaryUserId,
+        sessionSecret: asNonEmptyString(body.sessionSecret) ?? existingRuntimeAuth.sessionSecret,
+        sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, existingRuntimeAuth.sessionTtlSeconds),
+        secureCookie: asBoolean(body.secureCookie, existingRuntimeAuth.secureCookie),
+        updatedAt: now,
+      });
+    } else {
+      writeRuntimeAuthConfig({
+        enabled: true,
+        username: normalizedUsername,
+        email,
+        passwordHash,
+        passwordSalt,
+        users: [
+          {
+            id: "local-admin-bootstrap",
+            username: normalizedUsername,
+            email,
+            passwordHash,
+            passwordSalt,
+            role: "admin",
+            enabled: true,
+            createdAt: new Date().toISOString(),
+            updatedAt: new Date().toISOString(),
+            lastLoginAt: null,
+          },
+        ],
+        primaryUserId: "local-admin-bootstrap",
+        sessionSecret: asNonEmptyString(body.sessionSecret) ?? randomHex(32),
+        sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, 60 * 60 * 12),
+        secureCookie: asBoolean(body.secureCookie, false),
+      });
+    }
   } catch (error) {
     return NextResponse.json(
       {
@@ -187,7 +263,13 @@ export async function POST(request: NextRequest) {
 
   if (autoLogin) {
     try {
-      const session = await createSessionToken(username);
+      const primaryUserId = readRuntimeAuthConfig()?.primaryUserId ?? null;
+      const session = await createSessionToken({
+        userId: primaryUserId,
+        username: normalizedUsername,
+        role: "admin",
+        authMethod: "local",
+      });
       response.cookies.set({
         name: AUTH_COOKIE_NAME,
         value: session.token,
@@ -206,11 +288,39 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
       { ok: false, error: "Forbidden: origine de requête invalide." },
       { status: 403 },
+    );
+  }
+
+  let body: AuthSetupBody = {};
+  try {
+    body = (await request.json()) as AuthSetupBody;
+  } catch {
+    body = {};
+  }
+
+  try {
+    assertStrongConfirmation(
+      body.confirmationText,
+      "DELETE AUTH CONFIG",
+      'Confirmation forte requise. Tape "DELETE AUTH CONFIG".',
+    );
+  } catch (error) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: error instanceof Error ? error.message : "Confirmation invalide.",
+      },
+      { status: 400 },
     );
   }
 

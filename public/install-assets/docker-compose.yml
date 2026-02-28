@@ -5,6 +5,8 @@ services:
     container_name: proxmoxcenter
     ports:
       - "__PROXMOXCENTER_PORT__:3000"
+    environment:
+      PROXMOXCENTER_PUBLIC_ORIGIN: "__PROXMOXCENTER_PUBLIC_ORIGIN__"
     volumes:
       - "__PROXMOXCENTER_DATA_DIR__:/app/data"
     restart: unless-stopped

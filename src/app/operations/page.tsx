@@ -11,10 +11,9 @@ type OperationsPageProps = {
 };
 
 const TABS = [
-  { id: "overview", label: "Vue globale" },
+  { id: "overview", label: "Vue" },
   { id: "alerts", label: "Alertes" },
   { id: "logs", label: "Journaux" },
-  { id: "reports", label: "Rapports" },
 ] as const;
 
 async function readSearchParams(
@@ -47,7 +46,7 @@ export default async function OperationsPage({ searchParams }: OperationsPagePro
       <header className="topbar">
         <div>
           <p className="eyebrow">Opérations</p>
-          <h1>Alertes, Logs, Rapports</h1>
+          <h1>Opérations</h1>
         </div>
         <div className="topbar-meta">
           {live ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
@@ -96,33 +95,22 @@ export default async function OperationsPage({ searchParams }: OperationsPagePro
         <section className="panel">
           <div className="panel-head">
             <h2>{TABS.find((tab) => tab.id === activeTab)?.label}</h2>
+            <span className="muted">{live ? "Flux live" : "Flux offline"}</span>
           </div>
 
           {activeTab === "overview" ? (
             <div className="mini-list">
               {[
-                {
-                  title: "Alertes",
-                  href: "/operations?tab=alerts",
-                },
-                {
-                  title: "Journaux",
-                  href: "/operations?tab=logs",
-                },
-                {
-                  title: "Rapports",
-                  href: "/operations?tab=reports",
-                },
-                {
-                  title: "Sauvegardes",
-                  href: "/backups",
-                },
+                { title: "Alertes actives", href: "/operations?tab=alerts", metric: warningCount },
+                { title: "Journaux", href: "/operations?tab=logs", metric: live ? "live" : "offline" },
+                { title: "Sauvegardes", href: "/backups", metric: "backup" },
+                { title: "Observabilité", href: "/observability", metric: "métriques" },
               ].map((item) => (
                 <Link key={item.href} href={item.href} className="mini-list-item mini-list-link">
                   <div>
                     <div className="item-title">{item.title}</div>
                   </div>
-                  <div className="item-metric">→</div>
+                  <div className="item-metric">{item.metric}</div>
                 </Link>
               ))}
             </div>
@@ -146,8 +134,8 @@ export default async function OperationsPage({ searchParams }: OperationsPagePro
 
         <section className="panel">
           <div className="panel-head">
-            <h2>Pilotage</h2>
-            <span className="muted">Actions</span>
+            <h2>État actuel</h2>
+            <span className="muted">Synthèse</span>
           </div>
           <div className="stack-sm">
             <div className="row-line">

@@ -78,7 +78,7 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
       rationale:
         "Sans authentification active, les pages et actions sensibles sont exposées dès qu’un accès réseau existe.",
       action:
-        "Configurer l’auth UI dans /setup/auth avec un mot de passe fort et un secret de session robuste.",
+        "Configurer le compte local dans Paramètres > Utilisateurs locaux puis ajuster la session dans Paramètres > Session & accès.",
     });
   }
 
@@ -92,7 +92,7 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
       rationale:
         "Le drapeau d’auth est activé mais des variables critiques semblent manquantes.",
       action:
-        "Reconfigurer l’auth dans /setup/auth puis tester la connexion.",
+        "Reconfigurer les comptes locaux et la session dans Paramètres > Utilisateurs locaux et Paramètres > Session & accès.",
     });
   }
 
@@ -106,7 +106,7 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
       rationale:
         "Un token dédié permet de limiter les droits et d’auditer clairement les appels API de ProxCenter.",
       action:
-        "Créer un token API minimal (rôle restreint) puis le renseigner dans /setup/connection.",
+        "Créer un token API minimal (rôle restreint) puis le renseigner dans Paramètres > Connexions.",
     });
   }
 
@@ -120,7 +120,7 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
       rationale:
         "Le mode TLS non sécurisé accepte les certificats non vérifiés et réduit la protection contre les MITM.",
       action:
-        "Désactiver l’option TLS non sécurisé dans /setup/connection et installer un certificat valide (ou CA locale).",
+        "Désactiver l’option TLS non sécurisé dans Paramètres > Connexions et installer un certificat valide (ou CA locale).",
     });
   }
 

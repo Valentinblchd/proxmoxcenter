@@ -1,20 +1,39 @@
-import { readRuntimeAuthConfig } from "@/lib/auth/runtime-config";
+import {
+  findRuntimeAuthUserById,
+  findRuntimeAuthUserByUsername,
+  readRuntimeAuthConfig,
+} from "@/lib/auth/runtime-config";
+import {
+  getDefaultSecondaryAuthRole,
+  normalizeRuntimeAuthUserRole,
+  type RuntimeAuthUserRole,
+} from "@/lib/auth/rbac";
+import { isLdapSecondaryAuthEnabled } from "@/lib/auth/ldap";
 
 export const AUTH_COOKIE_NAME = "proxcenter_session";
+export type AuthMethod = "local" | "ldap";
 
 type AuthResolvedConfig = {
   source: "runtime";
-  username: string;
-  password?: string;
-  passwordHash?: string;
-  passwordSalt?: string;
+  users: Array<{
+    id: string;
+    username: string;
+    passwordHash: string;
+    passwordSalt: string;
+    role: RuntimeAuthUserRole;
+    enabled: boolean;
+  }>;
   sessionSecret: string;
   sessionTtlSeconds: number;
   secureCookie: boolean;
 };
 
 export type AuthSession = {
+  userId: string | null;
   username: string;
+  role: RuntimeAuthUserRole;
+  authMethod: AuthMethod;
+  issuedAt: number;
   expiresAt: number;
 };
 
@@ -24,9 +43,14 @@ function getRuntimeAuthResolvedConfig(): AuthResolvedConfig | null {
 
   return {
     source: "runtime",
-    username: runtime.username,
-    passwordHash: runtime.passwordHash,
-    passwordSalt: runtime.passwordSalt,
+    users: runtime.users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      passwordHash: user.passwordHash,
+      passwordSalt: user.passwordSalt,
+      role: user.role,
+      enabled: user.enabled,
+    })),
     sessionSecret: runtime.sessionSecret,
     sessionTtlSeconds: runtime.sessionTtlSeconds,
     secureCookie: runtime.secureCookie,
@@ -45,14 +69,12 @@ export function getAuthStatus() {
   const runtime = readRuntimeAuthConfig();
   const runtimeActive = Boolean(
     runtime?.enabled &&
-      runtime.username &&
-      runtime.passwordHash &&
-      runtime.passwordSalt &&
+      runtime.users.some((user) => user.enabled && user.passwordHash && user.passwordSalt) &&
       runtime.sessionSecret,
   );
 
   return {
-    enabledFlag: false,
+    enabledFlag: Boolean(runtime?.enabled),
     configured: runtimeActive,
     runtimeConfigured: runtimeActive,
     source: runtimeActive ? ("runtime" as const) : ("none" as const),
@@ -179,40 +201,69 @@ function timingSafeEqualString(a: string, b: string) {
   return mismatch === 0;
 }
 
-export async function verifyLoginCredentials(username: string, password: string) {
+export async function authenticateLocalCredentials(
+  username: string,
+  password: string,
+): Promise<{ userId: string; username: string; role: RuntimeAuthUserRole } | null> {
   const config = getAuthConfig();
-  if (!config) return false;
+  if (!config) return null;
+  const normalized = username.trim().toLowerCase();
+  const user =
+    config.users.find((entry) => entry.enabled && entry.username.toLowerCase() === normalized) ?? null;
+  if (!user) return null;
 
-  if (!timingSafeEqualString(username, config.username)) {
-    return false;
-  }
-
-  const expectedHash = config.passwordHash ?? "";
-  const salt = config.passwordSalt ?? "";
-  if (!expectedHash || !salt) return false;
+  const expectedHash = user.passwordHash;
+  const salt = user.passwordSalt;
+  if (!expectedHash || !salt) return null;
 
   let actualHash: string;
   if (expectedHash.startsWith("pbkdf2-sha256:")) {
     const [, iterationsRaw] = expectedHash.split(":", 3);
     const iterations = Number.parseInt(iterationsRaw ?? "", 10);
-    if (!Number.isInteger(iterations) || iterations < 100_000) return false;
+    if (!Number.isInteger(iterations) || iterations < 100_000) return null;
     const derived = await pbkdf2Sha256Hex(password, salt, iterations);
     actualHash = `pbkdf2-sha256:${iterations}:${derived}`;
   } else {
-    // Backward compatibility for previously stored hashes (single SHA-256 round).
     actualHash = await sha256Hex(`${salt}:${password}`);
   }
-  return timingSafeEqualString(actualHash, expectedHash);
+
+  if (!timingSafeEqualString(actualHash, expectedHash)) {
+    return null;
+  }
+
+  return {
+    userId: user.id,
+    username: user.username,
+    role: user.role,
+  };
 }
 
-export async function createSessionToken(username: string) {
+export async function verifyLoginCredentials(username: string, password: string) {
+  return Boolean(await authenticateLocalCredentials(username, password));
+}
+
+export async function createSessionToken(input: {
+  userId?: string | null;
+  username: string;
+  role: RuntimeAuthUserRole;
+  authMethod: AuthMethod;
+}) {
   const config = getAuthConfig();
   if (!config) {
     throw new Error("Auth is not configured.");
   }
 
-  const expiresAt = Date.now() + config.sessionTtlSeconds * 1000;
-  const payload = JSON.stringify({ u: username, e: expiresAt, v: 1 });
+  const issuedAt = Date.now();
+  const expiresAt = issuedAt + config.sessionTtlSeconds * 1000;
+  const payload = JSON.stringify({
+    i: input.userId ?? null,
+    u: input.username,
+    r: input.role,
+    m: input.authMethod,
+    t: issuedAt,
+    e: expiresAt,
+    v: 2,
+  });
   const encodedPayload = encodeBase64Url(new TextEncoder().encode(payload));
   const signature = await hmacHex(config.sessionSecret, encodedPayload);
 
@@ -237,7 +288,9 @@ export async function verifySessionToken(token: string): Promise<AuthSession | n
   }
 
   const decoded = new TextDecoder().decode(decodeBase64Url(encodedPayload));
-  const payload = safeJsonParse<{ u?: unknown; e?: unknown; v?: unknown }>(decoded);
+  const payload = safeJsonParse<{ i?: unknown; u?: unknown; r?: unknown; m?: unknown; t?: unknown; e?: unknown; v?: unknown }>(
+    decoded,
+  );
 
   if (!payload || typeof payload.u !== "string" || typeof payload.e !== "number") {
     return null;
@@ -247,8 +300,46 @@ export async function verifySessionToken(token: string): Promise<AuthSession | n
     return null;
   }
 
+  const authMethod = payload.m === "ldap" ? "ldap" : "local";
+
+  if (authMethod === "ldap") {
+    if (!isLdapSecondaryAuthEnabled()) {
+      return null;
+    }
+
+    return {
+      userId: null,
+      username: payload.u,
+      role: normalizeRuntimeAuthUserRole(payload.r ?? getDefaultSecondaryAuthRole()),
+      authMethod,
+      issuedAt:
+        typeof payload.t === "number" && Number.isFinite(payload.t) ? payload.t : Date.now(),
+      expiresAt: payload.e,
+    };
+  }
+
+  const existingUser =
+    typeof payload.i === "string" ? findRuntimeAuthUserById(payload.i) : findRuntimeAuthUserByUsername(payload.u);
+  if (!existingUser?.enabled) {
+    return null;
+  }
+
+  if (existingUser.sessionRevokedAt) {
+    const revokedAtMs = Date.parse(existingUser.sessionRevokedAt);
+    const issuedAtMs =
+      typeof payload.t === "number" && Number.isFinite(payload.t) ? payload.t : 0;
+    if (Number.isFinite(revokedAtMs) && issuedAtMs < revokedAtMs) {
+      return null;
+    }
+  }
+
   return {
-    username: payload.u,
+    userId: existingUser.id,
+    username: existingUser.username,
+    role: existingUser.role,
+    authMethod,
+    issuedAt:
+      typeof payload.t === "number" && Number.isFinite(payload.t) ? payload.t : Date.now(),
     expiresAt: payload.e,
   };
 }

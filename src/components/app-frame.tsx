@@ -4,11 +4,14 @@ import { usePathname } from "next/navigation";
 import { Suspense, useState } from "react";
 import AiChatWidget from "@/components/ai-chat-widget";
 import SidebarNav from "@/components/sidebar-nav";
+import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
 
 export default function AppFrame({
   children,
+  sessionRole,
 }: Readonly<{
   children: React.ReactNode;
+  sessionRole: RuntimeAuthUserRole | null;
 }>) {
   const pathname = usePathname();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -22,6 +25,7 @@ export default function AppFrame({
     <div className="app-shell">
       <Suspense fallback={null}>
         <SidebarNav
+          sessionRole={sessionRole}
           mobileOpen={mobileMenuOpen}
           onRequestToggle={() => setMobileMenuOpen((current) => !current)}
           onRequestClose={() => setMobileMenuOpen(false)}
@@ -38,7 +42,7 @@ export default function AppFrame({
       ) : null}
       <>
         {children}
-        <AiChatWidget />
+        <AiChatWidget sessionRole={sessionRole} />
       </>
     </div>
   );

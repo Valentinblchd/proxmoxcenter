@@ -1,3 +1,5 @@
+import { hasRuntimeCapability, type RuntimeAuthUserRole } from "@/lib/auth/rbac";
+
 export type NavItem = {
   id: string;
   label: string;
@@ -43,7 +45,7 @@ export const MAIN_MENU_SECTIONS: NavSection[] = [
       { id: "backups", label: "Sauvegardes", glyph: "BK", href: "/backups" },
       { id: "security", label: "Sécurité", glyph: "SC", href: "/security" },
       { id: "resources", label: "Ressources", glyph: "RC", href: "/resources" },
-      { id: "console", label: "Console / Shell", glyph: "SH", href: "/console" },
+      { id: "console", label: "Shell nœuds", glyph: "SH", href: "/console" },
     ],
   },
 ];
@@ -211,4 +213,26 @@ export function getSectionPage(slug: string): SectionPageConfig | null {
 
 export function getSectionSlugs() {
   return Object.keys(SECTION_PAGES);
+}
+
+function isNavItemAllowed(item: NavItem, role: RuntimeAuthUserRole | null | undefined) {
+  if (item.id === "settings") {
+    return hasRuntimeCapability(role, "admin");
+  }
+  if (item.id === "provision") {
+    return hasRuntimeCapability(role, "operate");
+  }
+  return hasRuntimeCapability(role, "read");
+}
+
+export function filterNavSectionsForRole(
+  sections: NavSection[],
+  role: RuntimeAuthUserRole | null | undefined,
+) {
+  return sections
+    .map((section) => ({
+      ...section,
+      items: section.items.filter((item) => isNavItemAllowed(item, role)),
+    }))
+    .filter((section) => section.items.length > 0);
 }

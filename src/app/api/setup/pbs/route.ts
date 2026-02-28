@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import {
   deleteRuntimePbsConfig,
   normalizeRuntimePbsConfigInput,
@@ -8,6 +9,7 @@ import {
 import { readPbsToolingStatus } from "@/lib/pbs/tooling";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -26,6 +28,7 @@ type RequestBody = {
   secret?: unknown;
   namespace?: unknown;
   fingerprint?: unknown;
+  confirmationText?: unknown;
 };
 
 function asNonEmptyString(value: unknown) {
@@ -73,7 +76,12 @@ function mergeCandidateInput(body: RequestBody) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const tooling = await readPbsToolingStatus();
   return NextResponse.json({
     ok: true,
@@ -82,6 +90,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -141,11 +154,36 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
       { ok: false, error: "Forbidden: origine de requête invalide." },
       { status: 403 },
+    );
+  }
+
+  let body: RequestBody = {};
+  try {
+    body = (await request.json()) as RequestBody;
+  } catch {
+    body = {};
+  }
+
+  try {
+    assertStrongConfirmation(
+      body.confirmationText,
+      "DELETE PBS CONFIG",
+      'Confirmation forte requise. Tape "DELETE PBS CONFIG".',
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Confirmation invalide." },
+      { status: 400 },
     );
   }
 

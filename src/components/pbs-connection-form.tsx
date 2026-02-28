@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 
 type SetupStatusPayload = {
   ok: boolean;
@@ -59,6 +60,7 @@ export default function PbsConnectionForm() {
   const [status, setStatus] = useState<SetupStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<null | "save" | "delete">(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [flash, setFlash] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const repositoryPreview = useMemo(() => buildRepositoryPreview(form), [form]);
@@ -140,12 +142,16 @@ export default function PbsConnectionForm() {
     }
   }
 
-  async function clearRuntimeConfig() {
+  async function clearRuntimeConfig(confirmationText: string) {
     setBusy("delete");
     setFlash(null);
 
     try {
-      const response = await fetch("/api/setup/pbs", { method: "DELETE" });
+      const response = await fetch("/api/setup/pbs", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationText }),
+      });
       const payload = (await response.json()) as SetupStatusPayload;
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Impossible de supprimer la config PBS.");
@@ -153,6 +159,7 @@ export default function PbsConnectionForm() {
 
       setStatus(payload);
       setForm(EMPTY_FORM);
+      setDeleteConfirmOpen(false);
       setFlash({ type: "success", text: "Configuration PBS supprimée." });
 
       startTransition(() => {
@@ -298,7 +305,7 @@ export default function PbsConnectionForm() {
             <button type="button" className="action-btn primary" onClick={() => void save()} disabled={busy !== null}>
               {busy === "save" ? "Enregistrement..." : "Enregistrer PBS"}
             </button>
-            <button type="button" className="action-btn" onClick={() => void clearRuntimeConfig()} disabled={busy !== null}>
+            <button type="button" className="action-btn" onClick={() => setDeleteConfirmOpen(true)} disabled={busy !== null}>
               {busy === "delete" ? "Suppression..." : "Supprimer PBS"}
             </button>
           </div>
@@ -344,6 +351,18 @@ export default function PbsConnectionForm() {
           </div>
         </aside>
       </div>
+
+      <StrongConfirmDialog
+        key={deleteConfirmOpen ? "delete-pbs-open" : "delete-pbs-closed"}
+        open={deleteConfirmOpen}
+        title="Supprimer la connexion PBS"
+        message="Cette action retire la configuration Proxmox Backup Server stockée dans ProxmoxCenter."
+        expectedText="DELETE PBS CONFIG"
+        confirmLabel="Supprimer la configuration"
+        busy={busy === "delete"}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={(confirmationText) => void clearRuntimeConfig(confirmationText)}
+      />
     </section>
   );
 }

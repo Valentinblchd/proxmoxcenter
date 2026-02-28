@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 
 type WorkloadKind = "qemu" | "lxc";
 type WorkloadAction = "start" | "stop" | "shutdown" | "reboot";
@@ -49,6 +50,7 @@ export default function InventoryWorkloadActions({
   const router = useRouter();
   const [busyAction, setBusyAction] = useState<WorkloadAction | null>(null);
   const [hint, setHint] = useState<string>("");
+  const [confirmAction, setConfirmAction] = useState<WorkloadAction | null>(null);
   const disposedRef = useRef(false);
 
   useEffect(() => {
@@ -81,7 +83,7 @@ export default function InventoryWorkloadActions({
     return null;
   }
 
-  async function triggerAction(action: WorkloadAction) {
+  async function triggerAction(action: WorkloadAction, confirmationText?: string) {
     if (!actionable || busyAction) return;
 
     setBusyAction(action);
@@ -91,7 +93,7 @@ export default function InventoryWorkloadActions({
       const response = await fetch("/api/workloads/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node, vmid, kind, action }),
+        body: JSON.stringify({ node, vmid, kind, action, confirmationText }),
       });
 
       const payload = (await response.json().catch(() => ({}))) as ActionResponse;
@@ -147,65 +149,92 @@ export default function InventoryWorkloadActions({
   const disableStop = !actionable || !isRunning || busyAction !== null;
   const disableReboot = !actionable || !isRunning || busyAction !== null;
 
+  function requestAction(action: WorkloadAction) {
+    if (action === "stop" || action === "shutdown") {
+      setConfirmAction(action);
+      return;
+    }
+    void triggerAction(action);
+  }
+
   return (
-    <div className="inventory-action-cluster">
-      {consoleHref ? (
-        <a
-          href={consoleHref}
-          target="_blank"
-          rel="noreferrer"
+    <>
+      <div className="inventory-action-cluster">
+        {consoleHref ? (
+          <a
+            href={consoleHref}
+            target="_blank"
+            rel="noreferrer"
+            className="inventory-inline-icon"
+            title="Ouvrir console distante"
+            aria-label="Console distante"
+          >
+            ⌨
+          </a>
+        ) : null}
+        <button
+          type="button"
           className="inventory-inline-icon"
-          title="Ouvrir console distante"
-          aria-label="Console distante"
+          title="Start"
+          aria-label="Start"
+          disabled={disableStart}
+          onClick={() => requestAction("start")}
         >
-          ⌨
-        </a>
-      ) : null}
-      <button
-        type="button"
-        className="inventory-inline-icon"
-        title="Start"
-        aria-label="Start"
-        disabled={disableStart}
-        onClick={() => triggerAction("start")}
-      >
-        {busyAction === "start" ? "…" : "▶"}
-      </button>
-      <button
-        type="button"
-        className="inventory-inline-icon"
-        title="Stop"
-        aria-label="Stop"
-        disabled={disableStop}
-        onClick={() => triggerAction("stop")}
-      >
-        {busyAction === "stop" ? "…" : "■"}
-      </button>
-      <button
-        type="button"
-        className="inventory-inline-icon"
-        title="Reboot"
-        aria-label="Reboot"
-        disabled={disableReboot}
-        onClick={() => triggerAction("reboot")}
-      >
-        {busyAction === "reboot" ? "…" : "↻"}
-      </button>
-      <button
-        type="button"
-        className="inventory-inline-icon"
-        title="Shutdown propre"
-        aria-label="Shutdown"
-        disabled={disableStop}
-        onClick={() => triggerAction("shutdown")}
-      >
-        {busyAction === "shutdown" ? "…" : "⏻"}
-      </button>
-      {hint ? (
-        <span className="inventory-action-hint" title={hint}>
-          {hint}
-        </span>
-      ) : null}
-    </div>
+          {busyAction === "start" ? "…" : "▶"}
+        </button>
+        <button
+          type="button"
+          className="inventory-inline-icon"
+          title="Stop"
+          aria-label="Stop"
+          disabled={disableStop}
+          onClick={() => requestAction("stop")}
+        >
+          {busyAction === "stop" ? "…" : "■"}
+        </button>
+        <button
+          type="button"
+          className="inventory-inline-icon"
+          title="Reboot"
+          aria-label="Reboot"
+          disabled={disableReboot}
+          onClick={() => requestAction("reboot")}
+        >
+          {busyAction === "reboot" ? "…" : "↻"}
+        </button>
+        <button
+          type="button"
+          className="inventory-inline-icon"
+          title="Shutdown propre"
+          aria-label="Shutdown"
+          disabled={disableStop}
+          onClick={() => requestAction("shutdown")}
+        >
+          {busyAction === "shutdown" ? "…" : "⏻"}
+        </button>
+        {hint ? (
+          <span className="inventory-action-hint" title={hint}>
+            {hint}
+          </span>
+        ) : null}
+      </div>
+
+      <StrongConfirmDialog
+        key={confirmAction ? `workload-${confirmAction}-${vmid}` : `workload-closed-${vmid}`}
+        open={Boolean(confirmAction)}
+        title={confirmAction === "shutdown" ? "Confirmer le shutdown" : "Confirmer le stop"}
+        message={`Action sensible sur ${kind.toUpperCase()} #${vmid} (${node}).`}
+        expectedText={confirmAction ? `${confirmAction.toUpperCase()} ${vmid}` : `STOP ${vmid}`}
+        confirmLabel={confirmAction === "shutdown" ? "Shutdown" : "Stop"}
+        busy={Boolean(confirmAction && busyAction === confirmAction)}
+        onCancel={() => setConfirmAction(null)}
+        onConfirm={(confirmationText) => {
+          if (!confirmAction) return;
+          const action = confirmAction;
+          setConfirmAction(null);
+          void triggerAction(action, confirmationText);
+        }}
+      />
+    </>
   );
 }

@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { issueOneDriveOauthState } from "@/lib/backups/onedrive-oauth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
-import { getClientIp, getTrustedOriginForRequest } from "@/lib/security/request-guards";
+import {
+  ensureTrustedNavigationRequest,
+  getClientIp,
+  getTrustedOriginForRequest,
+} from "@/lib/security/request-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -29,6 +33,14 @@ function normalizeAuthority(value: string | null) {
 }
 
 export async function GET(request: NextRequest) {
+  const originCheck = ensureTrustedNavigationRequest(request);
+  if (!originCheck.ok) {
+    return NextResponse.json(
+      { ok: false, error: "Forbidden: origine de requête invalide." },
+      { status: 403 },
+    );
+  }
+
   const gate = consumeRateLimit(`backup:onedrive:start:${getClientIp(request)}`, OAUTH_START_LIMIT);
   if (!gate.ok) {
     return NextResponse.json(

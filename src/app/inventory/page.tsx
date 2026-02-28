@@ -1,8 +1,10 @@
 import type { Metadata } from "next";
+import { cookies } from "next/headers";
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
-import InventoryUpdateStatus from "@/components/inventory-update-status";
 import InventoryWorkloadActions from "@/components/inventory-workload-actions";
+import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { buildProxmoxWorkloadConsoleUrl } from "@/lib/proxmox/console-url";
@@ -39,11 +41,6 @@ type InventoryTab = {
   href?: string;
 };
 
-type DetailTab = {
-  id: "summary" | "hardware" | "network" | "replication" | "snapshots";
-  label: string;
-};
-
 const INVENTORY_TABS: InventoryTab[] = [
   { id: "summary", label: "Summary" },
   { id: "nodes", label: "Nodes" },
@@ -58,14 +55,6 @@ const INVENTORY_TABS: InventoryTab[] = [
   { id: "rolling-update", label: "Rolling Update" },
   { id: "cve", label: "CVE" },
   { id: "cluster", label: "Cluster" },
-];
-
-const DETAIL_TABS: DetailTab[] = [
-  { id: "summary", label: "Summary" },
-  { id: "hardware", label: "Hardware" },
-  { id: "network", label: "Network" },
-  { id: "replication", label: "Replication" },
-  { id: "snapshots", label: "Snapshots" },
 ];
 
 function firstParam(value: string | string[] | undefined) {
@@ -84,6 +73,15 @@ async function readSearchParams(searchParams: InventorySearchParams | undefined)
 function clamp01(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(value, 1));
+}
+
+function buildWorkloadPageHref(type: InventoryRow["type"], vmid: number) {
+  const kind = type === "vm" ? "qemu" : "lxc";
+  return `/inventory/${kind}/${vmid}`;
+}
+
+function buildNodePageHref(node: string) {
+  return `/inventory/node/${encodeURIComponent(node)}`;
 }
 
 function buildInventoryRows(
@@ -173,23 +171,22 @@ export const dynamic = "force-dynamic";
 export default async function InventoryPage({ searchParams }: InventoryPageProps) {
   const params = await readSearchParams(searchParams);
   const snapshot = await getDashboardSnapshot();
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const canOperate = hasRuntimeCapability(session?.role, "operate");
   const proxmox = getProxmoxConfig();
   const hasLiveData = snapshot.mode === "live";
   const allRows = buildInventoryRows(snapshot);
 
   const query = firstParam(params.q).trim();
   const nodeFilter = firstParam(params.node).trim();
-  const selectedParam = firstParam(params.selected).trim();
   const requestedView = firstParam(params.view).trim().toLowerCase();
   const viewMode = requestedView === "compact" ? "compact" : "table";
   const requestedTab = firstParam(params.tab).trim().toLowerCase();
-  const requestedDetail = firstParam(params.detail).trim().toLowerCase();
   const activeTab = INVENTORY_TABS.some((tab) => tab.id === requestedTab)
     ? requestedTab
     : "virtual-machines";
-  const activeDetail = DETAIL_TABS.some((tab) => tab.id === requestedDetail)
-    ? (requestedDetail as DetailTab["id"])
-    : "summary";
 
   const rows = allRows.filter((row) => {
     if (nodeFilter && row.node !== nodeFilter) return false;
@@ -205,47 +202,27 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
     return acc;
   }, {});
 
-  const runningRows = rows.filter((row) => row.status === "running");
   const totalMemory = rows.reduce((sum, row) => sum + row.memoryTotal, 0);
   const usedMemory = rows.reduce((sum, row) => sum + row.memoryUsed, 0);
   const totalStorage = rows.reduce((sum, row) => sum + row.diskTotal, 0);
   const usedStorage = rows.reduce((sum, row) => sum + row.diskUsed, 0);
-  const avgCpu = rows.length > 0 ? rows.reduce((sum, row) => sum + row.cpuLoad, 0) / rows.length : 0;
-  const avgMem =
-    rows.length > 0
-      ? rows.reduce((sum, row) => sum + (row.memoryTotal > 0 ? row.memoryUsed / row.memoryTotal : 0), 0) /
-        rows.length
-      : 0;
-  const storageRatio = totalStorage > 0 ? usedStorage / totalStorage : 0;
-
-  const selected =
-    rows.find((row) => row.id === selectedParam) ??
-    rows.find((row) => row.status === "running") ??
-    rows[0] ??
-    allRows[0];
 
   function buildInventoryHref(overrides: {
     tab?: string;
     view?: "table" | "compact";
-    selected?: string | null;
     node?: string | null;
     q?: string | null;
-    detail?: DetailTab["id"];
   }) {
     const next = new URLSearchParams();
     const nextTab = overrides.tab ?? activeTab;
     const nextView = overrides.view ?? viewMode;
-    const nextSelected = overrides.selected === undefined ? selected?.id ?? "" : overrides.selected ?? "";
     const nextNode = overrides.node === undefined ? nodeFilter : overrides.node ?? "";
     const nextQuery = overrides.q === undefined ? query : overrides.q ?? "";
-    const nextDetail = overrides.detail ?? activeDetail;
 
     if (nextTab && nextTab !== "virtual-machines") next.set("tab", nextTab);
     if (nextView === "compact") next.set("view", "compact");
-    if (nextSelected) next.set("selected", nextSelected);
     if (nextNode) next.set("node", nextNode);
     if (nextQuery) next.set("q", nextQuery);
-    if (nextDetail !== "summary") next.set("detail", nextDetail);
 
     const search = next.toString();
     return search ? `/inventory?${search}` : "/inventory";
@@ -264,7 +241,6 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
             <input type="hidden" name="tab" value={activeTab} />
             <input type="hidden" name="view" value={viewMode} />
             {nodeFilter ? <input type="hidden" name="node" value={nodeFilter} /> : null}
-            {selected?.id ? <input type="hidden" name="selected" value={selected.id} /> : null}
             <input
               type="search"
               className="inventory-search"
@@ -298,7 +274,6 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
               <input type="hidden" name="tab" value={activeTab} />
               <input type="hidden" name="view" value={viewMode} />
               {nodeFilter ? <input type="hidden" name="node" value={nodeFilter} /> : null}
-              {selected?.id ? <input type="hidden" name="selected" value={selected.id} /> : null}
               <input
                 type="search"
                 className="inventory-explorer-search"
@@ -345,9 +320,9 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                           return (
                             <div key={nodeName} className="tree-branch">
                               <Link
-                                href={buildInventoryHref({ node: nodeName, selected: nodeRows[0]?.id ?? null })}
-                                className={`tree-node node${nodeFilter === nodeName ? " is-selected" : ""}`}
-                                title={`Filtrer sur ${nodeName}`}
+                                href={buildNodePageHref(nodeName)}
+                                className="tree-node node"
+                                title={`Ouvrir ${nodeName}`}
                               >
                                 <span className="tree-bullet" />
                                 <span className="tree-node-name">{nodeName}</span>
@@ -357,8 +332,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                                 {nodeRows.slice(0, 6).map((row, index) => (
                                   <Link
                                     key={`${nodeName}-${row.id}-${index}`}
-                                    href={buildInventoryHref({ selected: row.id })}
-                                    className={`tree-node leaf${selected?.id === row.id ? " is-selected" : ""}`}
+                                    href={buildWorkloadPageHref(row.type, row.vmid)}
+                                    className="tree-node leaf"
                                     title={`${row.name} #${row.vmid}`}
                                   >
                                     <span className="tree-status-dot" data-status={row.status} />
@@ -480,15 +455,16 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                     </tr>
                   ) : rows.map((row) => {
                     const ramRatio = row.memoryTotal > 0 ? row.memoryUsed / row.memoryTotal : 0;
-                    const isSelected = selected?.id === row.id;
 
                     return (
-                      <tr
-                        id={`inv-row-${row.id.replaceAll("/", "-")}`}
-                        key={row.id}
-                        className={isSelected ? "is-selected" : ""}
-                      >
+                      <tr id={`inv-row-${row.id.replaceAll("/", "-")}`} key={row.id} className="inventory-row-clickable">
                         <td>
+                          <Link
+                            href={buildWorkloadPageHref(row.type, row.vmid)}
+                            className="inventory-row-overlay-link"
+                            tabIndex={-1}
+                            aria-hidden="true"
+                          />
                           <button type="button" className="inventory-inline-icon" aria-label="Favorite">
                             ☆
                           </button>
@@ -500,7 +476,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                             </span>
                             <div>
                               <Link
-                                href={buildInventoryHref({ selected: row.id })}
+                                href={buildWorkloadPageHref(row.type, row.vmid)}
                                 className="inventory-name-line inventory-row-link"
                                 title={`Ouvrir ${row.name} #${row.vmid}`}
                               >
@@ -525,7 +501,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                           </span>
                         </td>
                         <td>
-                          <Link href={buildInventoryHref({ node: row.node, selected: row.id })} className="inventory-cell-link">
+                          <Link href={buildNodePageHref(row.node)} className="inventory-cell-link">
                             {row.node}
                           </Link>
                         </td>
@@ -580,17 +556,15 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                               vmid={row.vmid}
                               kind={row.type === "vm" ? "qemu" : "lxc"}
                               status={row.status}
-                              actionable={row.actionable}
-                              consoleHref={
-                                proxmox
-                                  ? buildProxmoxWorkloadConsoleUrl({
-                                      baseUrl: proxmox.baseUrl,
-                                      node: row.node,
-                                      vmid: row.vmid,
-                                      kind: row.type === "vm" ? "qemu" : "lxc",
-                                    })
-                                  : null
-                              }
+                              actionable={row.actionable && canOperate}
+                              consoleHref={proxmox
+                                ? buildProxmoxWorkloadConsoleUrl({
+                                    baseUrl: proxmox.baseUrl,
+                                    node: row.node,
+                                    vmid: row.vmid,
+                                    kind: row.type === "vm" ? "qemu" : "lxc",
+                                  })
+                                : null}
                             />
                           )}
                         </td>
@@ -607,199 +581,6 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
               </span>
               <span className="muted">{rows.length} workloads listés</span>
             </div>
-          </section>
-
-          <section className="inventory-detail-grid">
-            <section className="panel inventory-detail-panel">
-              <div className="inventory-detail-head">
-                <div>
-                  <h2>{selected?.name ?? "Selected instance"}</h2>
-                  <p className="muted">
-                    {selected?.node ?? "—"} • {selected?.status ?? "unknown"} •{" "}
-                    {selected ? `${selected.type.toUpperCase()} #${selected.vmid}` : "—"}
-                  </p>
-                </div>
-                <span className={`inventory-badge status-${selected?.status ?? "stopped"}`}>
-                  {selected?.status ?? "unknown"}
-                </span>
-              </div>
-
-              <div className="inventory-detail-stats">
-                <div className="inventory-metric-card">
-                  <span className="muted">CPU Used</span>
-                  <strong>{selected ? formatPercent(selected.cpuLoad) : "—"}</strong>
-                </div>
-                <div className="inventory-metric-card">
-                  <span className="muted">Memory</span>
-                  <strong>
-                    {selected
-                      ? `${formatBytes(selected.memoryUsed)} / ${formatBytes(selected.memoryTotal)}`
-                      : "—"}
-                  </strong>
-                </div>
-                <div className="inventory-metric-card">
-                  <span className="muted">Disk</span>
-                  <strong>
-                    {selected
-                      ? selected.diskTotal > 0
-                        ? `${formatBytes(selected.diskUsed)} / ${formatBytes(selected.diskTotal)}`
-                        : "—"
-                      : "—"}
-                  </strong>
-                </div>
-                <div className="inventory-metric-card">
-                  <span className="muted">Uptime</span>
-                  <strong>{selected?.uptimeSeconds ? formatUptime(selected.uptimeSeconds) : "-"}</strong>
-                </div>
-              </div>
-
-              <InventoryUpdateStatus
-                live={hasLiveData}
-                node={selected?.node}
-                vmid={selected?.vmid}
-                kind={selected ? (selected.type === "vm" ? "qemu" : selected.type === "ct" ? "lxc" : undefined) : undefined}
-                status={selected?.status}
-              />
-
-              <div className="inventory-subtabs">
-                {DETAIL_TABS.map((tab) => (
-                  <Link
-                    key={tab.id}
-                    href={buildInventoryHref({ detail: tab.id })}
-                    className={`inventory-subtab${activeDetail === tab.id ? " is-active" : ""}`}
-                  >
-                    {tab.label}
-                  </Link>
-                ))}
-              </div>
-
-              {activeDetail === "summary" ? (
-                <div className="inventory-dual-bars">
-                  <UsageBar
-                    label="Selected VM RAM"
-                    used={selected?.memoryUsed ?? 0}
-                    total={selected?.memoryTotal ?? 1}
-                  />
-                  <UsageBar
-                    label="Selected VM Disk"
-                    used={selected?.diskUsed ?? 0}
-                    total={selected?.diskTotal ?? 1}
-                    tone="green"
-                  />
-                </div>
-              ) : null}
-
-              {activeDetail === "hardware" ? (
-                <div className="mini-list">
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">vCPU</div>
-                      <div className="item-subtitle">Charge instantanée</div>
-                    </div>
-                    <div className="item-metric">{selected ? formatPercent(selected.cpuLoad) : "—"}</div>
-                  </article>
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">RAM</div>
-                      <div className="item-subtitle">Allouée / utilisée</div>
-                    </div>
-                    <div className="item-metric">
-                      {selected
-                        ? `${formatBytes(selected.memoryUsed)} / ${formatBytes(selected.memoryTotal)}`
-                        : "—"}
-                    </div>
-                  </article>
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">Disk</div>
-                      <div className="item-subtitle">Capacité principale</div>
-                    </div>
-                    <div className="item-metric">
-                      {selected
-                        ? selected.diskTotal > 0
-                          ? `${formatBytes(selected.diskUsed)} / ${formatBytes(selected.diskTotal)}`
-                          : "—"
-                        : "—"}
-                    </div>
-                  </article>
-                </div>
-              ) : null}
-
-              {activeDetail === "network" ? (
-                <div className="mini-list">
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">Nœud</div>
-                      <div className="item-subtitle">Hôte de la workload</div>
-                    </div>
-                    <div className="item-metric">{selected?.node ?? "—"}</div>
-                  </article>
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">Type</div>
-                      <div className="item-subtitle">QEMU / LXC</div>
-                    </div>
-                    <div className="item-metric">{selected?.type.toUpperCase() ?? "—"}</div>
-                  </article>
-                  <article className="mini-list-item">
-                    <div>
-                      <div className="item-title">Bridge</div>
-                      <div className="item-subtitle">Non remonté dans ce flux</div>
-                    </div>
-                    <div className="item-metric">—</div>
-                  </article>
-                </div>
-              ) : null}
-
-              {activeDetail === "replication" ? (
-                <div className="hint-box">
-                  <p className="muted">Réplication non disponible dans cette vue.</p>
-                </div>
-              ) : null}
-
-              {activeDetail === "snapshots" ? (
-                <div className="hint-box">
-                  <p className="muted">Snapshots non disponibles dans cette vue.</p>
-                </div>
-              ) : null}
-            </section>
-
-            <section className="panel inventory-chart-panel">
-              <div className="panel-head">
-                <h2>Aperçu capacité</h2>
-                <span className="muted">{hasLiveData ? "Live" : "Hors ligne"}</span>
-              </div>
-              <div className="mini-list">
-                <article className="mini-list-item">
-                  <div>
-                    <div className="item-title">CPU moyen</div>
-                    <div className="item-subtitle">Sur les workloads filtrés</div>
-                  </div>
-                  <div className="item-metric">{rows.length > 0 ? formatPercent(avgCpu) : "—"}</div>
-                </article>
-                <article className="mini-list-item">
-                  <div>
-                    <div className="item-title">RAM moyenne</div>
-                    <div className="item-subtitle">Ratio mémoire utilisé / alloué</div>
-                  </div>
-                  <div className="item-metric">{rows.length > 0 ? formatPercent(avgMem) : "—"}</div>
-                </article>
-                <article className="mini-list-item">
-                  <div>
-                    <div className="item-title">Stockage utilisé</div>
-                    <div className="item-subtitle">{formatBytes(usedStorage)} sur {formatBytes(totalStorage)}</div>
-                  </div>
-                  <div className="item-metric">{totalStorage > 0 ? formatPercent(storageRatio) : "—"}</div>
-                </article>
-                <article className="mini-list-item">
-                  <div>
-                    <div className="item-title">Workloads actifs</div>
-                    <div className="item-subtitle">État running</div>
-                  </div>
-                  <div className="item-metric">{runningRows.length}</div>
-                </article>
-              </div>
-            </section>
           </section>
         </div>
       </section>

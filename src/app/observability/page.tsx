@@ -12,11 +12,10 @@ type ObservabilityPageProps = {
 };
 
 const TABS = [
-  { id: "overview", label: "Vue globale" },
+  { id: "overview", label: "Vue" },
   { id: "health", label: "Santé" },
-  { id: "monitoring", label: "Monitoring" },
   { id: "greenit", label: "GreenIT" },
-  { id: "ai", label: "Reco IA" },
+  { id: "ai", label: "Recommandations" },
 ] as const;
 
 async function readSearchParams(
@@ -61,7 +60,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       <header className="topbar">
         <div>
           <p className="eyebrow">Observabilité</p>
-          <h1>Santé, Monitoring, GreenIT, Recommandations</h1>
+          <h1>Observabilité</h1>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
@@ -113,7 +112,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <span className="muted">Vue unifiée</span>
           </div>
 
-          {(activeTab === "overview" || activeTab === "health" || activeTab === "monitoring") ? (
+          {(activeTab === "overview" || activeTab === "health") ? (
             <div className="mini-list">
               {snapshot.nodes.map((node) => (
                 <article key={node.name} className="mini-list-item">
@@ -182,8 +181,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
         <section className="panel">
           <div className="panel-head">
-            <h2>Contrôles</h2>
-            <span className="muted">Pilotage</span>
+            <h2>État</h2>
+            <span className="muted">Synthèse</span>
           </div>
           <div className="stack-sm">
             <div className="row-line">

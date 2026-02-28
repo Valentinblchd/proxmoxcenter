@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -234,6 +235,11 @@ async function scanWindowsUpdates(node: string, vmid: number) {
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json({ ok: false, error: "Forbidden", details: originCheck.reason }, { status: 403 });

@@ -320,7 +320,10 @@ export function writeRuntimeBackupConfig(config: RuntimeBackupConfig) {
     cloudTargets: normalizedCloudTargets.map((target) => serializeCloudTarget(target)),
   };
 
-  fs.writeFileSync(filePath, `${JSON.stringify(serialized, null, 2)}\n`, "utf8");
+  fs.writeFileSync(filePath, `${JSON.stringify(serialized, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return {
     plans: normalizedPlans,
     cloudTargets: normalizedCloudTargets,

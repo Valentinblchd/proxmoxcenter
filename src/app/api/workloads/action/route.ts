@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -20,6 +22,7 @@ type ActionBody = {
   vmid?: unknown;
   kind?: unknown;
   action?: unknown;
+  confirmationText?: unknown;
 };
 
 function asNonEmptyString(value: unknown, maxLength = 80) {
@@ -39,6 +42,11 @@ function asInt(value: unknown) {
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -92,6 +100,25 @@ export async function POST(request: NextRequest) {
       { error: `Invalid action: ${action}` },
       { status: 400 },
     );
+  }
+
+  if (action === "stop" || action === "shutdown") {
+    const expectedText = `${action.toUpperCase()} ${vmid}`;
+    try {
+      assertStrongConfirmation(
+        body.confirmationText,
+        expectedText,
+        `Confirmation forte requise. Tape "${expectedText}".`,
+      );
+    } catch (error) {
+      return NextResponse.json(
+        {
+          ok: false,
+          error: error instanceof Error ? error.message : "Confirmation invalide.",
+        },
+        { status: 400 },
+      );
+    }
   }
 
   try {

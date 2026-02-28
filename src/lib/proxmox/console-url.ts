@@ -15,13 +15,46 @@ export function buildProxmoxWorkloadConsoleUrl(options: {
   const params = new URLSearchParams();
   params.set("node", options.node);
   params.set("vmid", String(options.vmid));
-  if (options.kind === "qemu") {
-    params.set("console", "kvm");
-    params.set("novnc", "1");
-  } else {
-    params.set("console", "lxc");
-    params.set("xtermjs", "1");
-  }
+  params.set("console", options.kind === "qemu" ? "kvm" : "lxc");
+  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+}
+
+export function buildProxmoxWorkloadNoVncUrl(options: {
+  baseUrl: string;
+  node: string;
+  vmid: number;
+}) {
+  const params = new URLSearchParams();
+  params.set("node", options.node);
+  params.set("vmid", String(options.vmid));
+  params.set("console", "kvm");
+  params.set("novnc", "1");
+  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+}
+
+export function buildProxmoxWorkloadSpiceUrl(options: {
+  baseUrl: string;
+  node: string;
+  vmid: number;
+}) {
+  const params = new URLSearchParams();
+  params.set("node", options.node);
+  params.set("vmid", String(options.vmid));
+  params.set("console", "kvm");
+  params.set("spice", "1");
+  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+}
+
+export function buildProxmoxWorkloadXtermUrl(options: {
+  baseUrl: string;
+  node: string;
+  vmid: number;
+}) {
+  const params = new URLSearchParams();
+  params.set("node", options.node);
+  params.set("vmid", String(options.vmid));
+  params.set("console", "lxc");
+  params.set("xtermjs", "1");
   return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
 }
 
@@ -33,4 +66,3 @@ export function buildProxmoxNodeShellUrl(options: { baseUrl: string; node: strin
   });
   return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
 }
-

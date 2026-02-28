@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
+import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 
 type SetupStatusPayload = {
   ok: boolean;
@@ -111,6 +112,7 @@ export default function ProxmoxConnectionForm() {
   const [status, setStatus] = useState<SetupStatusPayload | null>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState<null | "test" | "save" | "save-skip" | "delete">(null);
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [flash, setFlash] = useState<{ type: "success" | "error"; text: string } | null>(null);
 
   const baseUrlPreview = useMemo(() => buildBaseUrlPreview(form), [form]);
@@ -241,18 +243,23 @@ export default function ProxmoxConnectionForm() {
     }
   }
 
-  async function clearRuntimeConfig() {
+  async function clearRuntimeConfig(confirmationText: string) {
     setBusy("delete");
     setFlash(null);
 
     try {
-      const response = await fetch("/api/setup/proxmox", { method: "DELETE" });
+      const response = await fetch("/api/setup/proxmox", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ confirmationText }),
+      });
       const payload = (await response.json()) as SetupStatusPayload;
       if (!response.ok || !payload.ok) {
         throw new Error(payload.error || "Impossible de supprimer la config.");
       }
 
       setStatus(payload);
+      setDeleteConfirmOpen(false);
       setFlash({ type: "success", text: "Configuration UI supprimée." });
       if (payload.effective == null) {
         setForm(EMPTY_FORM);
@@ -634,13 +641,25 @@ export default function ProxmoxConnectionForm() {
               type="button"
               className="action-btn"
               disabled={busy !== null}
-              onClick={() => void clearRuntimeConfig()}
+              onClick={() => setDeleteConfirmOpen(true)}
             >
               {busy === "delete" ? "Suppression..." : "Supprimer config UI"}
             </button>
           </div>
         </div>
       </div>
+
+      <StrongConfirmDialog
+        key={deleteConfirmOpen ? "delete-proxmox-open" : "delete-proxmox-closed"}
+        open={deleteConfirmOpen}
+        title="Supprimer la connexion Proxmox"
+        message="Cette action retire l’URL, le token API et les paramètres LDAP secondaires stockés dans ProxmoxCenter."
+        expectedText="DELETE PROXMOX CONFIG"
+        confirmLabel="Supprimer la configuration"
+        busy={busy === "delete"}
+        onCancel={() => setDeleteConfirmOpen(false)}
+        onConfirm={(confirmationText) => void clearRuntimeConfig(confirmationText)}
+      />
     </section>
   );
 }

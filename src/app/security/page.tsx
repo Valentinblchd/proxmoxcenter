@@ -38,7 +38,6 @@ type SecurityPageProps = {
 const TABS = [
   { id: "overview", label: "Vue globale" },
   { id: "recommendations", label: "Recommandations" },
-  { id: "actions", label: "Actions immédiates" },
 ] as const;
 
 async function readSearchParams(
@@ -165,37 +164,17 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
               <span className="muted">Sans interruption</span>
             </div>
             <div className="quick-actions">
-              <Link href="/settings?tab=security" className="action-btn primary">
-                Durcir le compte
+              <Link href="/settings?tab=access" className="action-btn primary">
+                Session et accès
               </Link>
-              <Link href="/settings?tab=connection" className="action-btn">
-                Vérifier le token API
+              <Link href="/settings?tab=connections" className="action-btn">
+                Vérifier Proxmox
               </Link>
               <Link href="/operations?tab=logs" className="action-btn">
                 Contrôler les logs
               </Link>
             </div>
           </section>
-        </section>
-      ) : null}
-
-      {activeTab === "actions" ? (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Actions immédiates</h2>
-            <span className="muted">Sans interruption</span>
-          </div>
-          <div className="quick-actions">
-            <Link href="/settings?tab=security" className="action-btn primary">
-              Durcir le compte
-            </Link>
-            <Link href="/settings?tab=connection" className="action-btn">
-              Vérifier le token API
-            </Link>
-            <Link href="/operations?tab=logs" className="action-btn">
-              Contrôler les logs
-            </Link>
-          </div>
         </section>
       ) : null}
 

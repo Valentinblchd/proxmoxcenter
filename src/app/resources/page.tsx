@@ -52,10 +52,9 @@ type ResourcesPageProps = {
 };
 
 const TABS = [
-  { id: "overview", label: "Vue globale" },
+  { id: "overview", label: "Vue" },
   { id: "recommendations", label: "Recommandations" },
   { id: "nodes", label: "Par nœud" },
-  { id: "settings", label: "Paramètres calcul" },
 ] as const;
 
 async function readSearchParams(
@@ -92,12 +91,11 @@ export default async function ResourcesPage({ searchParams }: ResourcesPageProps
     <section className="content">
       <header className="topbar">
         <div>
-          <p className="eyebrow">Resources / GreenIT</p>
-          <h1>Capacité et efficacité énergétique</h1>
+          <p className="eyebrow">Ressources</p>
+          <h1>Capacité & GreenIT</h1>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="pill">IA locale (heuristique)</span>
           <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
@@ -276,11 +274,11 @@ export default async function ResourcesPage({ searchParams }: ResourcesPageProps
         ) : null}
       </section>
 
-      {activeTab === "settings" || activeTab === "overview" ? (
+      {activeTab === "overview" ? (
       <section className="panel">
         <div className="panel-head">
-          <h2>Paramètres de calcul</h2>
-          <span className="muted">Config interne</span>
+          <h2>Hypothèses GreenIT</h2>
+          <span className="muted">Calcul</span>
         </div>
 
         <div className="mini-list">

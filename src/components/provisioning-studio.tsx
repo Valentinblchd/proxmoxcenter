@@ -2,6 +2,7 @@
 
 import { startTransition, useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
+import StrongConfirmDialog from "@/components/strong-confirm-dialog";
 import {
   applyPresetToDraft,
   coerceProvisionKind,
@@ -158,6 +159,21 @@ function SelectInput({
   );
 }
 
+function isIsoUrlCandidate(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return false;
+  try {
+    const parsed = new URL(normalized);
+    return (
+      parsed.protocol === "https:" &&
+      !parsed.search &&
+      decodeURIComponent(parsed.pathname).toLowerCase().endsWith(".iso")
+    );
+  } catch {
+    return false;
+  }
+}
+
 export default function ProvisioningStudio({
   initialKind,
   initialPreset,
@@ -176,6 +192,7 @@ export default function ProvisioningStudio({
   const [isLoadingOptions, setIsLoadingOptions] = useState(true);
   const [isAskingAssistant, setIsAskingAssistant] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
+  const [importConfirmOpen, setImportConfirmOpen] = useState(false);
   const [createResult, setCreateResult] = useState<ProvisionCreateResponse | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
   const [taskPollError, setTaskPollError] = useState<string | null>(null);
@@ -436,7 +453,7 @@ export default function ProvisioningStudio({
     }
   }
 
-  async function createWorkload() {
+  async function createWorkload(importConfirmationText?: string) {
     setIsCreating(true);
     setCreateResult(null);
     setTaskStatus(null);
@@ -458,6 +475,7 @@ export default function ProvisioningStudio({
             storage: payload.isoStorage,
             isoUrl: payload.isoUrl,
             isoFilename: payload.isoFilename,
+            confirmationText: importConfirmationText,
           }),
         });
         const importData = (await importResponse.json()) as ProvisionImportIsoResponse;
@@ -515,7 +533,9 @@ export default function ProvisioningStudio({
     !draft.diskGb ||
     !draft.storage ||
     !draft.bridge ||
-    (isQemu && draft.isoSourceMode === "url" && (!draft.isoUrl || !draft.isoStorage)) ||
+    (isQemu &&
+      draft.isoSourceMode === "url" &&
+      (!draft.isoUrl || !draft.isoStorage || !isIsoUrlCandidate(draft.isoUrl))) ||
     (isQemu ? false : !draft.lxcTemplate);
 
   return (
@@ -632,7 +652,7 @@ export default function ProvisioningStudio({
           <div className="hint-box">
             <p className="muted">
               Connexion Proxmox requise pour créer. Ouvre{" "}
-              <Link href="/settings?tab=connection">Paramètres → Connexion</Link>.
+              <Link href="/settings?tab=connections">Paramètres → Connexions</Link>.
             </p>
           </div>
         ) : null}
@@ -798,7 +818,7 @@ export default function ProvisioningStudio({
                 </FieldRow>
               ) : (
                 <>
-                  <FieldRow label="URL du fichier ISO" hint="Téléchargé directement par Proxmox">
+                  <FieldRow label="URL du fichier ISO" hint="HTTPS direct, sans query, terminée par .iso">
                     <input
                       className="provision-input"
                       value={draft.isoUrl}
@@ -820,7 +840,7 @@ export default function ProvisioningStudio({
                     />
                   </FieldRow>
 
-                  <FieldRow label="Nom du fichier ISO" hint="Optionnel, dérivé depuis l’URL sinon">
+                  <FieldRow label="Nom du fichier ISO" hint="Optionnel, extension .iso obligatoire">
                     <input
                       className="provision-input"
                       value={draft.isoFilename}
@@ -828,6 +848,12 @@ export default function ProvisioningStudio({
                       placeholder="windows-server-2022.iso"
                     />
                   </FieldRow>
+
+                  {draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl) ? (
+                    <p className="provision-inline-hint warning-text">
+                      URL refusée: seuls les liens HTTPS directs, sans querystring, vers un fichier se terminant par <code>.iso</code> sont acceptés.
+                    </p>
+                  ) : null}
                 </>
               )}
             </>
@@ -946,6 +972,10 @@ export default function ProvisioningStudio({
             className="action-btn primary"
             onClick={() => {
               startTransition(() => {
+                if (isQemu && draft.isoSourceMode === "url" && draft.isoUrl.trim()) {
+                  setImportConfirmOpen(true);
+                  return;
+                }
                 void createWorkload();
               });
             }}
@@ -997,6 +1027,23 @@ export default function ProvisioningStudio({
         ) : null}
 
         {taskPollError ? <p className="warning">{taskPollError}</p> : null}
+
+        <StrongConfirmDialog
+          key={importConfirmOpen ? "import-iso-open" : "import-iso-closed"}
+          open={importConfirmOpen}
+          title="Confirmer l’import ISO"
+          message="Cette action déclenche un téléchargement ISO côté Proxmox avant la création de la VM."
+          expectedText="IMPORT ISO"
+          confirmLabel="Importer puis créer"
+          busy={isCreating}
+          onCancel={() => setImportConfirmOpen(false)}
+          onConfirm={(confirmationText) => {
+            setImportConfirmOpen(false);
+            startTransition(() => {
+              void createWorkload(confirmationText);
+            });
+          }}
+        />
       </section>
     </div>
   );

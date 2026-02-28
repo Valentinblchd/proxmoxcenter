@@ -161,7 +161,10 @@ export function writeRuntimePbsConfig(input: RuntimePbsConfigInput) {
     fingerprint: normalized.fingerprint,
     updatedAt: normalized.updatedAt,
   };
-  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, "utf8");
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
   return normalized;
 }
 

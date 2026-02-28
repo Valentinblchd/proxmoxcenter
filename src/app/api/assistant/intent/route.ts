@@ -7,6 +7,7 @@ import {
   type AssistantMemory,
 } from "@/lib/assistant/memory";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
 import {
@@ -672,7 +673,7 @@ function buildTechnicalHelpResponse(
       ok: true,
       intent: "unknown",
       message:
-        "Pour connecter Proxmox: URL `https://IP:8006`, Token ID (`user@realm!token`) et Token Secret dans Paramètres -> Connexion Proxmox.",
+        "Pour connecter Proxmox: URL `https://IP:8006`, Token ID (`user@realm!token`) et Token Secret dans Paramètres -> Connexions.",
       followUps: [
         "Tu peux coller URL + Token ID + Secret, je te dis si le format est valide.",
       ],
@@ -786,7 +787,7 @@ function buildCreateIntent(promptRaw: string, memory: AssistantMemory): Assistan
     );
 
   const isoUrl = normalizeIsoUrl(
-    extractValue(promptRaw, /(https?:\/\/[^\s"'`]+\.iso(?:\?[^\s"'`]*)?)/i),
+    extractValue(promptRaw, /(https?:\/\/[^\s"'`]+\.iso)\b/i),
   );
 
   const isoVolume = normalizeIsoVolume(
@@ -932,6 +933,16 @@ export async function POST(request: NextRequest) {
     memory = rememberAssistantFirstName(declaredFirstName, memoryScope);
   }
   const normalizedPrompt = normalizeText(safety.prompt);
+  const requiresOperateRole = wantsCreateWorkload(normalizedPrompt) || Boolean(parsePowerAction(normalizedPrompt));
+
+  if (requiresOperateRole && !hasRuntimeCapability(session?.role, "operate")) {
+    return NextResponse.json({
+      ok: true,
+      intent: "unknown",
+      message: "Mode lecture: les créations VM/LXC et actions power sont bloquées pour ce compte.",
+      followUps: ["Utilise un compte opérateur ou admin pour exécuter des actions sur Proxmox."],
+    } satisfies AssistantIntentResponse);
+  }
 
   const memoryRecall = buildMemoryRecallResponse(normalizedPrompt, memory);
   if (memoryRecall) {

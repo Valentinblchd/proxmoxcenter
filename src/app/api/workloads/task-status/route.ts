@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 
 export const runtime = "nodejs";
@@ -12,6 +13,11 @@ type ProxmoxTaskStatus = {
 };
 
 export async function GET(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const node = request.nextUrl.searchParams.get("node")?.trim();
   const upid = request.nextUrl.searchParams.get("upid")?.trim();
 

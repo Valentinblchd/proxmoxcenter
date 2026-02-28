@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -11,6 +12,14 @@ const CREATE_LIMIT = {
   max: 15,
   blockMs: 10 * 60_000,
 } as const;
+
+const NODE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,62}$/;
+const STORAGE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}$/;
+const BRIDGE_NAME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._:-]{0,63}$/;
+const OSTYPE_PATTERN = /^[a-zA-Z0-9._-]{2,32}$/;
+const CPU_TYPE_PATTERN = /^[a-zA-Z0-9._:-]{2,64}$/;
+const ISO_VOLUME_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}:iso\/[A-Za-z0-9._-]{1,160}\.iso$/;
+const LXC_TEMPLATE_PATTERN = /^[a-zA-Z0-9][a-zA-Z0-9._-]{0,127}:(?:vztmpl|template\/cache)\/[A-Za-z0-9._+-]{1,220}$/;
 
 type ProvisionCreateBody = {
   kind?: unknown;
@@ -86,6 +95,19 @@ function validateCommon(body: ProvisionCreateBody) {
     return null;
   }
 
+  if (
+    !NODE_NAME_PATTERN.test(node) ||
+    !STORAGE_NAME_PATTERN.test(storage) ||
+    !BRIDGE_NAME_PATTERN.test(bridge) ||
+    vmid < 1 ||
+    vmid > 9_999_999 ||
+    memoryMiB > 8_388_608 ||
+    cores > 256 ||
+    diskGb > 1_048_576
+  ) {
+    return null;
+  }
+
   return { kind, node, vmid, name, memoryMiB, cores, diskGb, storage, bridge };
 }
 
@@ -97,6 +119,16 @@ function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof v
   const isoVolume = asNonEmptyString(body.isoVolume);
   const { bios, machine, enableTpm } = normalizeQemuFirmware(body);
   const enableAgent = asBoolean(body.enableAgent, true);
+
+  if (!OSTYPE_PATTERN.test(ostype) || !CPU_TYPE_PATTERN.test(cpuType)) {
+    return null;
+  }
+  if (sockets < 1 || sockets > 16) {
+    return null;
+  }
+  if (isoVolume && !ISO_VOLUME_PATTERN.test(isoVolume)) {
+    return null;
+  }
 
   const params = new URLSearchParams();
   params.set("vmid", String(common.vmid));
@@ -135,11 +167,12 @@ function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof v
 function createLxcParams(body: ProvisionCreateBody, common: ReturnType<typeof validateCommon>) {
   if (!common || common.kind !== "lxc") return null;
   const template = asNonEmptyString(body.lxcTemplate);
-  if (!template) return null;
+  if (!template || !LXC_TEMPLATE_PATTERN.test(template)) return null;
 
   const swapMiB = asPositiveInt(body.lxcSwapMiB) ?? 512;
   const password = asNonEmptyString(body.lxcPassword);
   const unprivileged = asBoolean(body.lxcUnprivileged, true);
+  if (swapMiB > 8_388_608) return null;
 
   const params = new URLSearchParams();
   params.set("vmid", String(common.vmid));
@@ -160,6 +193,11 @@ function createLxcParams(body: ProvisionCreateBody, common: ReturnType<typeof va
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(

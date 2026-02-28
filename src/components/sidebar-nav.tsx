@@ -1,15 +1,17 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { usePathname, useSearchParams } from "next/navigation";
 import BrandLogo from "@/components/brand-logo";
 import {
   ACCOUNT_MENU_SECTION,
+  filterNavSectionsForRole,
   MAIN_MENU_SECTIONS,
   NavItem,
   NavSection,
 } from "@/lib/navigation/menu";
+import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
 
 const SIDEBAR_EXPANDED_STORAGE_KEY = "proxcenter_sidebar_expanded";
 const SIDEBAR_SECTIONS_STORAGE_KEY = "proxcenter_sidebar_sections";
@@ -244,11 +246,9 @@ function MenuLinkWithClose({
   );
 }
 
-const ALL_SECTIONS = [...MAIN_MENU_SECTIONS, ACCOUNT_MENU_SECTION];
-
-function getDefaultSectionOpenState() {
+function getDefaultSectionOpenState(sections: NavSection[]) {
   return Object.fromEntries(
-    ALL_SECTIONS.map((section) => [section.id, section.defaultOpen ?? true]),
+    sections.map((section) => [section.id, section.defaultOpen ?? true]),
   ) as Record<string, boolean>;
 }
 
@@ -323,26 +323,40 @@ function SectionBlock({
 }
 
 export default function SidebarNav({
+  sessionRole,
   mobileOpen = false,
   onRequestClose,
   onRequestToggle,
 }: {
+  sessionRole: RuntimeAuthUserRole | null;
   mobileOpen?: boolean;
   onRequestClose?: () => void;
   onRequestToggle?: () => void;
 }) {
   const pathname = usePathname();
   const searchParams = useSearchParams();
+  const visibleMainSections = useMemo(
+    () => filterNavSectionsForRole(MAIN_MENU_SECTIONS, sessionRole),
+    [sessionRole],
+  );
+  const visibleAccountSection = useMemo(
+    () => filterNavSectionsForRole([ACCOUNT_MENU_SECTION], sessionRole)[0] ?? null,
+    [sessionRole],
+  );
+  const visibleSections = useMemo(
+    () => [...visibleMainSections, ...(visibleAccountSection ? [visibleAccountSection] : [])],
+    [visibleAccountSection, visibleMainSections],
+  );
   const [isExpanded, setIsExpanded] = useState(false);
   const [hoverExpanded, setHoverExpanded] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [prefLoaded, setPrefLoaded] = useState(false);
   const [sectionOpenState, setSectionOpenState] = useState<Record<string, boolean>>(
-    getDefaultSectionOpenState,
+    () => getDefaultSectionOpenState(visibleSections),
   );
   const logoutFormRef = useRef<HTMLFormElement | null>(null);
   const sidebarExpanded = isExpanded || hoverExpanded;
-  const allItems = ALL_SECTIONS.flatMap((section) => section.items);
+  const allItems = visibleSections.flatMap((section) => section.items);
 
   useEffect(() => {
     try {
@@ -356,7 +370,7 @@ export default function SidebarNav({
         const parsed = JSON.parse(storedSections) as Record<string, unknown>;
         setSectionOpenState((current) => {
           const next = { ...current };
-          for (const section of ALL_SECTIONS) {
+          for (const section of visibleSections) {
             if (typeof parsed?.[section.id] === "boolean") {
               next[section.id] = parsed[section.id] as boolean;
             }
@@ -369,7 +383,7 @@ export default function SidebarNav({
     } finally {
       setPrefLoaded(true);
     }
-  }, []);
+  }, [visibleSections]);
 
   useEffect(() => {
     if (!prefLoaded) return;
@@ -512,7 +526,7 @@ export default function SidebarNav({
         </div>
 
         <nav className="menu-rail" aria-label="Menu principal">
-          {MAIN_MENU_SECTIONS.map((section, index, sections) => (
+          {visibleMainSections.map((section, index, sections) => (
             <div key={section.id} className="menu-section-wrap">
               <SectionBlock
                 section={section}
@@ -530,14 +544,16 @@ export default function SidebarNav({
         <div className="sidebar-bottom">
           <div className="sidebar-bottom-divider" />
 
-          <SectionBlock
-            section={ACCOUNT_MENU_SECTION}
-            expanded={sidebarExpanded}
-            open={isSectionOpen(ACCOUNT_MENU_SECTION)}
-            allItems={allItems}
-            onToggle={toggleSection}
-            onNavigate={handleNavigate}
-          />
+          {visibleAccountSection ? (
+            <SectionBlock
+              section={visibleAccountSection}
+              expanded={sidebarExpanded}
+              open={isSectionOpen(visibleAccountSection)}
+              allItems={allItems}
+              onToggle={toggleSection}
+              onNavigate={handleNavigate}
+            />
+          ) : null}
 
           {!sidebarExpanded ? <div className="menu-separator" /> : null}
 

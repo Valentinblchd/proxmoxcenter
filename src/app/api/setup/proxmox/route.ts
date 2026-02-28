@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { getAuthStatus } from "@/lib/auth/session";
 import { proxmoxRequestWithConfig } from "@/lib/proxmox/client";
 import {
@@ -15,6 +16,7 @@ import {
 } from "@/lib/proxmox/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -38,6 +40,7 @@ type RequestBody = {
   ldap?: unknown;
   testOnly?: unknown;
   skipTest?: unknown;
+  confirmationText?: unknown;
 };
 
 type ProxmoxVersionResponse = {
@@ -181,7 +184,12 @@ function mergeCandidateInput(body: RequestBody) {
   };
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   return NextResponse.json({
     ok: true,
     ...buildConfigResponsePayload(),
@@ -189,6 +197,11 @@ export async function GET() {
 }
 
 export async function POST(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -299,11 +312,36 @@ export async function POST(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
       { ok: false, error: "Forbidden: origine de requête invalide." },
       { status: 403 },
+    );
+  }
+
+  let body: RequestBody = {};
+  try {
+    body = (await request.json()) as RequestBody;
+  } catch {
+    body = {};
+  }
+
+  try {
+    assertStrongConfirmation(
+      body.confirmationText,
+      "DELETE PROXMOX CONFIG",
+      'Confirmation forte requise. Tape "DELETE PROXMOX CONFIG".',
+    );
+  } catch (error) {
+    return NextResponse.json(
+      { ok: false, error: error instanceof Error ? error.message : "Confirmation invalide." },
+      { status: 400 },
     );
   }
 

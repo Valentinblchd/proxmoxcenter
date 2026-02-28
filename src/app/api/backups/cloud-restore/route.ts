@@ -1,4 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getSessionFromRequest, requireRequestCapability } from "@/lib/auth/authz";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import {
   downloadBackupObjectFromCloud,
   listBackupObjectsOnCloud,
@@ -21,6 +23,7 @@ import {
   getClientIp,
   getTrustedOriginForRequest,
 } from "@/lib/security/request-guards";
+import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -43,6 +46,7 @@ type RequestBody = {
   restoreStorage?: unknown;
   force?: unknown;
   jobId?: unknown;
+  confirmationText?: unknown;
 };
 
 const CLOUD_RESTORE_LIMIT = {
@@ -129,6 +133,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "action requise." }, { status: 400 });
   }
 
+  if (action === "cancel-job" || action === "restore-proxmox" || action === "restore-pbs") {
+    const capability = await requireRequestCapability(request, "operate");
+    if (!capability.ok) {
+      return capability.response;
+    }
+  }
+
   if (action === "cancel-job") {
     const jobId = asNonEmptyString(body.jobId, 120);
     if (!jobId) {
@@ -205,6 +216,14 @@ export async function POST(request: NextRequest) {
     const origin = getTrustedOriginForRequest(request);
     const pbsConfig = destination === "pbs" ? readRuntimePbsConfig() : null;
 
+    assertStrongConfirmation(
+      body.confirmationText,
+      destination === "pbs" ? "RESTORE PBS" : `RESTORE ${kind?.toUpperCase() ?? "WORKLOAD"} ${vmid ?? ""}`.trim(),
+      destination === "pbs"
+        ? 'Confirmation forte requise. Tape "RESTORE PBS".'
+        : `Confirmation forte requise. Tape "RESTORE ${kind?.toUpperCase() ?? "WORKLOAD"} ${vmid ?? ""}".`,
+    );
+
     if (destination === "proxmox" && !origin) {
       throw new Error("Origine applicative introuvable pour staging restore.");
     }
@@ -268,6 +287,11 @@ export async function GET(request: NextRequest) {
       { ok: false, error: "Trop de requêtes restore cloud. Réessaie plus tard." },
       { status: 429 },
     );
+  }
+
+  const session = await getSessionFromRequest(request);
+  if (!session || !hasRuntimeCapability(session.role, "read")) {
+    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
   }
 
   const jobId = asNonEmptyString(request.nextUrl.searchParams.get("jobId"), 120);

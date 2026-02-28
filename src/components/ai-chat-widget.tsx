@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { hasRuntimeCapability, type RuntimeAuthUserRole } from "@/lib/auth/rbac";
 import type { ProvisionDraft, ProvisionKind, WorkloadPowerAction } from "@/lib/provision/schema";
 
 type WorkloadActionDraft = {
@@ -310,7 +311,7 @@ function inferGuidedShortcutFromPrompt(prompt: string): GuidedFlowMode | null {
   return null;
 }
 
-export default function AiChatWidget() {
+export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuthUserRole | null }) {
   const [open, setOpen] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [input, setInput] = useState("");
@@ -325,6 +326,7 @@ export default function AiChatWidget() {
   const [dynamicShortcuts, setDynamicShortcuts] = useState<DynamicShortcut[]>([]);
   const [optionsLoading, setOptionsLoading] = useState(false);
   const [optionsError, setOptionsError] = useState<string | null>(null);
+  const canOperate = hasRuntimeCapability(sessionRole, "operate");
   const bodyRef = useRef<HTMLDivElement | null>(null);
   const inputRef = useRef<HTMLInputElement | null>(null);
 
@@ -489,6 +491,17 @@ export default function AiChatWidget() {
   }
 
   function startGuidedFlow(mode: GuidedFlowMode, shouldTrack = true) {
+    if (!canOperate) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: makeId("rbac"),
+          role: "system",
+          text: "Mode lecture: création et actions Proxmox bloquées.",
+        },
+      ]);
+      return;
+    }
     if (shouldTrack) {
       trackGuidedShortcutUsage(mode);
     }
@@ -511,19 +524,41 @@ export default function AiChatWidget() {
 
   async function executeAction(message: ChatMessage) {
     if (!message.actionRequest || actionBusyId) return;
+    if (!canOperate) {
+      setMessages((current) => [
+        ...current,
+        {
+          id: makeId("rbac-action"),
+          role: "system",
+          text: "Mode lecture: action refusée.",
+        },
+      ]);
+      return;
+    }
 
     const { action, kind, node, vmid } = message.actionRequest;
-    const confirmed = window.confirm(
-      `Confirmer ${action.toUpperCase()} sur ${kind.toUpperCase()} #${vmid} (${node}) ?`,
-    );
-    if (!confirmed) return;
+    let confirmationText: string | undefined;
+    if (action === "stop" || action === "shutdown") {
+      const expectedText = `${action.toUpperCase()} ${vmid}`;
+      const typed = window.prompt(
+        `Action sensible sur ${kind.toUpperCase()} #${vmid} (${node}). Tape exactement: ${expectedText}`,
+        "",
+      );
+      if (!typed) return;
+      confirmationText = typed;
+    } else {
+      const confirmed = window.confirm(
+        `Confirmer ${action.toUpperCase()} sur ${kind.toUpperCase()} #${vmid} (${node}) ?`,
+      );
+      if (!confirmed) return;
+    }
 
     setActionBusyId(message.id);
     try {
       const response = await fetch("/api/workloads/action", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ node, kind, vmid, action }),
+        body: JSON.stringify({ node, kind, vmid, action, confirmationText }),
       });
       const payload = (await response.json()) as WorkloadActionApiResponse;
       if (!response.ok || !payload.ok) {
@@ -721,7 +756,11 @@ export default function AiChatWidget() {
 
             <div className="ai-widget-body" ref={bodyRef}>
               <div className="ai-widget-chip-row">
-                {visibleShortcuts.length === 0 ? (
+                {!canOperate ? (
+                  <span className="ai-widget-chip-empty">
+                    Mode lecture: chat technique disponible, actions désactivées.
+                  </span>
+                ) : visibleShortcuts.length === 0 ? (
                   <span className="ai-widget-chip-empty">
                     Les raccourcis apparaissent automatiquement selon ton usage.
                   </span>
@@ -925,13 +964,13 @@ export default function AiChatWidget() {
 
                       {guidedFlow.mode === "windows-vm" ? (
                         <label className="ai-guide-field">
-                          <span>ISO volume ou URL ISO (optionnel)</span>
+                          <span>ISO volume ou URL .iso (optionnel)</span>
                           <input
                             className="ai-guide-input"
                             type="text"
                             value={guidedFlow.isoVolume}
                             onChange={(event) => patchGuidedFlow({ isoVolume: event.target.value })}
-                            placeholder="local:iso/Windows2022.iso ou https://..."
+                            placeholder="local:iso/Windows2022.iso ou https://.../Windows2022.iso"
                           />
                         </label>
                       ) : (

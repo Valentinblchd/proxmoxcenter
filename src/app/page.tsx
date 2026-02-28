@@ -50,8 +50,8 @@ export default async function HomePage() {
           <Link href="/inventory" className="action-btn">
             Inventaire
           </Link>
-          <Link href="/settings?tab=connection" className="action-btn">
-            Paramètres API
+          <Link href="/settings?tab=connections" className="action-btn">
+            Connexions
           </Link>
         </div>
       </section>

@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import {
   applyProxmoxTlsMode,
   getProxmoxFetchDispatcher,
@@ -19,6 +20,7 @@ const HOP_BY_HOP_HEADERS = new Set([
   "keep-alive",
   "proxy-authenticate",
   "proxy-authorization",
+  "set-cookie",
   "te",
   "trailer",
   "transfer-encoding",
@@ -26,6 +28,11 @@ const HOP_BY_HOP_HEADERS = new Set([
   "content-length",
   "host",
 ]);
+
+const BLOCKED_UPSTREAM_PATHS = [
+  /^access\/ticket(?:\/|$)/i,
+  /^access\/password(?:\/|$)/i,
+] as const;
 
 async function getParams(context: RouteContext): Promise<{ path: string[] }> {
   const maybePromise = context.params;
@@ -42,6 +49,14 @@ function buildUpstreamUrl(pathParts: string[], requestUrl: URL, baseUrl: string)
   );
   upstream.search = requestUrl.search;
   return upstream;
+}
+
+function buildSecurityHeaders() {
+  return {
+    "cache-control": "no-store, max-age=0",
+    pragma: "no-cache",
+    "x-content-type-options": "nosniff",
+  } as const;
 }
 
 function makeUpstreamHeaders(request: NextRequest, authHeader: string) {
@@ -62,6 +77,11 @@ function makeUpstreamHeaders(request: NextRequest, authHeader: string) {
 }
 
 async function proxyRequest(request: NextRequest, context: RouteContext) {
+  const capability = await requireRequestCapability(request, "admin");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   if (request.method !== "GET" && request.method !== "HEAD") {
     const originCheck = ensureSameOriginRequest(request);
     if (!originCheck.ok) {
@@ -72,7 +92,10 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
         }),
         {
           status: 403,
-          headers: { "content-type": "application/json; charset=utf-8" },
+          headers: {
+            "content-type": "application/json; charset=utf-8",
+            ...buildSecurityHeaders(),
+          },
         },
       );
     }
@@ -86,7 +109,10 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
       }),
       {
         status: 500,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...buildSecurityHeaders(),
+        },
       },
     );
   }
@@ -97,7 +123,27 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
       JSON.stringify({ error: "Missing Proxmox API path." }),
       {
         status: 400,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...buildSecurityHeaders(),
+        },
+      },
+    );
+  }
+
+  const joinedPath = path.join("/");
+  if (BLOCKED_UPSTREAM_PATHS.some((pattern) => pattern.test(joinedPath))) {
+    return new Response(
+      JSON.stringify({
+        error: "Forbidden",
+        details: "Cette route Proxmox n’est pas exposée via ProxmoxCenter.",
+      }),
+      {
+        status: 403,
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...buildSecurityHeaders(),
+        },
       },
     );
   }
@@ -131,7 +177,10 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
       }),
       {
         status: 502,
-        headers: { "content-type": "application/json; charset=utf-8" },
+        headers: {
+          "content-type": "application/json; charset=utf-8",
+          ...buildSecurityHeaders(),
+        },
       },
     );
   }
@@ -141,6 +190,9 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
     if (!HOP_BY_HOP_HEADERS.has(key.toLowerCase())) {
       responseHeaders.set(key, value);
     }
+  });
+  Object.entries(buildSecurityHeaders()).forEach(([key, value]) => {
+    responseHeaders.set(key, value);
   });
 
   return new Response(upstreamResponse.body, {

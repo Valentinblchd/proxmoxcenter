@@ -7,6 +7,7 @@ readonly PROXMOXCENTER_COMPOSE_FILE="\${PROXMOXCENTER_INSTALL_DIR}/docker-compos
 readonly PROXMOXCENTER_IMAGE="\${PROXMOXCENTER_IMAGE:-ghcr.io/valentinblchd/proxmoxcenter:latest}"
 readonly PROXMOXCENTER_PORT="\${PROXMOXCENTER_PORT:-3000}"
 readonly PROXMOXCENTER_INSTALL_BASE_URL="\${PROXMOXCENTER_INSTALL_BASE_URL:-__PROXMOXCENTER_INSTALL_BASE_URL__}"
+readonly PROXMOXCENTER_PUBLIC_ORIGIN="\${PROXMOXCENTER_PUBLIC_ORIGIN:-}"
 
 log() {
   printf '\\033[1;34m[proxmoxcenter]\\033[0m %s\\n' "$*"
@@ -131,6 +132,7 @@ EOF
     -e "s|__PROXMOXCENTER_IMAGE__|\${PROXMOXCENTER_IMAGE}|g" \
     -e "s|__PROXMOXCENTER_PORT__|\${PROXMOXCENTER_PORT}|g" \
     -e "s|__PROXMOXCENTER_DATA_DIR__|\${PROXMOXCENTER_DATA_DIR}|g" \
+    -e "s|__PROXMOXCENTER_PUBLIC_ORIGIN__|\${PROXMOXCENTER_PUBLIC_ORIGIN}|g" \
     "\${template_path}" > "\${PROXMOXCENTER_COMPOSE_FILE}"
   rm -f "\${template_path}"
 }
@@ -194,6 +196,7 @@ Installation terminée.
 - Données persistées: \${PROXMOXCENTER_DATA_DIR}
 - Compose: \${PROXMOXCENTER_COMPOSE_FILE}
 - URL locale: http://$(hostname -I 2>/dev/null | awk '{print $1}' || printf 'IP_DU_SERVEUR'):\${PROXMOXCENTER_PORT}
+- Origine canonique: \${PROXMOXCENTER_PUBLIC_ORIGIN:-non définie}
 
 Commandes utiles:
 - proxmoxcenter-status
@@ -204,6 +207,7 @@ Commandes utiles:
 1. Ouvre l'interface web.
 2. Crée le premier compte local.
 3. Configure ensuite la connexion Proxmox et, si besoin, PBS/cloud depuis l'UI.
+4. En reverse proxy, définis PROXMOXCENTER_PUBLIC_ORIGIN=https://dns:port pour verrouiller les callbacks OAuth.
 EOF
 }
 

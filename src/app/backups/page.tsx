@@ -1,4 +1,7 @@
+import { cookies } from "next/headers";
 import BackupPlannerPanel from "@/components/backup-planner-panel";
+import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatRelativeTime } from "@/lib/ui/format";
 
@@ -38,6 +41,10 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
       : "overview";
 
   const snapshot = await getDashboardSnapshot();
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const canOperate = hasRuntimeCapability(session?.role, "operate");
 
   return (
     <section className="content backups-page">
@@ -52,7 +59,7 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
         </div>
       </header>
 
-      <BackupPlannerPanel initialTab={initialTab} />
+      <BackupPlannerPanel initialTab={initialTab} canOperate={canOperate} />
     </section>
   );
 }

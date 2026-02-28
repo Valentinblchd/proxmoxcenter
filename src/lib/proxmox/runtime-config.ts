@@ -52,6 +52,7 @@ type ProxmoxConfigInput = {
   port?: unknown;
   tokenId?: unknown;
   tokenSecret?: unknown;
+  tokenSecretCipher?: unknown;
   tlsMode?: unknown;
   allowInsecureTls?: unknown;
   customCaCertPem?: unknown;
@@ -246,7 +247,9 @@ export function normalizeRuntimeProxmoxConfigInput(
 ): RuntimeProxmoxConfig | null {
   const endpoint = normalizeEndpoint(input);
   const tokenId = asNonEmptyString(input.tokenId);
-  const tokenSecret = asNonEmptyString(input.tokenSecret);
+  const tokenSecretInput = asNonEmptyString(input.tokenSecret);
+  const tokenSecretCipher = asNonEmptyString(input.tokenSecretCipher);
+  const tokenSecret = tokenSecretInput ?? (tokenSecretCipher ? openSecret(tokenSecretCipher) : null);
   const customCaCertPem = normalizeCustomCaCert(input.customCaCertPem);
   const tlsModeRaw = asTlsMode(input.tlsMode);
   const allowInsecureTlsInput = asBoolean(input.allowInsecureTls, false);
@@ -292,6 +295,14 @@ export function readRuntimeProxmoxConfig(): RuntimeProxmoxConfig | null {
     const normalized = normalizeRuntimeProxmoxConfigInput(parsed);
     if (!normalized) return null;
 
+    if (typeof parsed.tokenSecret === "string" && !asNonEmptyString(parsed.tokenSecretCipher)) {
+      try {
+        writeRuntimeProxmoxConfig(parsed);
+      } catch {
+        // Keep serving the in-memory normalized config even if migration fails.
+      }
+    }
+
     if (typeof parsed.updatedAt === "string" && parsed.updatedAt.trim()) {
       normalized.updatedAt = parsed.updatedAt;
     }
@@ -310,7 +321,20 @@ export function writeRuntimeProxmoxConfig(input: ProxmoxConfigInput) {
 
   const filePath = getRuntimeProxmoxConfigPath();
   ensureParentDirectory(filePath);
-  fs.writeFileSync(filePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  const payload = {
+    baseUrl: normalized.baseUrl,
+    protocol: normalized.protocol,
+    host: normalized.host,
+    port: normalized.port,
+    tokenId: normalized.tokenId,
+    tokenSecretCipher: sealSecret(normalized.tokenSecret),
+    tlsMode: normalized.tlsMode,
+    allowInsecureTls: normalized.allowInsecureTls,
+    customCaCertPem: normalized.customCaCertPem,
+    ldap: normalized.ldap,
+    updatedAt: normalized.updatedAt,
+  };
+  fs.writeFileSync(filePath, `${JSON.stringify(payload, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
   return normalized;
 }
 

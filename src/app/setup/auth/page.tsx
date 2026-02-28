@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { redirect } from "next/navigation";
 import AppAuthSetupForm from "@/components/app-auth-setup-form";
 import { getAuthStatus } from "@/lib/auth/session";
 
@@ -12,6 +13,9 @@ export const dynamic = "force-dynamic";
 
 export default async function SetupAuthPage() {
   const auth = getAuthStatus();
+  if (auth.active) {
+    redirect("/settings?tab=users");
+  }
 
   return (
     <section className="content">
