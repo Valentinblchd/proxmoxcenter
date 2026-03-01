@@ -32,6 +32,37 @@ function normalizeOrigin(value: string | null | undefined) {
   }
 }
 
+function normalizeHost(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.split(",")[0]?.trim();
+  if (!trimmed) return null;
+  if (trimmed.includes("://")) {
+    return null;
+  }
+  if (trimmed.includes("/") || trimmed.includes("?") || trimmed.includes("#")) {
+    return null;
+  }
+  return trimmed;
+}
+
+function normalizeProto(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.split(",")[0]?.trim().toLowerCase();
+  if (trimmed === "http" || trimmed === "https") {
+    return trimmed;
+  }
+  return null;
+}
+
+function buildOriginFromHost(host: string | null | undefined, proto: string | null | undefined) {
+  const normalizedHost = normalizeHost(host);
+  const normalizedProto = normalizeProto(proto);
+  if (!normalizedHost || !normalizedProto) {
+    return null;
+  }
+  return normalizeOrigin(`${normalizedProto}://${normalizedHost}`);
+}
+
 function getConfiguredPublicOrigin() {
   return (
     normalizeOrigin(process.env.PROXMOXCENTER_PUBLIC_ORIGIN) ??
@@ -40,7 +71,52 @@ function getConfiguredPublicOrigin() {
 }
 
 export function getTrustedOriginForRequest(request: NextRequest) {
-  return getConfiguredPublicOrigin() ?? normalizeOrigin(request.nextUrl.origin);
+  const configured = getConfiguredPublicOrigin();
+  if (configured) {
+    return configured;
+  }
+
+  const forwardedOrigin = buildOriginFromHost(
+    request.headers.get("x-forwarded-host"),
+    request.headers.get("x-forwarded-proto"),
+  );
+  if (forwardedOrigin) {
+    return forwardedOrigin;
+  }
+
+  const hostOrigin = buildOriginFromHost(
+    request.headers.get("host"),
+    request.nextUrl.protocol.replace(":", ""),
+  );
+  if (hostOrigin) {
+    return hostOrigin;
+  }
+
+  return normalizeOrigin(request.nextUrl.origin);
+}
+
+function getAcceptedOriginsForRequest(request: NextRequest) {
+  const accepted = new Set<string>();
+
+  const configured = getConfiguredPublicOrigin();
+  if (configured) accepted.add(configured);
+
+  const forwardedOrigin = buildOriginFromHost(
+    request.headers.get("x-forwarded-host"),
+    request.headers.get("x-forwarded-proto"),
+  );
+  if (forwardedOrigin) accepted.add(forwardedOrigin);
+
+  const hostOrigin = buildOriginFromHost(
+    request.headers.get("host"),
+    request.nextUrl.protocol.replace(":", ""),
+  );
+  if (hostOrigin) accepted.add(hostOrigin);
+
+  const nextOrigin = normalizeOrigin(request.nextUrl.origin);
+  if (nextOrigin) accepted.add(nextOrigin);
+
+  return accepted;
 }
 
 function parseOriginFromReferer(referer: string | null) {
@@ -60,8 +136,8 @@ export function ensureSameOriginRequest(
   request: NextRequest,
   options?: { allowMissingOrigin?: boolean },
 ): SameOriginCheckResult {
-  const expectedOrigin = getTrustedOriginForRequest(request);
-  if (!expectedOrigin) {
+  const acceptedOrigins = getAcceptedOriginsForRequest(request);
+  if (acceptedOrigins.size === 0) {
     return { ok: false, reason: "Host header missing." };
   }
 
@@ -76,7 +152,7 @@ export function ensureSameOriginRequest(
     return { ok: false, reason: "Missing Origin/Referer header." };
   }
 
-  if (sourceOrigin !== expectedOrigin) {
+  if (!acceptedOrigins.has(sourceOrigin)) {
     return { ok: false, reason: "Cross-origin request blocked." };
   }
 
