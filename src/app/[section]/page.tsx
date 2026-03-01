@@ -9,17 +9,11 @@ import {
 import { formatRelativeTime } from "@/lib/ui/format";
 
 type SectionPageProps = {
-  params: Promise<{ section: string }> | { section: string };
+  params: Promise<{ section: string }>;
 };
 
-async function readParams(
-  params: SectionPageProps["params"],
-): Promise<{ section: string }> {
-  if (typeof (params as Promise<{ section: string }>).then === "function") {
-    return await (params as Promise<{ section: string }>);
-  }
-
-  return params as { section: string };
+async function readParams(params: SectionPageProps["params"]): Promise<{ section: string }> {
+  return await params;
 }
 
 export async function generateStaticParams() {

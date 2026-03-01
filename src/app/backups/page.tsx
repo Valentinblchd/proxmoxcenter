@@ -8,9 +8,7 @@ import { formatRelativeTime } from "@/lib/ui/format";
 export const dynamic = "force-dynamic";
 
 type BackupsPageProps = {
-  searchParams?:
-    | Promise<Record<string, string | string[] | undefined>>
-    | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function readString(value: string | string[] | undefined) {
@@ -21,10 +19,7 @@ async function readSearchParams(
   value: BackupsPageProps["searchParams"],
 ): Promise<Record<string, string | string[] | undefined>> {
   if (!value) return {};
-  if (typeof (value as Promise<Record<string, string | string[] | undefined>>).then === "function") {
-    return (await value) ?? {};
-  }
-  return value ?? {};
+  return (await value) ?? {};
 }
 
 export default async function BackupsPage({ searchParams }: BackupsPageProps) {

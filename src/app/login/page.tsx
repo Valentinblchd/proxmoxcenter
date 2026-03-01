@@ -5,9 +5,7 @@ import { isLdapSecondaryAuthEnabled } from "@/lib/auth/ldap";
 import { getAuthStatus, sanitizeNextPath } from "@/lib/auth/session";
 
 type LoginPageProps = {
-  searchParams?:
-    | Promise<Record<string, string | string[] | undefined>>
-    | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 function readMaybeArray(value: string | string[] | undefined) {
@@ -19,15 +17,7 @@ async function readSearchParams(
   searchParams: LoginPageProps["searchParams"],
 ): Promise<Record<string, string | string[] | undefined>> {
   if (!searchParams) return {};
-  if (
-    typeof (
-      searchParams as Promise<Record<string, string | string[] | undefined>>
-    ).then === "function"
-  ) {
-    return await (searchParams as Promise<Record<string, string | string[] | undefined>>);
-  }
-
-  return searchParams as Record<string, string | string[] | undefined>;
+  return await searchParams;
 }
 
 function getErrorMessage(errorCode: string) {

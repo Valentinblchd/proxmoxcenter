@@ -14,16 +14,11 @@ import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 export const dynamic = "force-dynamic";
 
 type NodePageProps = {
-  params:
-    | Promise<{ name: string }>
-    | { name: string };
+  params: Promise<{ name: string }>;
 };
 
 async function readParams(value: NodePageProps["params"]) {
-  if (typeof (value as Promise<{ name: string }>).then === "function") {
-    return await (value as Promise<{ name: string }>);
-  }
-  return value as { name: string };
+  return await value;
 }
 
 function buildWorkloadHref(kind: "qemu" | "lxc", vmid: number) {

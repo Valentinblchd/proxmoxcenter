@@ -6,9 +6,7 @@ import { formatBytes, formatPercent, formatRelativeTime } from "@/lib/ui/format"
 export const dynamic = "force-dynamic";
 
 type ObservabilityPageProps = {
-  searchParams?:
-    | Promise<Record<string, string | string[] | undefined>>
-    | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 const TABS = [
@@ -22,10 +20,7 @@ async function readSearchParams(
   value: ObservabilityPageProps["searchParams"],
 ): Promise<Record<string, string | string[] | undefined>> {
   if (!value) return {};
-  if (typeof (value as Promise<Record<string, string | string[] | undefined>>).then === "function") {
-    return (await value) ?? {};
-  }
-  return value ?? {};
+  return (await value) ?? {};
 }
 
 function readString(value: string | string[] | undefined) {

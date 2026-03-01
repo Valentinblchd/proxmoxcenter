@@ -28,8 +28,7 @@ type InventoryRow = {
 };
 
 type InventorySearchParams =
-  | Promise<Record<string, string | string[] | undefined>>
-  | Record<string, string | string[] | undefined>;
+  Promise<Record<string, string | string[] | undefined>>;
 
 type InventoryPageProps = {
   searchParams?: InventorySearchParams;
@@ -64,10 +63,7 @@ function firstParam(value: string | string[] | undefined) {
 
 async function readSearchParams(searchParams: InventorySearchParams | undefined) {
   if (!searchParams) return {};
-  if (typeof (searchParams as Promise<Record<string, string | string[] | undefined>>).then === "function") {
-    return await (searchParams as Promise<Record<string, string | string[] | undefined>>);
-  }
-  return searchParams as Record<string, string | string[] | undefined>;
+  return await searchParams;
 }
 
 function clamp01(value: number) {

@@ -12,7 +12,7 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-  params: Promise<{ path: string[] }> | { path: string[] };
+  params: Promise<{ path: string[] }>;
 };
 
 const HOP_BY_HOP_HEADERS = new Set([
@@ -35,11 +35,7 @@ const BLOCKED_UPSTREAM_PATHS = [
 ] as const;
 
 async function getParams(context: RouteContext): Promise<{ path: string[] }> {
-  const maybePromise = context.params;
-  if (typeof (maybePromise as Promise<{ path: string[] }>).then === "function") {
-    return await (maybePromise as Promise<{ path: string[] }>);
-  }
-  return maybePromise as { path: string[] };
+  return await context.params;
 }
 
 function buildUpstreamUrl(pathParts: string[], requestUrl: URL, baseUrl: string) {

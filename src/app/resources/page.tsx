@@ -46,9 +46,7 @@ export const metadata: Metadata = {
 export const dynamic = "force-dynamic";
 
 type ResourcesPageProps = {
-  searchParams?:
-    | Promise<Record<string, string | string[] | undefined>>
-    | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 const TABS = [
@@ -61,10 +59,7 @@ async function readSearchParams(
   value: ResourcesPageProps["searchParams"],
 ): Promise<Record<string, string | string[] | undefined>> {
   if (!value) return {};
-  if (typeof (value as Promise<Record<string, string | string[] | undefined>>).then === "function") {
-    return (await value) ?? {};
-  }
-  return value ?? {};
+  return (await value) ?? {};
 }
 
 function readString(value: string | string[] | undefined) {

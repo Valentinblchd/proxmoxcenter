@@ -20,16 +20,11 @@ import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 export const dynamic = "force-dynamic";
 
 type WorkloadPageProps = {
-  params:
-    | Promise<{ kind: string; vmid: string }>
-    | { kind: string; vmid: string };
+  params: Promise<{ kind: string; vmid: string }>;
 };
 
 async function readParams(value: WorkloadPageProps["params"]) {
-  if (typeof (value as Promise<{ kind: string; vmid: string }>).then === "function") {
-    return await (value as Promise<{ kind: string; vmid: string }>);
-  }
-  return value as { kind: string; vmid: string };
+  return await value;
 }
 
 function asKind(value: string): WorkloadKind | null {

@@ -4,19 +4,14 @@ import ProvisioningStudio from "@/components/provisioning-studio";
 export const dynamic = "force-dynamic";
 
 type ProvisionPageProps = {
-  searchParams?:
-    | Promise<Record<string, string | string[] | undefined>>
-    | Record<string, string | string[] | undefined>;
+  searchParams?: Promise<Record<string, string | string[] | undefined>>;
 };
 
 async function readSearchParams(
   value: ProvisionPageProps["searchParams"],
 ): Promise<Record<string, string | string[] | undefined>> {
   if (!value) return {};
-  if (typeof (value as Promise<Record<string, string | string[] | undefined>>).then === "function") {
-    return (await value) ?? {};
-  }
-  return value ?? {};
+  return (await value) ?? {};
 }
 
 function readString(value: string | string[] | undefined) {

@@ -5,15 +5,11 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 type RouteContext = {
-  params: Promise<{ token: string }> | { token: string };
+  params: Promise<{ token: string }>;
 };
 
 async function getParams(context: RouteContext): Promise<{ token: string }> {
-  const maybePromise = context.params;
-  if (typeof (maybePromise as Promise<{ token: string }>).then === "function") {
-    return await (maybePromise as Promise<{ token: string }>);
-  }
-  return maybePromise as { token: string };
+  return await context.params;
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {

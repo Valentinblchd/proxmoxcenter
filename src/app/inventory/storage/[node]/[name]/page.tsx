@@ -7,16 +7,11 @@ import { formatBytes } from "@/lib/ui/format";
 export const dynamic = "force-dynamic";
 
 type StoragePageProps = {
-  params:
-    | Promise<{ node: string; name: string }>
-    | { node: string; name: string };
+  params: Promise<{ node: string; name: string }>;
 };
 
 async function readParams(value: StoragePageProps["params"]) {
-  if (typeof (value as Promise<{ node: string; name: string }>).then === "function") {
-    return await (value as Promise<{ node: string; name: string }>);
-  }
-  return value as { node: string; name: string };
+  return await value;
 }
 
 function buildStorageHref(node: string, storage: string) {
