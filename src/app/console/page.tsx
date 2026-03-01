@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
 
 export const dynamic = "force-dynamic";
@@ -33,7 +32,6 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
 
   const snapshot = await getDashboardSnapshot();
   const hasLiveData = snapshot.mode === "live";
-  const proxmox = getProxmoxConfig();
   const runningWorkloads = snapshot.workloads.filter((item) => item.status === "running").slice(0, 30);
 
   return (
@@ -44,11 +42,6 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
           <h1>Shell nœuds</h1>
         </div>
         <div className="topbar-meta">
-          {proxmox ? (
-            <a href={proxmox.baseUrl} target="_blank" rel="noreferrer" className="action-btn">
-              Ouvrir Proxmox
-            </a>
-          ) : null}
           <Link href="/inventory" className="action-btn primary">
             Consoles VM/CT (inventaire)
           </Link>
@@ -131,15 +124,13 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
                     <Link href={`/inventory/node/${encodeURIComponent(node.name)}`} className="action-btn">
                       Détails
                     </Link>
-                    {proxmox ? (
-                      <a
+                    {hasLiveData ? (
+                      <Link
                         className="action-btn"
-                        href={buildProxmoxNodeShellUrl({ baseUrl: proxmox.baseUrl, node: node.name })}
-                        target="_blank"
-                        rel="noreferrer"
+                        href={buildProxmoxNodeShellUrl({ baseUrl: "", node: node.name })}
                       >
                         Ouvrir shell
-                      </a>
+                      </Link>
                     ) : (
                       <span className="muted">Connexion requise</span>
                     )}

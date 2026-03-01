@@ -122,7 +122,7 @@ export default function InventoryRemoteAccess({
         <div className="inventory-remote-card">
           <div className="inventory-remote-actions">
             {consoleHref ? (
-              <a href={consoleHref} target="_blank" rel="noreferrer" className="inventory-primary-btn">
+              <a href={consoleHref} className="inventory-primary-btn">
                 Console
               </a>
             ) : (
@@ -132,13 +132,7 @@ export default function InventoryRemoteAccess({
             )}
 
             {consoleOptions.map((option) => (
-              <a
-                key={option.id}
-                href={option.href}
-                target="_blank"
-                rel="noreferrer"
-                className="inventory-ghost-btn"
-              >
+              <a key={option.id} href={option.href} className="inventory-ghost-btn">
                 {option.label}
               </a>
             ))}

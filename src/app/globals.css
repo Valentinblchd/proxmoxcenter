@@ -1585,10 +1585,9 @@ code {
 
 .hub-tabs {
   display: flex;
-  flex-wrap: nowrap;
+  flex-wrap: wrap;
   gap: 0.4rem;
-  overflow-x: auto;
-  overflow-y: hidden;
+  overflow: visible;
   padding: 0.36rem;
   border-radius: 12px;
   border: 1px solid var(--hub-border);
@@ -3394,6 +3393,60 @@ code {
   font-size: 0.78rem;
 }
 
+.backup-provider-choice {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.backup-provider-choice .provision-seg-btn {
+  flex: 1 1 180px;
+}
+
+.console-nav-strip {
+  padding-bottom: 0;
+}
+
+.console-session-page {
+  padding-top: 12px;
+}
+
+.console-session-panel {
+  min-height: 72vh;
+}
+
+.console-surface {
+  position: relative;
+  min-height: 64vh;
+  border: 1px solid rgba(120, 152, 255, 0.22);
+  border-radius: 24px;
+  background:
+    radial-gradient(circle at top right, rgba(81, 122, 255, 0.16), transparent 36%),
+    linear-gradient(180deg, rgba(6, 12, 43, 0.96), rgba(4, 8, 31, 0.98));
+  overflow: hidden;
+}
+
+.console-surface-inner {
+  width: 100%;
+  height: 100%;
+  min-height: 64vh;
+}
+
+.console-surface-terminal {
+  padding: 18px;
+}
+
+.console-surface-vnc {
+  display: grid;
+  place-items: center;
+  background: #050b2b;
+}
+
+.console-surface-vnc canvas {
+  max-width: 100%;
+  height: auto;
+}
+
 .inventory-detail-grid {
   display: grid;
   gap: 0.75rem;
@@ -4714,8 +4767,10 @@ code {
   }
 
   .hub-tabs {
+    flex-wrap: nowrap;
     gap: 0.35rem;
     overflow-x: auto;
+    overflow-y: hidden;
     padding-bottom: 0.1rem;
     scrollbar-width: none;
   }

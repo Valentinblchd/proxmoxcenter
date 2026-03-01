@@ -13,7 +13,6 @@ import {
   buildProxmoxWorkloadSpiceUrl,
   buildProxmoxWorkloadXtermUrl,
 } from "@/lib/proxmox/console-url";
-import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { getWorkloadDetailById, type WorkloadKind } from "@/lib/proxmox/workloads";
 import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 
@@ -86,27 +85,24 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
     );
   }
 
-  const proxmox = getProxmoxConfig();
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
   const canOperate = hasRuntimeCapability(session?.role, "operate");
-  const consoleHref = proxmox
-    ? buildProxmoxWorkloadConsoleUrl({
-        baseUrl: proxmox.baseUrl,
-        node: detail.node,
-        vmid: detail.vmid,
-        kind: detail.kind,
-      })
-    : null;
+  const consoleHref = buildProxmoxWorkloadConsoleUrl({
+    baseUrl: "",
+    node: detail.node,
+    vmid: detail.vmid,
+    kind: detail.kind,
+  });
   const consoleOptions =
-    proxmox && detail.kind === "qemu"
+    detail.kind === "qemu"
       ? [
           {
             id: "vnc",
             label: "VNC",
             href: buildProxmoxWorkloadConsoleUrl({
-              baseUrl: proxmox.baseUrl,
+              baseUrl: "",
               node: detail.node,
               vmid: detail.vmid,
               kind: detail.kind,
@@ -116,7 +112,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             id: "novnc",
             label: "noVNC",
             href: buildProxmoxWorkloadNoVncUrl({
-              baseUrl: proxmox.baseUrl,
+              baseUrl: "",
               node: detail.node,
               vmid: detail.vmid,
             }),
@@ -125,29 +121,27 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             id: "spice",
             label: "SPICE",
             href: buildProxmoxWorkloadSpiceUrl({
-              baseUrl: proxmox.baseUrl,
+              baseUrl: "",
               node: detail.node,
               vmid: detail.vmid,
             }),
           },
         ]
-      : proxmox
-        ? [
-            {
-              id: "xtermjs",
-              label: "xtermjs",
-              href: buildProxmoxWorkloadXtermUrl({
-                baseUrl: proxmox.baseUrl,
-                node: detail.node,
-                vmid: detail.vmid,
-              }),
-            },
-          ]
-        : [];
+      : [
+          {
+            id: "xtermjs",
+            label: "xtermjs",
+            href: buildProxmoxWorkloadXtermUrl({
+              baseUrl: "",
+              node: detail.node,
+              vmid: detail.vmid,
+            }),
+          },
+        ];
   const updateShellHref =
-    proxmox && detail.kind === "lxc"
+    detail.kind === "lxc"
       ? buildProxmoxWorkloadXtermUrl({
-          baseUrl: proxmox.baseUrl,
+          baseUrl: "",
           node: detail.node,
           vmid: detail.vmid,
         })
@@ -247,7 +241,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             vmid={detail.vmid}
             kind={detail.kind}
             status={detail.status === "running" ? "running" : "stopped"}
-            actionable={Boolean(proxmox) && canOperate}
+            actionable={canOperate}
             consoleHref={consoleHref}
           />
         </div>
@@ -273,7 +267,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
 
       <section className="panel">
         <InventoryUpdateStatus
-          live={Boolean(proxmox)}
+          live={true}
           node={detail.node}
           vmid={detail.vmid}
           kind={detail.kind}

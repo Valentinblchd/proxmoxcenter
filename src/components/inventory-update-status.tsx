@@ -178,7 +178,7 @@ export default function InventoryUpdateStatus({
         </div>
         <div className="inventory-update-actions">
           {shellHref && result?.scanMode === "manual-shell" ? (
-            <a href={shellHref} target="_blank" rel="noreferrer" className="inventory-ghost-btn">
+            <a href={shellHref} className="inventory-ghost-btn">
               Ouvrir shell
             </a>
           ) : null}

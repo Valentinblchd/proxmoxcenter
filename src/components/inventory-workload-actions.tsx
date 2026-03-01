@@ -163,11 +163,9 @@ export default function InventoryWorkloadActions({
         {consoleHref ? (
           <a
             href={consoleHref}
-            target="_blank"
-            rel="noreferrer"
             className="inventory-inline-icon"
-            title="Ouvrir console distante"
-            aria-label="Console distante"
+            title="Ouvrir console intégrée"
+            aria-label="Console intégrée"
           >
             ⌨
           </a>

@@ -8,6 +8,7 @@ type BackupWorkloadKind = "qemu" | "lxc";
 type BackupScopeMode = "all" | "selected";
 type BackupTargetMode = "local" | "cloud";
 type BackupCloudProvider = "onedrive" | "gdrive" | "aws-s3" | "azure-blob";
+type BackupCloudProviderChoice = "" | BackupCloudProvider;
 type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
 type BackupWorkspaceMode = "simple" | "advanced";
 type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
@@ -377,6 +378,17 @@ const PROVIDER_LABEL: Record<BackupCloudProvider, string> = {
   "aws-s3": "AWS S3",
   "azure-blob": "Azure Blob Storage",
 };
+
+const CLOUD_PROVIDER_OPTIONS: Array<{
+  id: BackupCloudProviderChoice;
+  label: string;
+}> = [
+  { id: "", label: "Aucune sélection" },
+  { id: "aws-s3", label: "AWS S3" },
+  { id: "azure-blob", label: "Azure Blob" },
+  { id: "onedrive", label: "OneDrive" },
+  { id: "gdrive", label: "Google Drive" },
+];
 
 const PROVIDER_SETTING_FIELDS: Record<
   BackupCloudProvider,
@@ -862,6 +874,7 @@ export default function BackupPlannerPanel({
   const [historyFilter, setHistoryFilter] = useState<BackupHistoryFilter>("all");
   const [planForm, setPlanForm] = useState<PlanFormState>(defaultPlanForm);
   const [targetForm, setTargetForm] = useState<TargetFormState>(defaultTargetForm);
+  const [targetProviderSelection, setTargetProviderSelection] = useState<BackupCloudProviderChoice>("");
   const [restoreForm, setRestoreForm] = useState<RestoreFormState>(defaultRestoreForm);
   const [workloadFilter, setWorkloadFilter] = useState("");
   const [oneDriveOauthBusy, setOneDriveOauthBusy] = useState(false);
@@ -897,6 +910,7 @@ export default function BackupPlannerPanel({
   const [pbsNotice, setPbsNotice] = useState<string | null>(null);
   const [pbsLoaded, setPbsLoaded] = useState(false);
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
+  const selectedTargetProvider = targetProviderSelection || null;
 
   const loadConfig = useCallback(async function loadConfig() {
     setLoading(true);
@@ -1199,11 +1213,11 @@ export default function BackupPlannerPanel({
   }, [config?.cloudOauth?.brokerOrigin]);
 
   useEffect(() => {
-    if (targetForm.provider !== "onedrive") {
+    if (selectedTargetProvider !== "onedrive") {
       setOneDriveOauthBusy(false);
       setOneDriveOauthStatus(null);
     }
-    if (targetForm.provider !== "gdrive") {
+    if (selectedTargetProvider !== "gdrive") {
       setGoogleOauthBusy(false);
       setGoogleOauthStatus(null);
     }
@@ -1213,7 +1227,7 @@ export default function BackupPlannerPanel({
     setCloudFolderLoaded(false);
     setCloudFolderTrail([]);
     setNewCloudFolderName("");
-  }, [targetForm.provider]);
+  }, [selectedTargetProvider]);
 
   useEffect(() => {
     setCloudObjects([]);
@@ -1347,6 +1361,7 @@ export default function BackupPlannerPanel({
 
   function resetTargetForm() {
     setTargetForm(defaultTargetForm());
+    setTargetProviderSelection("");
     setOneDriveOauthStatus(null);
     setGoogleOauthStatus(null);
     setCloudFolderError(null);
@@ -1385,6 +1400,7 @@ export default function BackupPlannerPanel({
       settings: { ...target.settings },
       secrets: {},
     });
+    setTargetProviderSelection(target.provider);
     setOneDriveOauthStatus(null);
     setGoogleOauthStatus(null);
     setCloudFolderError(null);
@@ -1437,12 +1453,16 @@ export default function BackupPlannerPanel({
 
   async function onSaveCloudTarget(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    if (!selectedTargetProvider) {
+      setError("Sélectionne d’abord un provider cloud.");
+      return;
+    }
     await submitAction(
       {
         action: "save-cloud-target",
         target: {
           id: targetForm.id,
-          provider: targetForm.provider,
+          provider: selectedTargetProvider,
           name: targetForm.name,
           enabled: targetForm.enabled,
           settings: targetForm.settings,
@@ -1553,6 +1573,7 @@ export default function BackupPlannerPanel({
   }
 
   function onConnectOneDrive() {
+    if (selectedTargetProvider !== "onedrive") return;
     if (!currentProviderOauthReady) {
       setOneDriveOauthStatus({ state: "invalid", label: "Token invalide" });
       setError(
@@ -1584,6 +1605,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onConnectGoogleDrive() {
+    if (selectedTargetProvider !== "gdrive") return;
     if (!currentProviderOauthReady) {
       setGoogleOauthStatus({ state: "invalid", label: "Token invalide" });
       setError(
@@ -1636,10 +1658,10 @@ export default function BackupPlannerPanel({
 
   const onBrowseCloudFolders = useCallback(
     async function onBrowseCloudFolders(options?: { trail?: CloudFolderItem[]; reset?: boolean }) {
-      if (targetForm.provider !== "onedrive" && targetForm.provider !== "gdrive") return;
+      if (selectedTargetProvider !== "onedrive" && selectedTargetProvider !== "gdrive") return;
 
       const nextTrail = options?.trail ?? (options?.reset ? [] : cloudFolderTrail);
-      const currentFolder = nextTrail.at(-1) ?? getCloudFolderRoot(targetForm.provider);
+      const currentFolder = nextTrail.at(-1) ?? getCloudFolderRoot(selectedTargetProvider);
 
       setCloudFolderBusy(true);
       setCloudFolderError(null);
@@ -1654,13 +1676,13 @@ export default function BackupPlannerPanel({
             Accept: "application/json",
           },
           body: JSON.stringify({
-            provider: targetForm.provider,
+            provider: selectedTargetProvider,
             action: "list-folders",
             targetId: targetForm.id,
             settings: targetForm.settings,
             secrets: targetForm.secrets,
-            parentId: targetForm.provider === "gdrive" ? currentFolder.value : undefined,
-            parentPath: targetForm.provider === "onedrive" ? currentFolder.value : undefined,
+            parentId: selectedTargetProvider === "gdrive" ? currentFolder.value : undefined,
+            parentPath: selectedTargetProvider === "onedrive" ? currentFolder.value : undefined,
           }),
         });
         const payload = (await response.json()) as {
@@ -1675,7 +1697,7 @@ export default function BackupPlannerPanel({
         setCloudFolderTrail(nextTrail);
         setCloudFolders(payload.folders);
         setCloudFolderLoaded(true);
-        if (targetForm.provider === "onedrive") {
+        if (selectedTargetProvider === "onedrive") {
           setOneDriveOauthStatus({
             state: targetForm.settings.rootpath?.trim() ? "connected" : "imported",
             label: targetForm.settings.rootpath?.trim() ? "Prêt" : "Token importé",
@@ -1690,7 +1712,7 @@ export default function BackupPlannerPanel({
         const message = browseError instanceof Error ? browseError.message : "Erreur de lecture cloud.";
         setCloudFolderError(message);
         setCloudFolderLoaded(true);
-        if (targetForm.provider === "onedrive") {
+        if (selectedTargetProvider === "onedrive") {
           setOneDriveOauthStatus({
             state: looksLikeInvalidTokenError(message) ? "invalid" : "imported",
             label: looksLikeInvalidTokenError(message) ? "Token invalide" : "Token importé",
@@ -1706,7 +1728,7 @@ export default function BackupPlannerPanel({
         setCloudFolderBusy(false);
       }
     },
-    [cloudFolderTrail, targetForm.id, targetForm.provider, targetForm.secrets, targetForm.settings],
+    [cloudFolderTrail, selectedTargetProvider, targetForm.id, targetForm.secrets, targetForm.settings],
   );
 
   useEffect(() => {
@@ -1714,7 +1736,7 @@ export default function BackupPlannerPanel({
     if (
       cloudFolderModalOpen &&
       hasRefreshToken &&
-      (targetForm.provider === "onedrive" || targetForm.provider === "gdrive") &&
+      (selectedTargetProvider === "onedrive" || selectedTargetProvider === "gdrive") &&
       !cloudFolderBusy &&
       !cloudFolderLoaded
     ) {
@@ -1726,12 +1748,12 @@ export default function BackupPlannerPanel({
     cloudFolderLoaded,
     cloudFolderTrail,
     onBrowseCloudFolders,
-    targetForm.provider,
+    selectedTargetProvider,
     targetForm.secrets.refreshtoken,
   ]);
 
   async function onCreateCloudFolder() {
-    if (targetForm.provider !== "onedrive" && targetForm.provider !== "gdrive") return;
+    if (selectedTargetProvider !== "onedrive" && selectedTargetProvider !== "gdrive") return;
     const folderName = newCloudFolderName.trim();
     if (!folderName) {
       setCloudFolderError("Nom du dossier requis.");
@@ -1750,19 +1772,19 @@ export default function BackupPlannerPanel({
           Accept: "application/json",
         },
         body: JSON.stringify({
-          provider: targetForm.provider,
+          provider: selectedTargetProvider,
           action: "create-folder",
           targetId: targetForm.id,
           settings: targetForm.settings,
           secrets: targetForm.secrets,
           folderName,
           parentId:
-            targetForm.provider === "gdrive"
-              ? (cloudFolderTrail.at(-1) ?? getCloudFolderRoot(targetForm.provider)).value
+            selectedTargetProvider === "gdrive"
+              ? (cloudFolderTrail.at(-1) ?? getCloudFolderRoot(selectedTargetProvider)).value
               : undefined,
           parentPath:
-            targetForm.provider === "onedrive"
-              ? (cloudFolderTrail.at(-1) ?? getCloudFolderRoot(targetForm.provider)).value
+            selectedTargetProvider === "onedrive"
+              ? (cloudFolderTrail.at(-1) ?? getCloudFolderRoot(selectedTargetProvider)).value
               : undefined,
         }),
       });
@@ -1784,10 +1806,10 @@ export default function BackupPlannerPanel({
         ...current,
         settings: {
           ...current.settings,
-          [current.provider === "gdrive" ? "folderid" : "rootpath"]: payload.folder!.value,
+          [selectedTargetProvider === "gdrive" ? "folderid" : "rootpath"]: payload.folder!.value,
         },
       }));
-      if (targetForm.provider === "onedrive") {
+      if (selectedTargetProvider === "onedrive") {
         setOneDriveOauthStatus({ state: "folder", label: "Dossier détecté" });
       } else {
         setGoogleOauthStatus({ state: "folder", label: "Dossier détecté" });
@@ -1797,7 +1819,7 @@ export default function BackupPlannerPanel({
     } catch (createError) {
       const message = createError instanceof Error ? createError.message : "Erreur de création de dossier.";
       setCloudFolderError(message);
-      if (targetForm.provider === "onedrive") {
+      if (selectedTargetProvider === "onedrive") {
         setOneDriveOauthStatus({ state: looksLikeInvalidTokenError(message) ? "invalid" : "imported", label: looksLikeInvalidTokenError(message) ? "Token invalide" : "Token importé" });
       } else {
         setGoogleOauthStatus({ state: looksLikeInvalidTokenError(message) ? "invalid" : "imported", label: looksLikeInvalidTokenError(message) ? "Token invalide" : "Token importé" });
@@ -1813,12 +1835,12 @@ export default function BackupPlannerPanel({
       ...current,
       settings: {
         ...current.settings,
-        [current.provider === "gdrive" ? "folderid" : "rootpath"]: item.value,
+        [selectedTargetProvider === "gdrive" ? "folderid" : "rootpath"]: item.value,
       },
     }));
-    if (targetForm.provider === "onedrive") {
+    if (selectedTargetProvider === "onedrive") {
       setOneDriveOauthStatus({ state: "folder", label: "Dossier détecté" });
-    } else if (targetForm.provider === "gdrive") {
+    } else if (selectedTargetProvider === "gdrive") {
       setGoogleOauthStatus({ state: "folder", label: "Dossier détecté" });
     }
     setNotice(`Dossier ${item.name} sélectionné.`);
@@ -2188,9 +2210,9 @@ export default function BackupPlannerPanel({
       .filter((item): item is NonNullable<typeof item> => Boolean(item)),
   );
   const currentProviderOauthConfig =
-    targetForm.provider === "onedrive"
+    selectedTargetProvider === "onedrive"
       ? config?.oauthApps?.onedrive
-      : targetForm.provider === "gdrive"
+      : selectedTargetProvider === "gdrive"
         ? config?.oauthApps?.gdrive
         : null;
   const currentProviderOauthReady = Boolean(currentProviderOauthConfig?.configured);
@@ -2198,19 +2220,19 @@ export default function BackupPlannerPanel({
   const cloudOauthBrokerAvailable = Boolean(config?.cloudOauth?.brokerAvailable);
   const hasTargetRefreshToken = Boolean(targetForm.secrets.refreshtoken?.trim());
   const explicitCloudOauthStatus =
-    targetForm.provider === "onedrive"
+    selectedTargetProvider === "onedrive"
       ? oneDriveOauthStatus
-      : targetForm.provider === "gdrive"
+      : selectedTargetProvider === "gdrive"
         ? googleOauthStatus
         : null;
   const currentCloudOauthStatus =
-    targetForm.provider === "onedrive" || targetForm.provider === "gdrive"
+    selectedTargetProvider === "onedrive" || selectedTargetProvider === "gdrive"
       ? getDraftCloudOauthStatus({
-          provider: targetForm.provider,
+          provider: selectedTargetProvider,
           oauthReady: currentProviderOauthReady,
           refreshToken: targetForm.secrets.refreshtoken ?? "",
           folderValue:
-            targetForm.provider === "gdrive"
+            selectedTargetProvider === "gdrive"
               ? targetForm.settings.folderid ?? ""
               : targetForm.settings.rootpath ?? "",
           explicitState: explicitCloudOauthStatus,
@@ -2218,9 +2240,12 @@ export default function BackupPlannerPanel({
           hasError: Boolean(cloudFolderError),
         })
       : null;
-  const currentCloudFolder = getCloudFolderRoot(targetForm.provider);
-  const activeCloudFolder = cloudFolderTrail.at(-1) ?? currentCloudFolder;
-  const activeCloudFolderPath = formatCloudFolderPath(targetForm.provider, cloudFolderTrail);
+  const currentCloudFolder = selectedTargetProvider ? getCloudFolderRoot(selectedTargetProvider) : null;
+  const activeCloudFolder = currentCloudFolder ? cloudFolderTrail.at(-1) ?? currentCloudFolder : null;
+  const activeCloudFolderPath =
+    selectedTargetProvider && currentCloudFolder
+      ? formatCloudFolderPath(selectedTargetProvider, cloudFolderTrail)
+      : null;
   const cloudEncryptionEnabled = isEnabledSetting(targetForm.settings.encryptupload);
   const restoreTarget = cloudTargets.find((target) => target.id === restoreForm.targetId) ?? null;
   const restoreSelectedObject =
@@ -2849,58 +2874,122 @@ export default function BackupPlannerPanel({
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
+            <h2>Backup local Proxmox</h2>
+            <span className="muted">
+              {localStorages.length > 0 ? `${localStorages.length} stockage(s) détecté(s)` : "Aucun stockage détecté"}
+            </span>
+          </div>
+
+          <div className="mini-list">
+            {localStorages.length === 0 ? (
+              <div className="backup-empty-note">
+                <p className="muted">Aucun stockage backup local détecté sur Proxmox.</p>
+              </div>
+            ) : (
+              localStorages.map((storage) => (
+                <article key={storage.id} className="mini-list-item">
+                  <div>
+                    <div className="item-title">
+                      {storage.storage}
+                      <span className="item-subtitle">{storage.node ? ` • ${storage.node}` : " • cluster"}</span>
+                    </div>
+                    <div className="item-subtitle">
+                      {formatBytes(storage.usedBytes)} / {formatBytes(storage.totalBytes)}
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => {
+                      setPlanForm((current) => ({
+                        ...current,
+                        backupStorage: storage.storage,
+                        targetMode: "local",
+                      }));
+                      setActiveTab("plans");
+                    }}
+                  >
+                    Utiliser pour un plan local
+                  </button>
+                </article>
+              ))
+            )}
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
             <h2>Extension cloud backup</h2>
             <span className="muted">Secrets chiffrés au repos</span>
           </div>
 
           <form className="provision-panel" onSubmit={onSaveCloudTarget}>
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Provider</span>
-                <select
-                  className="provision-input"
-                  value={targetForm.provider}
-                  onChange={(event) =>
-                    setTargetForm((current) => ({
-                      ...current,
-                      provider: event.target.value as BackupCloudProvider,
-                    }))
-                  }
-                >
-                  <option value="aws-s3">AWS S3</option>
-                  <option value="azure-blob">Azure Blob</option>
-                  <option value="onedrive">OneDrive</option>
-                  <option value="gdrive">Google Drive</option>
-                </select>
-              </label>
-
-              <label className="provision-field">
-                <span className="provision-field-label">Nom de la cible</span>
-                <input
-                  className="provision-input"
-                  value={targetForm.name}
-                  onChange={(event) => setTargetForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Cloud cold storage"
-                  required
-                />
-              </label>
+            <div className="provision-field">
+              <span className="provision-field-label">Provider cloud</span>
+              <div className="provision-segment backup-provider-choice">
+                {CLOUD_PROVIDER_OPTIONS.map((option) => (
+                  <button
+                    key={option.id || "none"}
+                    type="button"
+                    className={`provision-seg-btn${targetProviderSelection === option.id ? " is-active" : ""}`}
+                    onClick={() => {
+                      setTargetProviderSelection(option.id);
+                      setTargetForm((current) => ({
+                        ...current,
+                        provider: option.id || current.provider,
+                        settings: current.settings.encryptupload
+                          ? { encryptupload: current.settings.encryptupload }
+                          : ({} as Record<string, string>),
+                        secrets: current.secrets.encryptionpassphrase
+                          ? { encryptionpassphrase: current.secrets.encryptionpassphrase }
+                          : ({} as Record<string, string>),
+                      }));
+                    }}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
             </div>
 
-            <label className="provision-check">
-              <input
-                type="checkbox"
-                checked={targetForm.enabled}
-                onChange={(event) =>
-                  setTargetForm((current) => ({ ...current, enabled: event.target.checked }))
-                }
-              />
-              Cible activée
-            </label>
-
-            {targetForm.provider === "onedrive" || targetForm.provider === "gdrive" ? (
+            {!selectedTargetProvider ? (
               <div className="hint-box">
                 <p className="muted">
-                  {targetForm.provider === "onedrive"
+                  Choisis d’abord une cible cloud. Le formulaire détaillé s’ouvre uniquement après sélection.
+                </p>
+              </div>
+            ) : null}
+
+            {selectedTargetProvider ? (
+              <>
+                <div className="provision-grid">
+                  <label className="provision-field">
+                    <span className="provision-field-label">Nom de la cible</span>
+                    <input
+                      className="provision-input"
+                      value={targetForm.name}
+                      onChange={(event) => setTargetForm((current) => ({ ...current, name: event.target.value }))}
+                      placeholder="Cloud cold storage"
+                      required
+                    />
+                  </label>
+                </div>
+
+                <label className="provision-check">
+                  <input
+                    type="checkbox"
+                    checked={targetForm.enabled}
+                    onChange={(event) =>
+                      setTargetForm((current) => ({ ...current, enabled: event.target.checked }))
+                    }
+                  />
+                  Cible activée
+                </label>
+
+            {selectedTargetProvider === "onedrive" || selectedTargetProvider === "gdrive" ? (
+              <div className="hint-box">
+                <p className="muted">
+                  {selectedTargetProvider === "onedrive"
                     ? cloudOauthMode === "central"
                       ? "Connexion OneDrive via le service central ProxmoxCenter. Clique, connecte-toi à Microsoft, autorise l'accès, puis choisis le dossier."
                       : "Connexion OneDrive locale. Configure une fois le client OAuth, puis connecte-toi à Microsoft et choisis le dossier."
@@ -2925,7 +3014,7 @@ export default function BackupPlannerPanel({
                   </>
                 ) : null}
                 <div className="quick-actions">
-                  {targetForm.provider === "onedrive" ? (
+                  {selectedTargetProvider === "onedrive" ? (
                     <button
                       type="button"
                       className="action-btn"
@@ -2974,7 +3063,7 @@ export default function BackupPlannerPanel({
                 <p className="item-subtitle">
                   Dossier courant:{" "}
                   <strong>
-                    {targetForm.provider === "gdrive"
+                    {selectedTargetProvider === "gdrive"
                       ? targetForm.settings.folderid || "non sélectionné"
                       : targetForm.settings.rootpath || "non sélectionné"}
                   </strong>
@@ -3029,9 +3118,9 @@ export default function BackupPlannerPanel({
               ) : null}
             </div>
 
-            {PROVIDER_SETTING_FIELDS[targetForm.provider].length > 0 ? (
+            {PROVIDER_SETTING_FIELDS[selectedTargetProvider].length > 0 ? (
               <div className="provision-grid">
-                {PROVIDER_SETTING_FIELDS[targetForm.provider].map((field) => (
+                {PROVIDER_SETTING_FIELDS[selectedTargetProvider].map((field) => (
                   <label key={field.key} className="provision-field">
                     <span className="provision-field-label">{field.label}</span>
                     <input
@@ -3053,9 +3142,9 @@ export default function BackupPlannerPanel({
               </div>
             ) : null}
 
-            {PROVIDER_SECRET_FIELDS[targetForm.provider].length > 0 ? (
+            {PROVIDER_SECRET_FIELDS[selectedTargetProvider].length > 0 ? (
               <div className="provision-grid">
-                {PROVIDER_SECRET_FIELDS[targetForm.provider].map((field) => (
+                {PROVIDER_SECRET_FIELDS[selectedTargetProvider].map((field) => (
                   <label key={field.key} className="provision-field">
                     <span className="provision-field-label">
                       {field.label}
@@ -3093,6 +3182,8 @@ export default function BackupPlannerPanel({
                 Réinitialiser
               </button>
             </div>
+              </>
+            ) : null}
           </form>
         </section>
 
@@ -4282,7 +4373,10 @@ export default function BackupPlannerPanel({
       </section>
       ) : null}
 
-      {cloudFolderModalOpen && (targetForm.provider === "onedrive" || targetForm.provider === "gdrive") ? (
+      {cloudFolderModalOpen &&
+      activeCloudFolder &&
+      activeCloudFolderPath &&
+      (selectedTargetProvider === "onedrive" || selectedTargetProvider === "gdrive") ? (
         <>
           <button
             type="button"
@@ -4293,7 +4387,7 @@ export default function BackupPlannerPanel({
           <section className="logout-confirm-dialog backup-folder-modal" role="dialog" aria-modal="true">
             <div className="panel-head">
               <h2>Choisir le dossier cloud</h2>
-              <span className="muted">{targetForm.provider === "onedrive" ? "OneDrive" : "Google Drive"}</span>
+              <span className="muted">{selectedTargetProvider === "onedrive" ? "OneDrive" : "Google Drive"}</span>
             </div>
 
             <div className="quick-actions">
@@ -4332,7 +4426,7 @@ export default function BackupPlannerPanel({
                 value={newCloudFolderName}
                 onChange={(event) => setNewCloudFolderName(event.target.value)}
                 placeholder={
-                  targetForm.provider === "onedrive"
+                  selectedTargetProvider === "onedrive"
                     ? "Nom du dossier OneDrive"
                     : "Nom du dossier Google Drive"
                 }
@@ -4354,7 +4448,7 @@ export default function BackupPlannerPanel({
 
             <div className="backup-restore-list backup-folder-list">
               {cloudFolders.map((folder) => (
-                <div key={`${targetForm.provider}-${folder.id}`} className="backup-restore-item backup-folder-item">
+                <div key={`${selectedTargetProvider}-${folder.id}`} className="backup-restore-item backup-folder-item">
                   <div>
                     <strong>{folder.name}</strong>
                     <div className="item-subtitle">{folder.value}</div>

@@ -2,8 +2,8 @@ import "server-only";
 
 type WorkloadKind = "qemu" | "lxc";
 
-function normalizeBase(baseUrl: string) {
-  return baseUrl.replace(/\/+$/, "");
+function encodeNode(node: string) {
+  return encodeURIComponent(node);
 }
 
 export function buildProxmoxWorkloadConsoleUrl(options: {
@@ -12,11 +12,11 @@ export function buildProxmoxWorkloadConsoleUrl(options: {
   vmid: number;
   kind: WorkloadKind;
 }) {
-  const params = new URLSearchParams();
-  params.set("node", options.node);
-  params.set("vmid", String(options.vmid));
-  params.set("console", options.kind === "qemu" ? "kvm" : "lxc");
-  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+  const params = new URLSearchParams({
+    node: options.node,
+    mode: options.kind === "qemu" ? "console" : "xtermjs",
+  });
+  return `/console/workload/${options.kind}/${options.vmid}?${params.toString()}`;
 }
 
 export function buildProxmoxWorkloadNoVncUrl(options: {
@@ -24,12 +24,11 @@ export function buildProxmoxWorkloadNoVncUrl(options: {
   node: string;
   vmid: number;
 }) {
-  const params = new URLSearchParams();
-  params.set("node", options.node);
-  params.set("vmid", String(options.vmid));
-  params.set("console", "kvm");
-  params.set("novnc", "1");
-  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+  const params = new URLSearchParams({
+    node: options.node,
+    mode: "novnc",
+  });
+  return `/console/workload/qemu/${options.vmid}?${params.toString()}`;
 }
 
 export function buildProxmoxWorkloadSpiceUrl(options: {
@@ -37,12 +36,11 @@ export function buildProxmoxWorkloadSpiceUrl(options: {
   node: string;
   vmid: number;
 }) {
-  const params = new URLSearchParams();
-  params.set("node", options.node);
-  params.set("vmid", String(options.vmid));
-  params.set("console", "kvm");
-  params.set("spice", "1");
-  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+  const params = new URLSearchParams({
+    node: options.node,
+    mode: "spice",
+  });
+  return `/console/workload/qemu/${options.vmid}?${params.toString()}`;
 }
 
 export function buildProxmoxWorkloadXtermUrl(options: {
@@ -50,19 +48,13 @@ export function buildProxmoxWorkloadXtermUrl(options: {
   node: string;
   vmid: number;
 }) {
-  const params = new URLSearchParams();
-  params.set("node", options.node);
-  params.set("vmid", String(options.vmid));
-  params.set("console", "lxc");
-  params.set("xtermjs", "1");
-  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+  const params = new URLSearchParams({
+    node: options.node,
+    mode: "xtermjs",
+  });
+  return `/console/workload/lxc/${options.vmid}?${params.toString()}`;
 }
 
 export function buildProxmoxNodeShellUrl(options: { baseUrl: string; node: string }) {
-  const params = new URLSearchParams({
-    node: options.node,
-    console: "shell",
-    xtermjs: "1",
-  });
-  return `${normalizeBase(options.baseUrl)}/?${params.toString()}`;
+  return `/console/node/${encodeNode(options.node)}`;
 }

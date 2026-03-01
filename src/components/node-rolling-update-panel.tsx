@@ -273,7 +273,7 @@ export default function NodeRollingUpdatePanel({
           ) : null}
           <div className="inventory-update-actions">
             {shellHref && activeJob?.status === "awaiting-manual" ? (
-              <a href={shellHref} target="_blank" rel="noreferrer" className="inventory-ghost-btn">
+              <a href={shellHref} className="inventory-ghost-btn">
                 Ouvrir shell nœud
               </a>
             ) : null}

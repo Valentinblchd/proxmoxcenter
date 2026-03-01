@@ -7,7 +7,6 @@ import NodeRollingUpdatePanel from "@/components/node-rolling-update-panel";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
-import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { getNodeDetailByName } from "@/lib/proxmox/nodes";
 import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 
@@ -78,10 +77,10 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
     );
   }
 
-  const proxmox = getProxmoxConfig();
-  const shellHref = proxmox
+  const shellHref =
+    detail
     ? buildProxmoxNodeShellUrl({
-        baseUrl: proxmox.baseUrl,
+        baseUrl: "",
         node: detail.name,
       })
     : null;
@@ -173,9 +172,9 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
             Voir les workloads du nœud
           </Link>
           {shellHref ? (
-            <a href={shellHref} target="_blank" rel="noreferrer" className="action-btn primary">
-              Shell Proxmox
-            </a>
+            <Link href={shellHref} className="action-btn primary">
+              Shell intégré
+            </Link>
           ) : (
             <span className="pill">Connexion requise</span>
           )}
@@ -184,12 +183,12 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
 
       <section className="workload-grid">
         <section className="panel">
-          <NodeUpdateStatus live={Boolean(proxmox)} node={detail.name} />
+          <NodeUpdateStatus live={true} node={detail.name} />
         </section>
 
         <section className="panel">
           <NodeRollingUpdatePanel
-            live={Boolean(proxmox)}
+            live={true}
             node={detail.name}
             canOperate={canOperate}
             shellHref={shellHref}
