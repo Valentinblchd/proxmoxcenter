@@ -8,6 +8,8 @@ readonly PROXMOXCENTER_IMAGE="\${PROXMOXCENTER_IMAGE:-ghcr.io/valentinblchd/prox
 readonly PROXMOXCENTER_PORT="\${PROXMOXCENTER_PORT:-3000}"
 readonly PROXMOXCENTER_INSTALL_BASE_URL="\${PROXMOXCENTER_INSTALL_BASE_URL:-__PROXMOXCENTER_INSTALL_BASE_URL__}"
 readonly PROXMOXCENTER_PUBLIC_ORIGIN="\${PROXMOXCENTER_PUBLIC_ORIGIN:-}"
+readonly PROXMOXCENTER_CLOUD_OAUTH_MODE="\${PROXMOXCENTER_CLOUD_OAUTH_MODE:-local}"
+readonly PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN="\${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN:-}"
 
 log() {
   printf '\\033[1;34m[proxmoxcenter]\\033[0m %s\\n' "$*"
@@ -116,6 +118,10 @@ services:
     container_name: proxmoxcenter
     ports:
       - "__PROXMOXCENTER_PORT__:3000"
+    environment:
+      PROXMOXCENTER_PUBLIC_ORIGIN: "__PROXMOXCENTER_PUBLIC_ORIGIN__"
+      PROXMOXCENTER_CLOUD_OAUTH_MODE: "__PROXMOXCENTER_CLOUD_OAUTH_MODE__"
+      PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN: "__PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN__"
     volumes:
       - "__PROXMOXCENTER_DATA_DIR__:/app/data"
     restart: unless-stopped
@@ -133,6 +139,8 @@ EOF
     -e "s|__PROXMOXCENTER_PORT__|\${PROXMOXCENTER_PORT}|g" \
     -e "s|__PROXMOXCENTER_DATA_DIR__|\${PROXMOXCENTER_DATA_DIR}|g" \
     -e "s|__PROXMOXCENTER_PUBLIC_ORIGIN__|\${PROXMOXCENTER_PUBLIC_ORIGIN}|g" \
+    -e "s|__PROXMOXCENTER_CLOUD_OAUTH_MODE__|\${PROXMOXCENTER_CLOUD_OAUTH_MODE}|g" \
+    -e "s|__PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN__|\${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN}|g" \
     "\${template_path}" > "\${PROXMOXCENTER_COMPOSE_FILE}"
   rm -f "\${template_path}"
 }
@@ -197,6 +205,8 @@ Installation terminée.
 - Compose: \${PROXMOXCENTER_COMPOSE_FILE}
 - URL locale: http://$(hostname -I 2>/dev/null | awk '{print $1}' || printf 'IP_DU_SERVEUR'):\${PROXMOXCENTER_PORT}
 - Origine canonique: \${PROXMOXCENTER_PUBLIC_ORIGIN:-non définie}
+- OAuth cloud: \${PROXMOXCENTER_CLOUD_OAUTH_MODE}
+- Broker OAuth cloud: \${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN:-non défini}
 
 Commandes utiles:
 - proxmoxcenter-status
@@ -207,7 +217,8 @@ Commandes utiles:
 1. Ouvre l'interface web.
 2. Crée le premier compte local.
 3. Configure ensuite la connexion Proxmox et, si besoin, PBS/cloud depuis l'UI.
-4. En reverse proxy, définis PROXMOXCENTER_PUBLIC_ORIGIN=https://dns:port pour verrouiller les callbacks OAuth.
+4. En reverse proxy, définis PROXMOXCENTER_PUBLIC_ORIGIN=https://dns:port.
+5. Pour OneDrive/Google Drive en mode central, définis PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN=https://ton-service-proxmoxcenter.
 EOF
 }
 

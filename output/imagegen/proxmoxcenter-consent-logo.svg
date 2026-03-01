@@ -1,0 +1,45 @@
+<svg width="512" height="512" viewBox="0 0 512 512" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <defs>
+    <linearGradient id="bg" x1="64" y1="52" x2="440" y2="456" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#13204A"/>
+      <stop offset="1" stop-color="#081126"/>
+    </linearGradient>
+    <linearGradient id="accent" x1="174" y1="132" x2="340" y2="348" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#FFB347"/>
+      <stop offset="1" stop-color="#FF8A00"/>
+    </linearGradient>
+    <filter id="shadow" x="40" y="40" width="432" height="432" filterUnits="userSpaceOnUse" color-interpolation-filters="sRGB">
+      <feFlood flood-opacity="0" result="BackgroundImageFix"/>
+      <feColorMatrix in="SourceAlpha" type="matrix" values="0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 127 0" result="hardAlpha"/>
+      <feOffset dy="14"/>
+      <feGaussianBlur stdDeviation="18"/>
+      <feComposite in2="hardAlpha" operator="out"/>
+      <feColorMatrix type="matrix" values="0 0 0 0 0.0117647 0 0 0 0 0.0392157 0 0 0 0 0.12549 0 0 0 0.38 0"/>
+      <feBlend mode="normal" in2="BackgroundImageFix" result="effect1_dropShadow_1_1"/>
+      <feBlend mode="normal" in="SourceGraphic" in2="effect1_dropShadow_1_1" result="shape"/>
+    </filter>
+  </defs>
+
+  <g filter="url(#shadow)">
+    <rect x="64" y="56" width="384" height="384" rx="104" fill="url(#bg)"/>
+    <rect x="80" y="72" width="352" height="352" rx="88" stroke="rgba(255,255,255,0.08)" stroke-width="2"/>
+  </g>
+
+  <path d="M182 174H330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+  <path d="M182 256H330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+  <path d="M182 338H330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+  <path d="M174 182V330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+  <path d="M256 182V330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+  <path d="M338 182V330" stroke="#6F86D6" stroke-width="18" stroke-linecap="round" opacity="0.65"/>
+
+  <rect x="132" y="132" width="84" height="84" rx="26" fill="#F3F7FF"/>
+  <rect x="296" y="132" width="84" height="84" rx="26" fill="#F3F7FF"/>
+  <rect x="132" y="296" width="84" height="84" rx="26" fill="#F3F7FF"/>
+  <rect x="296" y="296" width="84" height="84" rx="26" fill="#F3F7FF"/>
+
+  <rect x="214" y="214" width="84" height="84" rx="26" fill="url(#accent)"/>
+  <path d="M244 238H268C281.255 238 292 248.745 292 262V268C292 281.255 281.255 292 268 292H244V238Z" fill="#081126"/>
+  <path d="M266 256H246V274H266C270.418 274 274 270.418 274 266V264C274 259.582 270.418 256 266 256Z" fill="url(#accent)"/>
+
+  <circle cx="392" cy="120" r="16" fill="url(#accent)"/>
+</svg>

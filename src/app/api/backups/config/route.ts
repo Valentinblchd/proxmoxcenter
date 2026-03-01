@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { getCentralCloudOauthProviderStatus } from "@/lib/backups/cloud-oauth-broker";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
 import { readCloudTargetsSpaceMetrics, type CloudTargetSpaceMetrics } from "@/lib/backups/cloud-providers";
 import { readLocalBackupStorageMetrics, type LocalBackupStorageMetrics } from "@/lib/backups/local-storage-metrics";
@@ -203,17 +204,23 @@ function buildPayload(
   localStorages: LocalBackupStorageMetrics[],
 ) {
   const runtimeState = readRuntimeBackupState();
+  const brokerOauth = getCentralCloudOauthProviderStatus();
   const oauthApps = getPublicCloudOauthAppStatus();
   return {
     ok: true,
     mode,
     warnings,
+    cloudOauth: {
+      mode: brokerOauth.mode,
+      brokerOrigin: brokerOauth.brokerOrigin,
+      brokerAvailable: Boolean(brokerOauth.brokerOrigin),
+    },
     oauthApps: {
       onedrive: {
-        configured: oauthApps.onedrive.configured,
+        configured: brokerOauth.mode === "central" ? brokerOauth.onedrive : oauthApps.onedrive.configured,
       },
       gdrive: {
-        configured: oauthApps.gdrive.configured,
+        configured: brokerOauth.mode === "central" ? brokerOauth.gdrive : oauthApps.gdrive.configured,
       },
     },
     plans: config.plans,

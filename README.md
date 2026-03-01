@@ -25,3 +25,19 @@ Configuration ensuite via l'interface:
 - connexion Proxmox
 - sauvegardes local/cloud
 - PBS si utilisé
+
+## Cloud OAuth
+
+Par défaut, l'instance self-hosted fonctionne en mode local:
+
+- `PROXMOXCENTER_CLOUD_OAUTH_MODE=local`
+- configuration OneDrive / Google Drive dans `Paramètres -> Connexions`
+
+Le mode broker central reste disponible en option:
+
+- `PROXMOXCENTER_CLOUD_OAUTH_MODE=central`
+- `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN=https://ton-service-proxmoxcenter`
+
+Guide broker:
+
+- `/Users/val/Documents/Dev/ProxCenter/docs/cloud-oauth-broker.md`

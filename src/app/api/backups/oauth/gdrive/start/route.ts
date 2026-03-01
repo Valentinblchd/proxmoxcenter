@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCloudOauthBrokerStatus } from "@/lib/backups/cloud-oauth-broker";
 import { readRuntimeCloudOauthAppConfig } from "@/lib/backups/oauth-app-config";
 import { issueGoogleOauthState } from "@/lib/backups/google-oauth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -40,6 +41,23 @@ export async function POST(request: NextRequest) {
       { ok: false, error: "Trop de tentatives OAuth Google Drive. Réessaie plus tard." },
       { status: 429 },
     );
+  }
+
+  const broker = getCloudOauthBrokerStatus();
+  if (broker.mode === "central") {
+    if (!broker.brokerOrigin) {
+      return NextResponse.json(
+        { ok: false, error: "Service central OAuth ProxmoxCenter indisponible." },
+        { status: 503 },
+      );
+    }
+    const origin = getTrustedOriginForRequest(request) ?? request.nextUrl.origin;
+    const authorizeUrl = new URL("/api/cloud-broker/oauth/gdrive/start", broker.brokerOrigin);
+    authorizeUrl.searchParams.set("origin", origin);
+    return NextResponse.json({
+      ok: true,
+      authorizeUrl: authorizeUrl.toString(),
+    });
   }
 
   let body: { clientId?: unknown; clientSecret?: unknown };

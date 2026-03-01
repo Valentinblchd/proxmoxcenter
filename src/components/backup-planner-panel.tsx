@@ -55,6 +55,11 @@ type BackupConfigResponse = {
   ok: boolean;
   mode: "offline" | "live";
   warnings: string[];
+  cloudOauth?: {
+    mode: "central" | "local";
+    brokerOrigin: string | null;
+    brokerAvailable: boolean;
+  };
   oauthApps?: {
     onedrive: {
       configured: boolean;
@@ -1125,7 +1130,10 @@ export default function BackupPlannerPanel({
 
   useEffect(() => {
     function onMessage(event: MessageEvent<CloudOauthMessage>) {
-      if (event.origin !== window.location.origin) return;
+      const brokerOrigin = config?.cloudOauth?.brokerOrigin ?? null;
+      if (event.origin !== window.location.origin && (!brokerOrigin || event.origin !== brokerOrigin)) {
+        return;
+      }
       const data = event.data;
       if (!data || (data.type !== "proxcenter:onedrive-oauth" && data.type !== "proxcenter:gdrive-oauth")) {
         return;
@@ -1188,7 +1196,7 @@ export default function BackupPlannerPanel({
     return () => {
       window.removeEventListener("message", onMessage);
     };
-  }, []);
+  }, [config?.cloudOauth?.brokerOrigin]);
 
   useEffect(() => {
     if (targetForm.provider !== "onedrive") {
@@ -1547,7 +1555,11 @@ export default function BackupPlannerPanel({
   function onConnectOneDrive() {
     if (!currentProviderOauthReady) {
       setOneDriveOauthStatus({ state: "invalid", label: "Token invalide" });
-      setError("Configure d'abord OneDrive OAuth dans Paramètres -> Connexions.");
+      setError(
+        cloudOauthMode === "central"
+          ? "Service cloud ProxmoxCenter indisponible pour OneDrive."
+          : "OneDrive OAuth local n'est pas configuré.",
+      );
       return;
     }
 
@@ -1574,7 +1586,11 @@ export default function BackupPlannerPanel({
   async function onConnectGoogleDrive() {
     if (!currentProviderOauthReady) {
       setGoogleOauthStatus({ state: "invalid", label: "Token invalide" });
-      setError("Configure d'abord Google Drive OAuth dans Paramètres -> Connexions.");
+      setError(
+        cloudOauthMode === "central"
+          ? "Service cloud ProxmoxCenter indisponible pour Google Drive."
+          : "Google Drive OAuth local n'est pas configuré.",
+      );
       return;
     }
 
@@ -2178,6 +2194,8 @@ export default function BackupPlannerPanel({
         ? config?.oauthApps?.gdrive
         : null;
   const currentProviderOauthReady = Boolean(currentProviderOauthConfig?.configured);
+  const cloudOauthMode = config?.cloudOauth?.mode ?? "central";
+  const cloudOauthBrokerAvailable = Boolean(config?.cloudOauth?.brokerAvailable);
   const hasTargetRefreshToken = Boolean(targetForm.secrets.refreshtoken?.trim());
   const explicitCloudOauthStatus =
     targetForm.provider === "onedrive"
@@ -2883,15 +2901,28 @@ export default function BackupPlannerPanel({
               <div className="hint-box">
                 <p className="muted">
                   {targetForm.provider === "onedrive"
-                    ? "Connexion OneDrive via OAuth global. Clique, connecte-toi à Microsoft, autorise l'accès, puis choisis le dossier."
-                    : "Connexion Google Drive via OAuth global. Clique, connecte-toi à Google, autorise l'accès, puis choisis le dossier."}
+                    ? cloudOauthMode === "central"
+                      ? "Connexion OneDrive via le service central ProxmoxCenter. Clique, connecte-toi à Microsoft, autorise l'accès, puis choisis le dossier."
+                      : "Connexion OneDrive locale. Configure une fois le client OAuth, puis connecte-toi à Microsoft et choisis le dossier."
+                    : cloudOauthMode === "central"
+                      ? "Connexion Google Drive via le service central ProxmoxCenter. Clique, connecte-toi à Google, autorise l'accès, puis choisis le dossier."
+                      : "Connexion Google Drive locale. Configure une fois le client OAuth, puis connecte-toi à Google et choisis le dossier."}
                 </p>
                 {!currentProviderOauthReady ? (
-                  <div className="setup-actions">
-                    <Link className="action-btn" href="/settings?tab=connections">
-                      Configurer OAuth cloud
-                    </Link>
-                  </div>
+                  <>
+                    <p className="muted">
+                      {cloudOauthMode === "central"
+                        ? "Le broker OAuth ProxmoxCenter n'est pas encore disponible sur cette instance."
+                        : "Le client OAuth n'est pas encore configuré."}
+                    </p>
+                    {cloudOauthMode === "local" ? (
+                      <div className="setup-actions">
+                        <Link className="action-btn" href="/settings?tab=connections">
+                          Configurer OneDrive / Google Drive
+                        </Link>
+                      </div>
+                    ) : null}
+                  </>
                 ) : null}
                 <div className="quick-actions">
                   {targetForm.provider === "onedrive" ? (
@@ -2899,7 +2930,12 @@ export default function BackupPlannerPanel({
                       type="button"
                       className="action-btn"
                       onClick={onConnectOneDrive}
-                      disabled={oneDriveOauthBusy || busy || !currentProviderOauthReady}
+                      disabled={
+                        oneDriveOauthBusy ||
+                        busy ||
+                        !currentProviderOauthReady ||
+                        (cloudOauthMode === "central" && !cloudOauthBrokerAvailable)
+                      }
                     >
                       {oneDriveOauthBusy ? "Connexion OneDrive..." : "Connecter OneDrive"}
                     </button>
@@ -2908,7 +2944,12 @@ export default function BackupPlannerPanel({
                       type="button"
                       className="action-btn"
                       onClick={() => void onConnectGoogleDrive()}
-                      disabled={googleOauthBusy || busy || !currentProviderOauthReady}
+                      disabled={
+                        googleOauthBusy ||
+                        busy ||
+                        !currentProviderOauthReady ||
+                        (cloudOauthMode === "central" && !cloudOauthBrokerAvailable)
+                      }
                     >
                       {googleOauthBusy ? "Connexion Google Drive..." : "Connecter Google Drive"}
                     </button>

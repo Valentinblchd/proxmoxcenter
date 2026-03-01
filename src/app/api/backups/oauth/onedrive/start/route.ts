@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { getCloudOauthBrokerStatus } from "@/lib/backups/cloud-oauth-broker";
 import { readRuntimeCloudOauthAppConfig } from "@/lib/backups/oauth-app-config";
 import { issueOneDriveOauthState } from "@/lib/backups/onedrive-oauth";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -48,6 +49,20 @@ export async function GET(request: NextRequest) {
       { ok: false, error: "Trop de tentatives OAuth OneDrive. Réessaie plus tard." },
       { status: 429 },
     );
+  }
+
+  const broker = getCloudOauthBrokerStatus();
+  if (broker.mode === "central") {
+    if (!broker.brokerOrigin) {
+      return NextResponse.json(
+        { ok: false, error: "Service central OAuth ProxmoxCenter indisponible." },
+        { status: 503 },
+      );
+    }
+    const origin = getTrustedOriginForRequest(request) ?? request.nextUrl.origin;
+    const brokerUrl = new URL("/api/cloud-broker/oauth/onedrive/start", broker.brokerOrigin);
+    brokerUrl.searchParams.set("origin", origin);
+    return NextResponse.redirect(brokerUrl);
   }
 
   const runtimeConfig = readRuntimeCloudOauthAppConfig();
