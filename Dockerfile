@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci
+RUN npm ci --unsafe-perm=true --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
@@ -15,16 +15,19 @@ ENV NODE_ENV=production
 ENV PORT=3000
 ENV HOSTNAME=0.0.0.0
 
-RUN apt-get update \
-  && apt-get install -y --no-install-recommends ca-certificates curl gpg \
-  && mkdir -p /usr/share/keyrings \
-  && curl -fsSL https://enterprise.proxmox.com/debian/proxmox-release-bookworm.gpg \
-    | gpg --dearmor -o /usr/share/keyrings/proxmox-release-bookworm.gpg \
-  && echo "deb [signed-by=/usr/share/keyrings/proxmox-release-bookworm.gpg] http://download.proxmox.com/debian/pbs-client bookworm main" \
-    > /etc/apt/sources.list.d/proxmox-pbs-client.list \
-  && apt-get update \
-  && apt-get install -y --no-install-recommends proxmox-backup-client \
-  && rm -rf /var/lib/apt/lists/*
+RUN set -eux; \
+  export DEBIAN_FRONTEND=noninteractive; \
+  apt-get update; \
+  apt-get install -y --no-install-recommends ca-certificates curl gpg; \
+  mkdir -p /usr/share/keyrings; \
+  if curl -fsSL https://download.proxmox.com/debian/proxmox-release-bookworm.gpg -o /tmp/proxmox-release-bookworm.gpg; then \
+    if gpg --batch --yes --dearmor -o /usr/share/keyrings/proxmox-release-bookworm.gpg /tmp/proxmox-release-bookworm.gpg; then \
+      echo "deb [signed-by=/usr/share/keyrings/proxmox-release-bookworm.gpg] http://download.proxmox.com/debian/pbs-client bookworm main" > /etc/apt/sources.list.d/proxmox-pbs-client.list; \
+      apt-get update || true; \
+      apt-get install -y --no-install-recommends proxmox-backup-client || true; \
+    fi; \
+  fi; \
+  rm -rf /var/lib/apt/lists/* /tmp/proxmox-release-bookworm.gpg
 
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./

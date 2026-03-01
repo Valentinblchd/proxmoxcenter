@@ -206,7 +206,7 @@ wait_for_health() {
 print_summary() {
   cat <<EOF
 
-Installation terminée.
+Installation terminée. Amusez-vous bien.
 
 - Répertoire: ${PROXMOXCENTER_INSTALL_DIR}
 - Sources: ${PROXMOXCENTER_APP_DIR}
@@ -230,6 +230,7 @@ EOF
 
 main() {
   require_root
+  log "Merci d'utiliser ProxmoxCenter."
   check_platform
   detect_container_runtime
   require_apt
