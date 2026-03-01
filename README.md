@@ -16,7 +16,7 @@ L'application ne dépend pas d'un `.env` pour la configuration fonctionnelle cou
 ## Installation
 
 ```bash
-curl -fsSL https://proxmoxcenter/install | sudo bash
+curl -fsSL https://raw.githubusercontent.com/Valentinblchd/proxmoxcenter/main/install.sh | sudo bash
 ```
 
 Configuration ensuite via l'interface:
