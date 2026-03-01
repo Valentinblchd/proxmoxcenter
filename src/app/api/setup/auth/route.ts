@@ -115,19 +115,21 @@ export async function GET(request: NextRequest) {
 }
 
 export async function POST(request: NextRequest) {
-  if (getAuthStatus().active) {
+  const authStatus = getAuthStatus();
+
+  if (authStatus.active) {
     const capability = await requireRequestCapability(request, "admin");
     if (!capability.ok) {
       return capability.response;
     }
-  }
 
-  const originCheck = ensureSameOriginRequest(request);
-  if (!originCheck.ok) {
-    return NextResponse.json(
-      { ok: false, error: "Forbidden: origine de requête invalide." },
-      { status: 403 },
-    );
+    const originCheck = ensureSameOriginRequest(request);
+    if (!originCheck.ok) {
+      return NextResponse.json(
+        { ok: false, error: "Forbidden: origine de requête invalide." },
+        { status: 403 },
+      );
+    }
   }
 
   const gate = consumeRateLimit(`setup-auth:post:${getClientIp(request)}`, AUTH_SETUP_POST_LIMIT);
