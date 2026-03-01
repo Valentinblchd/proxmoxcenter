@@ -411,7 +411,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                 </h2>
               </div>
               <div className="inventory-table-actions">
-                <InventoryRefreshButton />
+                <InventoryRefreshButton auto={hasLiveData} intervalMs={5000} />
                 <Link href="/provision?kind=qemu" className="inventory-primary-btn">
                   + Create VM
                 </Link>

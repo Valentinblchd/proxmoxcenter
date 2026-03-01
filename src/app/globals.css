@@ -2888,7 +2888,7 @@ code {
 .inventory-tabs-panel {
   padding: 0.5rem 0.55rem;
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 0.5rem;
   border-color: rgba(255, 255, 255, 0.1);
@@ -2900,13 +2900,17 @@ code {
 .inventory-tabs {
   display: flex;
   align-items: center;
+  align-content: flex-start;
+  flex-wrap: wrap;
   gap: 0.3rem;
-  overflow: auto;
+  overflow: visible;
   padding: 0.24rem;
   border-radius: 11px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   background: rgba(8, 11, 29, 0.7);
   scrollbar-width: none;
+  min-width: 0;
+  flex: 1 1 auto;
 }
 
 .inventory-tabs::-webkit-scrollbar {
@@ -2970,6 +2974,27 @@ code {
   display: inline-flex;
   gap: 0.25rem;
   flex: 0 0 auto;
+  align-self: flex-start;
+}
+
+.inventory-refresh-cluster {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.45rem;
+  flex-wrap: wrap;
+}
+
+.inventory-refresh-status {
+  min-height: 32px;
+  display: inline-flex;
+  align-items: center;
+  padding: 0.2rem 0.56rem;
+  border-radius: 999px;
+  border: 1px solid rgba(88, 224, 105, 0.16);
+  background: rgba(88, 224, 105, 0.08);
+  color: #cbffd8;
+  font-size: 0.74rem;
+  font-weight: 700;
 }
 
 .inventory-mini-toggle {
@@ -3070,6 +3095,9 @@ code {
 .inventory-table-wrap {
   overflow: auto;
   max-width: 100%;
+  padding-bottom: 0.16rem;
+  scrollbar-gutter: stable both-edges;
+  overscroll-behavior-x: contain;
   background:
     linear-gradient(180deg, rgba(255, 255, 255, 0.015), transparent 22%),
     rgba(7, 10, 25, 0.35);
@@ -3077,7 +3105,7 @@ code {
 
 .inventory-table {
   width: 100%;
-  min-width: 1260px;
+  min-width: 1140px;
   border-collapse: collapse;
   font-size: 0.78rem;
 }
@@ -3127,6 +3155,11 @@ code {
   background:
     linear-gradient(90deg, rgba(255, 159, 28, 0.08), transparent 16%),
     rgba(255, 255, 255, 0.01);
+}
+
+.inventory-table th:last-child,
+.inventory-table td:last-child {
+  white-space: nowrap;
 }
 
 .inventory-table.is-compact th:nth-child(1),
@@ -4645,6 +4678,34 @@ code {
   .theme-image-source-grid {
     grid-template-columns: 1fr;
   }
+
+  .inventory-tabs {
+    flex-wrap: nowrap;
+    overflow-x: auto;
+    overflow-y: hidden;
+  }
+}
+
+@media (max-width: 1620px) {
+  .inventory-table th:nth-child(9),
+  .inventory-table td:nth-child(9) {
+    display: none;
+  }
+
+  .inventory-table {
+    min-width: 1060px;
+  }
+}
+
+@media (max-width: 1460px) {
+  .inventory-table th:nth-child(10),
+  .inventory-table td:nth-child(10) {
+    display: none;
+  }
+
+  .inventory-table {
+    min-width: 980px;
+  }
 }
 
 @media (max-width: 779px) {
@@ -4785,8 +4846,11 @@ code {
   }
 
   .inventory-tabs {
+    flex-wrap: nowrap;
     padding: 0.2rem;
     gap: 0.24rem;
+    overflow-x: auto;
+    overflow-y: hidden;
   }
 
   .inventory-tab {
