@@ -128,6 +128,24 @@ function parseOriginFromReferer(referer: string | null) {
   }
 }
 
+function normalizePort(protocol: string, port: string) {
+  if (port) return port;
+  return protocol === "https:" ? "443" : protocol === "http:" ? "80" : "";
+}
+
+function sameHostAndPort(left: string, right: string) {
+  try {
+    const leftUrl = new URL(left);
+    const rightUrl = new URL(right);
+    return (
+      leftUrl.hostname === rightUrl.hostname &&
+      normalizePort(leftUrl.protocol, leftUrl.port) === normalizePort(rightUrl.protocol, rightUrl.port)
+    );
+  } catch {
+    return false;
+  }
+}
+
 type SameOriginCheckResult =
   | { ok: true }
   | { ok: false; reason: string };
@@ -153,7 +171,13 @@ export function ensureSameOriginRequest(
   }
 
   if (!acceptedOrigins.has(sourceOrigin)) {
-    return { ok: false, reason: "Cross-origin request blocked." };
+    const sameEndpoint = [...acceptedOrigins].some((candidate) => sameHostAndPort(candidate, sourceOrigin));
+    if (!sameEndpoint) {
+      const secFetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
+      if (!["same-origin", "same-site", "none"].includes(secFetchSite)) {
+        return { ok: false, reason: "Cross-origin request blocked." };
+      }
+    }
   }
 
   return { ok: true };
