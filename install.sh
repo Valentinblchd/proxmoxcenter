@@ -2,14 +2,14 @@
 set -Eeuo pipefail
 
 readonly PROXMOXCENTER_INSTALL_DIR="${PROXMOXCENTER_INSTALL_DIR:-/opt/proxmoxcenter}"
+readonly PROXMOXCENTER_APP_DIR="${PROXMOXCENTER_INSTALL_DIR}/app"
 readonly PROXMOXCENTER_DATA_DIR="${PROXMOXCENTER_DATA_DIR:-${PROXMOXCENTER_INSTALL_DIR}/data}"
 readonly PROXMOXCENTER_COMPOSE_FILE="${PROXMOXCENTER_INSTALL_DIR}/docker-compose.yml"
-readonly PROXMOXCENTER_IMAGE="${PROXMOXCENTER_IMAGE:-ghcr.io/valentinblchd/proxmoxcenter:latest}"
 readonly PROXMOXCENTER_PORT="${PROXMOXCENTER_PORT:-3000}"
-readonly PROXMOXCENTER_INSTALL_BASE_URL="${PROXMOXCENTER_INSTALL_BASE_URL:-https://raw.githubusercontent.com/Valentinblchd/proxmoxcenter/main/public/install-assets}"
 readonly PROXMOXCENTER_PUBLIC_ORIGIN="${PROXMOXCENTER_PUBLIC_ORIGIN:-}"
 readonly PROXMOXCENTER_CLOUD_OAUTH_MODE="${PROXMOXCENTER_CLOUD_OAUTH_MODE:-local}"
 readonly PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN="${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN:-}"
+readonly PROXMOXCENTER_SOURCE_ARCHIVE="${PROXMOXCENTER_SOURCE_ARCHIVE:-https://codeload.github.com/Valentinblchd/proxmoxcenter/tar.gz/refs/heads/main}"
 
 log() {
   printf '\033[1;34m[proxmoxcenter]\033[0m %s\n' "$*"
@@ -104,26 +104,39 @@ wait_for_docker() {
   done
 }
 
-render_compose_template() {
-  local template_path="${PROXMOXCENTER_INSTALL_DIR}/docker-compose.template.yml"
-  if curl -fsSL "${PROXMOXCENTER_INSTALL_BASE_URL}/docker-compose.yml" -o "${template_path}"; then
-    :
-  else
-    warn "Impossible de télécharger le template distant. Utilisation du template embarqué."
-    cat >"${template_path}" <<'EOF'
+refresh_source_checkout() {
+  local tmp_dir archive_path
+  tmp_dir="$(mktemp -d)"
+  archive_path="${tmp_dir}/proxmoxcenter.tar.gz"
+
+  log "Téléchargement des sources ProxmoxCenter."
+  curl -fsSL "${PROXMOXCENTER_SOURCE_ARCHIVE}" -o "${archive_path}"
+
+  mkdir -p "${PROXMOXCENTER_INSTALL_DIR}"
+  rm -rf "${PROXMOXCENTER_APP_DIR}"
+  mkdir -p "${PROXMOXCENTER_APP_DIR}"
+  tar -xzf "${archive_path}" -C "${PROXMOXCENTER_APP_DIR}" --strip-components=1
+  rm -rf "${tmp_dir}"
+}
+
+write_compose_file() {
+  cat >"${PROXMOXCENTER_COMPOSE_FILE}" <<EOF
 name: proxmoxcenter
 services:
   proxmoxcenter:
-    image: __PROXMOXCENTER_IMAGE__
+    build:
+      context: ${PROXMOXCENTER_APP_DIR}
+      dockerfile: Dockerfile
+    image: proxmoxcenter-local:latest
     container_name: proxmoxcenter
     ports:
-      - "__PROXMOXCENTER_PORT__:3000"
+      - "${PROXMOXCENTER_PORT}:3000"
     environment:
-      PROXMOXCENTER_PUBLIC_ORIGIN: "__PROXMOXCENTER_PUBLIC_ORIGIN__"
-      PROXMOXCENTER_CLOUD_OAUTH_MODE: "__PROXMOXCENTER_CLOUD_OAUTH_MODE__"
-      PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN: "__PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN__"
+      PROXMOXCENTER_PUBLIC_ORIGIN: "${PROXMOXCENTER_PUBLIC_ORIGIN}"
+      PROXMOXCENTER_CLOUD_OAUTH_MODE: "${PROXMOXCENTER_CLOUD_OAUTH_MODE}"
+      PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN: "${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN}"
     volumes:
-      - "__PROXMOXCENTER_DATA_DIR__:/app/data"
+      - "${PROXMOXCENTER_DATA_DIR}:/app/data"
     restart: unless-stopped
     healthcheck:
       test: ["CMD", "curl", "-fsS", "http://127.0.0.1:3000/api/health"]
@@ -132,25 +145,20 @@ services:
       retries: 5
       start_period: 20s
 EOF
-  fi
-
-  sed \
-    -e "s|__PROXMOXCENTER_IMAGE__|${PROXMOXCENTER_IMAGE}|g" \
-    -e "s|__PROXMOXCENTER_PORT__|${PROXMOXCENTER_PORT}|g" \
-    -e "s|__PROXMOXCENTER_DATA_DIR__|${PROXMOXCENTER_DATA_DIR}|g" \
-    -e "s|__PROXMOXCENTER_PUBLIC_ORIGIN__|${PROXMOXCENTER_PUBLIC_ORIGIN}|g" \
-    -e "s|__PROXMOXCENTER_CLOUD_OAUTH_MODE__|${PROXMOXCENTER_CLOUD_OAUTH_MODE}|g" \
-    -e "s|__PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN__|${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN}|g" \
-    "${template_path}" > "${PROXMOXCENTER_COMPOSE_FILE}"
-  rm -f "${template_path}"
 }
 
 write_helper_scripts() {
   cat >/usr/local/bin/proxmoxcenter-update <<EOF
 #!/usr/bin/env bash
 set -Eeuo pipefail
-docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" pull
-docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" up -d
+export PROXMOXCENTER_INSTALL_DIR="${PROXMOXCENTER_INSTALL_DIR}"
+export PROXMOXCENTER_DATA_DIR="${PROXMOXCENTER_DATA_DIR}"
+export PROXMOXCENTER_PORT="${PROXMOXCENTER_PORT}"
+export PROXMOXCENTER_PUBLIC_ORIGIN="${PROXMOXCENTER_PUBLIC_ORIGIN}"
+export PROXMOXCENTER_CLOUD_OAUTH_MODE="${PROXMOXCENTER_CLOUD_OAUTH_MODE}"
+export PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN="${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN}"
+export PROXMOXCENTER_SOURCE_ARCHIVE="${PROXMOXCENTER_SOURCE_ARCHIVE}"
+curl -fsSL https://raw.githubusercontent.com/Valentinblchd/proxmoxcenter/main/install.sh | bash
 EOF
   chmod +x /usr/local/bin/proxmoxcenter-update
 
@@ -172,11 +180,11 @@ EOF
 
 install_stack() {
   mkdir -p "${PROXMOXCENTER_INSTALL_DIR}" "${PROXMOXCENTER_DATA_DIR}"
-  render_compose_template
+  refresh_source_checkout
+  write_compose_file
   write_helper_scripts
-  log "Démarrage de ProxmoxCenter."
-  docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" pull
-  docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" up -d
+  log "Build local et démarrage de ProxmoxCenter."
+  docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" up -d --build
 }
 
 wait_for_health() {
@@ -185,7 +193,7 @@ wait_for_health() {
 
   until curl -fsS "${health_url}" >/dev/null 2>&1; do
     attempt=$((attempt + 1))
-    if (( attempt >= 45 )); then
+    if (( attempt >= 60 )); then
       warn "Le conteneur est démarré mais le healthcheck HTTP n'a pas encore répondu."
       return
     fi
@@ -201,6 +209,7 @@ print_summary() {
 Installation terminée.
 
 - Répertoire: ${PROXMOXCENTER_INSTALL_DIR}
+- Sources: ${PROXMOXCENTER_APP_DIR}
 - Données persistées: ${PROXMOXCENTER_DATA_DIR}
 - Compose: ${PROXMOXCENTER_COMPOSE_FILE}
 - URL locale: http://$(hostname -I 2>/dev/null | awk '{print $1}' || printf 'IP_DU_SERVEUR'):${PROXMOXCENTER_PORT}
