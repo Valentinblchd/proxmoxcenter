@@ -2,14 +2,13 @@
 set -Eeuo pipefail
 
 readonly PROXMOXCENTER_INSTALL_DIR="${PROXMOXCENTER_INSTALL_DIR:-/opt/proxmoxcenter}"
-readonly PROXMOXCENTER_APP_DIR="${PROXMOXCENTER_INSTALL_DIR}/app"
 readonly PROXMOXCENTER_DATA_DIR="${PROXMOXCENTER_DATA_DIR:-${PROXMOXCENTER_INSTALL_DIR}/data}"
 readonly PROXMOXCENTER_COMPOSE_FILE="${PROXMOXCENTER_INSTALL_DIR}/docker-compose.yml"
 readonly PROXMOXCENTER_PORT="${PROXMOXCENTER_PORT:-3000}"
 readonly PROXMOXCENTER_PUBLIC_ORIGIN="${PROXMOXCENTER_PUBLIC_ORIGIN:-}"
 readonly PROXMOXCENTER_CLOUD_OAUTH_MODE="${PROXMOXCENTER_CLOUD_OAUTH_MODE:-local}"
 readonly PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN="${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN:-}"
-readonly PROXMOXCENTER_SOURCE_ARCHIVE="${PROXMOXCENTER_SOURCE_ARCHIVE:-https://codeload.github.com/Valentinblchd/proxmoxcenter/tar.gz/refs/heads/main}"
+readonly PROXMOXCENTER_IMAGE="${PROXMOXCENTER_IMAGE:-ghcr.io/valentinblchd/proxmoxcenter:latest}"
 
 log() {
   printf '\033[1;34m[proxmoxcenter]\033[0m %s\n' "$*"
@@ -104,30 +103,12 @@ wait_for_docker() {
   done
 }
 
-refresh_source_checkout() {
-  local tmp_dir archive_path
-  tmp_dir="$(mktemp -d)"
-  archive_path="${tmp_dir}/proxmoxcenter.tar.gz"
-
-  log "Téléchargement des sources ProxmoxCenter."
-  curl -fsSL "${PROXMOXCENTER_SOURCE_ARCHIVE}" -o "${archive_path}"
-
-  mkdir -p "${PROXMOXCENTER_INSTALL_DIR}"
-  rm -rf "${PROXMOXCENTER_APP_DIR}"
-  mkdir -p "${PROXMOXCENTER_APP_DIR}"
-  tar -xzf "${archive_path}" -C "${PROXMOXCENTER_APP_DIR}" --strip-components=1
-  rm -rf "${tmp_dir}"
-}
-
 write_compose_file() {
   cat >"${PROXMOXCENTER_COMPOSE_FILE}" <<EOF
 name: proxmoxcenter
 services:
   proxmoxcenter:
-    build:
-      context: ${PROXMOXCENTER_APP_DIR}
-      dockerfile: Dockerfile
-    image: proxmoxcenter-local:latest
+    image: ${PROXMOXCENTER_IMAGE}
     container_name: proxmoxcenter
     ports:
       - "${PROXMOXCENTER_PORT}:3000"
@@ -157,7 +138,7 @@ export PROXMOXCENTER_PORT="${PROXMOXCENTER_PORT}"
 export PROXMOXCENTER_PUBLIC_ORIGIN="${PROXMOXCENTER_PUBLIC_ORIGIN}"
 export PROXMOXCENTER_CLOUD_OAUTH_MODE="${PROXMOXCENTER_CLOUD_OAUTH_MODE}"
 export PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN="${PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN}"
-export PROXMOXCENTER_SOURCE_ARCHIVE="${PROXMOXCENTER_SOURCE_ARCHIVE}"
+export PROXMOXCENTER_IMAGE="${PROXMOXCENTER_IMAGE}"
 curl -fsSL https://raw.githubusercontent.com/Valentinblchd/proxmoxcenter/main/install.sh | bash
 EOF
   chmod +x /usr/local/bin/proxmoxcenter-update
@@ -180,11 +161,14 @@ EOF
 
 install_stack() {
   mkdir -p "${PROXMOXCENTER_INSTALL_DIR}" "${PROXMOXCENTER_DATA_DIR}"
-  refresh_source_checkout
   write_compose_file
   write_helper_scripts
-  log "Build local et démarrage de ProxmoxCenter."
-  docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" up -d --build
+  log "Téléchargement de l'image ProxmoxCenter."
+  if ! docker pull "${PROXMOXCENTER_IMAGE}"; then
+    fail "Impossible de télécharger ${PROXMOXCENTER_IMAGE}. Rends le package GHCR public ou connecte Docker à GHCR avant de relancer l'installation."
+  fi
+  log "Démarrage de ProxmoxCenter."
+  docker compose -f "${PROXMOXCENTER_COMPOSE_FILE}" up -d
 }
 
 wait_for_health() {
@@ -209,7 +193,6 @@ print_summary() {
 Installation terminée. Amusez-vous bien.
 
 - Répertoire: ${PROXMOXCENTER_INSTALL_DIR}
-- Sources: ${PROXMOXCENTER_APP_DIR}
 - Données persistées: ${PROXMOXCENTER_DATA_DIR}
 - Compose: ${PROXMOXCENTER_COMPOSE_FILE}
 - URL locale: http://$(hostname -I 2>/dev/null | awk '{print $1}' || printf 'IP_DU_SERVEUR'):${PROXMOXCENTER_PORT}
