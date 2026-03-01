@@ -1,7 +1,7 @@
 FROM node:22-bookworm-slim AS deps
 WORKDIR /app
 COPY package.json package-lock.json ./
-RUN npm ci --unsafe-perm=true --no-audit --no-fund
+RUN npm ci --ignore-scripts --no-audit --no-fund
 
 FROM node:22-bookworm-slim AS builder
 WORKDIR /app
