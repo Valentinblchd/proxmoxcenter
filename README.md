@@ -31,6 +31,11 @@ L'installateur :
 3. Télécharge l'image depuis `ghcr.io/valentinblchd/proxmoxcenter:latest`
 4. Démarre le conteneur et attend le healthcheck
 
+### Taille du package
+
+- Image Docker ProxCenter actuelle: environ **392 MiB** en local (`linux/amd64`)
+- La taille peut légèrement varier selon la version publiée et la plateforme cible
+
 ### Variables d'environnement optionnelles
 
 Passe-les en préfixe de la commande d'installation :
