@@ -199,26 +199,15 @@ wait_for_health() {
 }
 
 print_summary() {
+  local server_ip
+  server_ip="$(hostname -I 2>/dev/null | awk '{print $1}')"
+  if [[ -z "${server_ip}" ]]; then
+    server_ip="IP_DU_SERVEUR"
+  fi
   cat <<EOF
 
 Installation terminée. Amusez-vous bien.
-
-- Répertoire: ${PROXMOXCENTER_INSTALL_DIR}
-- Données persistées: ${PROXMOXCENTER_DATA_DIR}
-- Compose: ${PROXMOXCENTER_COMPOSE_FILE}
-- URL locale: http://$(hostname -I 2>/dev/null | awk '{print $1}' || printf 'IP_DU_SERVEUR'):${PROXMOXCENTER_PORT}
-- Origine canonique: ${PROXMOXCENTER_PUBLIC_ORIGIN:-non définie}
-
-Commandes utiles:
-- proxmoxcenter-status
-- proxmoxcenter-logs
-- proxmoxcenter-update
-
-Étapes suivantes:
-1. Ouvre l'interface web.
-2. Crée le premier compte local.
-3. Configure ensuite la connexion Proxmox et, si besoin, PBS/cloud depuis l'UI.
-4. Si ton URL finale n'est pas localhost, définis PROXMOXCENTER_PUBLIC_ORIGIN=http://ip:port ou https://dns.
+Connectez-vous à cette adresse: http://${server_ip}:${PROXMOXCENTER_PORT}
 EOF
 }
 
