@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { stageRestorePayload } from "@/lib/backups/restore-staging";
 import { readPbsToolingStatus, requireRuntimePbsConfig, restoreArchiveFromPbs, runPbsJsonCommand } from "@/lib/pbs/tooling";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -203,6 +204,11 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
   }
 
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   try {
     const config = requireRuntimePbsConfig();
     const tooling = await readPbsToolingStatus();
@@ -231,6 +237,11 @@ export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+  }
+
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
   }
 
   const gate = consumeRateLimit(`pbs:browser:${getClientIp(request)}`, PBS_BROWSER_LIMIT);

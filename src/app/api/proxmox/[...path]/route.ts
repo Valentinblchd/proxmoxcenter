@@ -1,7 +1,6 @@
 import { NextRequest } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
 import {
-  applyProxmoxTlsMode,
   getProxmoxFetchDispatcher,
   getProxmoxAuthHeaderValue,
   getProxmoxConfig,
@@ -143,8 +142,6 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
       },
     );
   }
-
-  applyProxmoxTlsMode(config);
 
   const upstreamUrl = buildUpstreamUrl(path, request.nextUrl, config.baseUrl);
   const headers = makeUpstreamHeaders(request, getProxmoxAuthHeaderValue(config));

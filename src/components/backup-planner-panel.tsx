@@ -981,6 +981,9 @@ export default function BackupPlannerPanel({
   const callPbsBrowser = useCallback(async function callPbsBrowser(
     body: Record<string, unknown>,
   ) {
+    if (!canOperate) {
+      throw new Error("Mode lecture: navigation PBS bloquée.");
+    }
     const response = await fetch("/api/pbs/browser", {
       method: "POST",
       headers: {
@@ -994,7 +997,7 @@ export default function BackupPlannerPanel({
       throw new Error(payload.error || "Erreur navigateur PBS.");
     }
     return payload;
-  }, []);
+  }, [canOperate]);
 
   const loadPbsNamespaces = useCallback(async function loadPbsNamespaces() {
     const payload = await callPbsBrowser({
@@ -1118,7 +1121,7 @@ export default function BackupPlannerPanel({
   }, [activeTab, loadPbsStatus]);
 
   useEffect(() => {
-    if (activeTab !== "pbs" || !pbsStatus?.configured || pbsLoaded) return;
+    if (activeTab !== "pbs" || !pbsStatus?.configured || pbsLoaded || !canOperate) return;
     let cancelled = false;
     const runtimeNamespace = pbsStatus.runtimeSaved?.namespace ?? "";
 
@@ -1152,7 +1155,14 @@ export default function BackupPlannerPanel({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, loadPbsGroups, loadPbsNamespaces, pbsLoaded, pbsNamespace, pbsStatus]);
+  }, [activeTab, canOperate, loadPbsGroups, loadPbsNamespaces, pbsLoaded, pbsNamespace, pbsStatus]);
+
+  useEffect(() => {
+    if (activeTab !== "pbs" || !pbsStatus?.configured || canOperate) return;
+    setPbsLoaded(true);
+    setPbsNotice("Mode lecture: exploration PBS et téléchargement direct verrouillés.");
+    setPbsError(null);
+  }, [activeTab, canOperate, pbsStatus?.configured]);
 
   useEffect(() => {
     function onMessage(event: MessageEvent<CloudOauthMessage>) {
@@ -1366,6 +1376,29 @@ export default function BackupPlannerPanel({
       setBusy(false);
     }
   }
+
+  const blockOperateOnly = useCallback(function blockOperateOnly(
+    scope: "global" | "cloud" | "restore" | "pbs",
+    message: string,
+  ) {
+    if (canOperate) return false;
+    if (scope === "cloud") {
+      setCloudFolderError(message);
+    }
+    if (scope === "restore") {
+      setRestoreError(message);
+      setRestoreNotice(null);
+    }
+    if (scope === "pbs") {
+      setPbsError(message);
+      setPbsNotice(null);
+    }
+    if (scope === "global" || scope === "cloud") {
+      setError(message);
+      setNotice(null);
+    }
+    return true;
+  }, [canOperate]);
 
   function resetPlanForm() {
     setPlanForm(defaultPlanForm());
@@ -1618,6 +1651,7 @@ export default function BackupPlannerPanel({
 
   function onConnectOneDrive() {
     if (selectedTargetProvider !== "onedrive") return;
+    if (blockOperateOnly("cloud", "Mode lecture: connexion OneDrive bloquée.")) return;
     if (!currentProviderOauthReady) {
       setOneDriveOauthStatus({ state: "invalid", label: "Token invalide" });
       setError(
@@ -1650,6 +1684,7 @@ export default function BackupPlannerPanel({
 
   async function onConnectGoogleDrive() {
     if (selectedTargetProvider !== "gdrive") return;
+    if (blockOperateOnly("cloud", "Mode lecture: connexion Google Drive bloquée.")) return;
     if (!currentProviderOauthReady) {
       setGoogleOauthStatus({ state: "invalid", label: "Token invalide" });
       setError(
@@ -1703,6 +1738,7 @@ export default function BackupPlannerPanel({
   const onBrowseCloudFolders = useCallback(
     async function onBrowseCloudFolders(options?: { trail?: CloudFolderItem[]; reset?: boolean }) {
       if (selectedTargetProvider !== "onedrive" && selectedTargetProvider !== "gdrive") return;
+      if (blockOperateOnly("cloud", "Mode lecture: navigation du dossier cloud bloquée.")) return;
 
       const nextTrail = options?.trail ?? (options?.reset ? [] : cloudFolderTrail);
       const currentFolder = nextTrail.at(-1) ?? getCloudFolderRoot(selectedTargetProvider);
@@ -1772,12 +1808,21 @@ export default function BackupPlannerPanel({
         setCloudFolderBusy(false);
       }
     },
-    [cloudFolderTrail, selectedTargetProvider, targetForm.id, targetForm.secrets, targetForm.settings],
+    [
+      blockOperateOnly,
+      canOperate,
+      cloudFolderTrail,
+      selectedTargetProvider,
+      targetForm.id,
+      targetForm.secrets,
+      targetForm.settings,
+    ],
   );
 
   useEffect(() => {
     const hasRefreshToken = Boolean(targetForm.secrets.refreshtoken?.trim());
     if (
+      canOperate &&
       cloudFolderModalOpen &&
       hasRefreshToken &&
       (selectedTargetProvider === "onedrive" || selectedTargetProvider === "gdrive") &&
@@ -1791,6 +1836,7 @@ export default function BackupPlannerPanel({
     cloudFolderBusy,
     cloudFolderLoaded,
     cloudFolderTrail,
+    canOperate,
     onBrowseCloudFolders,
     selectedTargetProvider,
     targetForm.secrets.refreshtoken,
@@ -1798,6 +1844,7 @@ export default function BackupPlannerPanel({
 
   async function onCreateCloudFolder() {
     if (selectedTargetProvider !== "onedrive" && selectedTargetProvider !== "gdrive") return;
+    if (blockOperateOnly("cloud", "Mode lecture: création de dossier cloud bloquée.")) return;
     const folderName = newCloudFolderName.trim();
     if (!folderName) {
       setCloudFolderError("Nom du dossier requis.");
@@ -1875,6 +1922,7 @@ export default function BackupPlannerPanel({
   }
 
   function onSelectCloudFolder(item: CloudFolderItem) {
+    if (blockOperateOnly("cloud", "Mode lecture: sélection du dossier cloud bloquée.")) return;
     setTargetForm((current) => ({
       ...current,
       settings: {
@@ -1892,6 +1940,7 @@ export default function BackupPlannerPanel({
   }
 
   function onOpenCloudFolder(item: CloudFolderItem) {
+    if (blockOperateOnly("cloud", "Mode lecture: navigation du dossier cloud bloquée.")) return;
     const nextTrail = [...cloudFolderTrail, item];
     setCloudFolders([]);
     setCloudFolderLoaded(false);
@@ -1899,6 +1948,7 @@ export default function BackupPlannerPanel({
   }
 
   function onOpenCloudFolderParent() {
+    if (blockOperateOnly("cloud", "Mode lecture: navigation du dossier cloud bloquée.")) return;
     const nextTrail = cloudFolderTrail.slice(0, -1);
     setCloudFolders([]);
     setCloudFolderLoaded(false);
@@ -1906,6 +1956,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onLoadCloudObjects(targetIdOverride?: string) {
+    if (blockOperateOnly("restore", "Mode lecture: consultation des backups cloud bloquée.")) return;
     const targetId = (targetIdOverride ?? restoreForm.targetId).trim();
     if (!targetId) {
       setRestoreError("Choisis d'abord une cible cloud.");
@@ -1952,6 +2003,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onDownloadCloudBackup() {
+    if (blockOperateOnly("restore", "Mode lecture: téléchargement cloud bloqué.")) return;
     if (!restoreForm.targetId || !restoreForm.objectKey) {
       setRestoreError("Choisis une cible cloud et un backup.");
       return;
@@ -1987,10 +2039,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onRestoreFromCloud() {
-    if (!canOperate) {
-      setRestoreError("Mode lecture: restauration cloud bloquée.");
-      return;
-    }
+    if (blockOperateOnly("restore", "Mode lecture: restauration cloud bloquée.")) return;
     if (!restoreForm.targetId || !restoreForm.objectKey) {
       setRestoreError("Complète cible cloud et objet.");
       return;
@@ -2024,10 +2073,7 @@ export default function BackupPlannerPanel({
   }
 
   async function confirmRestoreFromCloud(confirmationText: string) {
-    if (!canOperate) {
-      setRestoreError("Mode lecture: restauration cloud bloquée.");
-      return;
-    }
+    if (blockOperateOnly("restore", "Mode lecture: restauration cloud bloquée.")) return;
 
     setRestoreBusy(true);
     setRestoreError(null);
@@ -2077,6 +2123,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onCancelRestoreJob(jobId: string) {
+    if (blockOperateOnly("restore", "Mode lecture: annulation du restore bloquée.")) return;
     setRestoreCancelBusy(true);
     setRestoreError(null);
     setRestoreNotice(null);
@@ -2108,6 +2155,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onRefreshPbsBrowser() {
+    if (blockOperateOnly("pbs", "Mode lecture: navigation PBS bloquée.")) return;
     if (!pbsStatus?.configured) {
       setPbsError("Configure d’abord la connexion PBS.");
       return;
@@ -2129,6 +2177,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onSelectPbsNamespace(namespacePath: string) {
+    if (blockOperateOnly("pbs", "Mode lecture: navigation PBS bloquée.")) return;
     setPbsNamespace(namespacePath);
     setPbsBusy(true);
     setPbsError(null);
@@ -2145,6 +2194,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onOpenPbsGroup(groupPath: string) {
+    if (blockOperateOnly("pbs", "Mode lecture: navigation PBS bloquée.")) return;
     setPbsBusy(true);
     setPbsError(null);
     setPbsNotice(null);
@@ -2159,6 +2209,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onOpenPbsSnapshot(snapshotPath: string) {
+    if (blockOperateOnly("pbs", "Mode lecture: navigation PBS bloquée.")) return;
     setPbsBusy(true);
     setPbsError(null);
     setPbsNotice(null);
@@ -2173,6 +2224,7 @@ export default function BackupPlannerPanel({
   }
 
   async function onPreparePbsArchiveDownload() {
+    if (blockOperateOnly("pbs", "Mode lecture: extraction PBS bloquée.")) return;
     if (!pbsSelectedSnapshot || !pbsSelectedArchive) {
       setPbsError("Choisis un snapshot et une archive PBS.");
       return;
@@ -2391,12 +2443,18 @@ export default function BackupPlannerPanel({
           </div>
         </div>
 
-        {!hasConfiguration || config?.warnings?.length || error || notice ? (
+        {!hasConfiguration || config?.warnings?.length || error || notice || !canOperate ? (
           <div className="backup-alert-stack">
             {!hasConfiguration ? (
               <article className="backup-alert warn">
                 <strong>Configuration incomplète</strong>
                 <p>Aucune sauvegarde configurée. Commence par créer une cible locale/cloud et un plan.</p>
+              </article>
+            ) : null}
+            {!canOperate ? (
+              <article className="backup-alert info">
+                <strong>Lecture seule</strong>
+                <p>Les modifications, runs manuels, restores et connexions cloud sont verrouillés sur ce compte.</p>
               </article>
             ) : null}
             {config?.warnings?.length ? (
@@ -2548,7 +2606,7 @@ export default function BackupPlannerPanel({
                           type="button"
                           className="action-btn"
                           onClick={() => void onCancelExecution(runningExecution.id)}
-                          disabled={busy || runningExecution.cancelRequested}
+                          disabled={!canOperate || busy || runningExecution.cancelRequested}
                         >
                           {runningExecution.cancelRequested ? "Annulation..." : "Annuler"}
                         </button>
@@ -2688,6 +2746,7 @@ export default function BackupPlannerPanel({
           </div>
 
           <form className="provision-panel" onSubmit={onSavePlan}>
+            <fieldset className="backup-form-fieldset" disabled={!canOperate || busy}>
             <div className="provision-grid">
               <label className="provision-field">
                 <span className="provision-field-label">Nom du plan</span>
@@ -3034,13 +3093,14 @@ export default function BackupPlannerPanel({
             </div>
 
             <div className="provision-actions">
-              <button className="action-btn primary" type="submit" disabled={busy}>
+              <button className="action-btn primary" type="submit" disabled={!canOperate || busy}>
                 {busy ? "Enregistrement..." : planForm.id ? "Mettre à jour le plan" : "Créer le plan"}
               </button>
-              <button className="action-btn" type="button" onClick={resetPlanForm} disabled={busy}>
+              <button className="action-btn" type="button" onClick={resetPlanForm} disabled={!canOperate || busy}>
                 Réinitialiser
               </button>
             </div>
+            </fieldset>
           </form>
         </section>
 
@@ -3077,13 +3137,18 @@ export default function BackupPlannerPanel({
                   </div>
                 </div>
                 <div className="backup-plan-actions">
-                  <button type="button" className="action-btn" onClick={() => void onRunNow(plan.id)} disabled={busy || !plan.enabled}>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => void onRunNow(plan.id)}
+                    disabled={!canOperate || busy || !plan.enabled}
+                  >
                     Lancer
                   </button>
-                  <button type="button" className="action-btn" onClick={() => populatePlanForm(plan)}>
+                  <button type="button" className="action-btn" onClick={() => populatePlanForm(plan)} disabled={!canOperate}>
                     Modifier
                   </button>
-                  <button type="button" className="action-btn" onClick={() => void onDeletePlan(plan.id)}>
+                  <button type="button" className="action-btn" onClick={() => void onDeletePlan(plan.id)} disabled={!canOperate}>
                     Supprimer
                   </button>
                 </div>
@@ -3158,6 +3223,7 @@ export default function BackupPlannerPanel({
           </div>
 
           <form className="provision-panel" onSubmit={onSaveCloudTarget}>
+            <fieldset className="backup-form-fieldset" disabled={!canOperate || busy}>
             <div className="provision-field">
               <span className="provision-field-label">Provider cloud</span>
               <select
@@ -3254,6 +3320,7 @@ export default function BackupPlannerPanel({
                       className="action-btn"
                       onClick={onConnectOneDrive}
                       disabled={
+                        !canOperate ||
                         oneDriveOauthBusy ||
                         busy ||
                         !currentProviderOauthReady ||
@@ -3268,6 +3335,7 @@ export default function BackupPlannerPanel({
                       className="action-btn"
                       onClick={() => void onConnectGoogleDrive()}
                       disabled={
+                        !canOperate ||
                         googleOauthBusy ||
                         busy ||
                         !currentProviderOauthReady ||
@@ -3281,11 +3349,14 @@ export default function BackupPlannerPanel({
                     type="button"
                     className="action-btn"
                     onClick={() => setCloudFolderModalOpen(true)}
-                    disabled={cloudFolderBusy || busy || !hasTargetRefreshToken}
+                    disabled={!canOperate || cloudFolderBusy || busy || !hasTargetRefreshToken}
                   >
                     {cloudFolderBusy ? "Lecture..." : "Choisir le dossier cloud"}
                   </button>
                 </div>
+                {!canOperate ? (
+                  <p className="item-subtitle">Mode lecture: OAuth cloud et choix du dossier sont verrouillés.</p>
+                ) : null}
                 {currentCloudOauthStatus ? (
                   <p className="item-subtitle">
                     Etat connexion:{" "}
@@ -3409,15 +3480,16 @@ export default function BackupPlannerPanel({
             ) : null}
 
             <div className="provision-actions">
-              <button className="action-btn primary" type="submit" disabled={busy}>
+              <button className="action-btn primary" type="submit" disabled={!canOperate || busy}>
                 {busy ? "Enregistrement..." : targetForm.id ? "Mettre à jour la cible" : "Créer la cible"}
               </button>
-              <button className="action-btn" type="button" onClick={resetTargetForm} disabled={busy}>
+              <button className="action-btn" type="button" onClick={resetTargetForm} disabled={!canOperate || busy}>
                 Réinitialiser
               </button>
             </div>
               </>
             ) : null}
+            </fieldset>
           </form>
         </section>
 
@@ -3494,13 +3566,18 @@ export default function BackupPlannerPanel({
                   })()}
                 </div>
                 <div className="backup-plan-actions">
-                  <button type="button" className="action-btn" onClick={() => chooseCloudTargetForPlan(target.id)}>
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => chooseCloudTargetForPlan(target.id)}
+                    disabled={!canOperate}
+                  >
                     Utiliser dans un plan
                   </button>
-                  <button type="button" className="action-btn" onClick={() => populateTargetForm(target)}>
+                  <button type="button" className="action-btn" onClick={() => populateTargetForm(target)} disabled={!canOperate}>
                     Modifier
                   </button>
-                  <button type="button" className="action-btn" onClick={() => void onDeleteCloudTarget(target.id)}>
+                  <button type="button" className="action-btn" onClick={() => void onDeleteCloudTarget(target.id)} disabled={!canOperate}>
                     Supprimer
                   </button>
                 </div>
@@ -3585,7 +3662,7 @@ export default function BackupPlannerPanel({
                     type="button"
                     className="action-btn"
                     onClick={() => void onCancelExecution(execution.id)}
-                    disabled={busy || execution.cancelRequested}
+                    disabled={!canOperate || busy || execution.cancelRequested}
                   >
                     {execution.cancelRequested ? "Annulation..." : "Annuler"}
                   </button>
@@ -3725,7 +3802,7 @@ export default function BackupPlannerPanel({
               type="button"
               className="action-btn"
               onClick={() => void onLoadCloudObjects()}
-              disabled={restoreBusy || !restoreForm.targetId}
+              disabled={!canOperate || restoreBusy || !restoreForm.targetId}
             >
               {restoreBusy ? "Chargement..." : "Lister les backups cloud"}
             </button>
@@ -3733,11 +3810,17 @@ export default function BackupPlannerPanel({
               type="button"
               className="action-btn"
               onClick={() => void onDownloadCloudBackup()}
-              disabled={restoreBusy || !restoreForm.targetId || !restoreForm.objectKey}
+              disabled={!canOperate || restoreBusy || !restoreForm.targetId || !restoreForm.objectKey}
             >
               Télécharger déchiffré
             </button>
           </div>
+          {!canOperate ? (
+            <div className="backup-alert info compact">
+              <strong>Lecture seule</strong>
+              <p>La liste des objets cloud, le téléchargement déchiffré et les restores sont réservés aux opérateurs.</p>
+            </div>
+          ) : null}
 
           <div className="hint-box">
             <div className="backup-restore-list">
@@ -3898,7 +3981,7 @@ export default function BackupPlannerPanel({
                 type="button"
                 className="action-btn"
                 onClick={() => void onCancelRestoreJob(restoreJob.id)}
-                disabled={restoreCancelBusy || restoreBusy}
+                disabled={!canOperate || restoreCancelBusy || restoreBusy}
               >
                 {restoreCancelBusy ? "Annulation..." : "Annuler le job"}
               </button>
@@ -4142,7 +4225,7 @@ export default function BackupPlannerPanel({
                 className="provision-input"
                 value={pbsNamespace}
                 onChange={(event) => void onSelectPbsNamespace(event.target.value)}
-                disabled={pbsBusy || !pbsStatus?.configured}
+                disabled={!canOperate || pbsBusy || !pbsStatus?.configured}
               >
                 <option value="">Racine</option>
                 {pbsNamespaces.map((item) => (
@@ -4168,7 +4251,7 @@ export default function BackupPlannerPanel({
               type="button"
               className="action-btn"
               onClick={() => void onRefreshPbsBrowser()}
-              disabled={pbsBusy || !pbsStatus?.configured}
+              disabled={!canOperate || pbsBusy || !pbsStatus?.configured}
             >
               {pbsBusy ? "Chargement..." : "Actualiser PBS"}
             </button>
@@ -4176,11 +4259,17 @@ export default function BackupPlannerPanel({
               type="button"
               className="action-btn"
               onClick={() => void onPreparePbsArchiveDownload()}
-              disabled={pbsBusy || !pbsStatus?.configured || !pbsSelectedSnapshot || !pbsSelectedArchive}
+              disabled={!canOperate || pbsBusy || !pbsStatus?.configured || !pbsSelectedSnapshot || !pbsSelectedArchive}
             >
               Préparer téléchargement
             </button>
           </div>
+          {!canOperate ? (
+            <div className="backup-alert info compact">
+              <strong>Lecture seule</strong>
+              <p>Le navigateur PBS reste visible, mais l’exploration active et l’extraction sont verrouillées.</p>
+            </div>
+          ) : null}
 
           <div className="content-grid backup-overview-grid">
             <section className="hint-box">
@@ -4203,7 +4292,7 @@ export default function BackupPlannerPanel({
                         type="button"
                         className="action-btn"
                         onClick={() => void onOpenPbsGroup(group.path)}
-                        disabled={pbsBusy}
+                        disabled={!canOperate || pbsBusy}
                       >
                         Ouvrir
                       </button>
@@ -4239,7 +4328,7 @@ export default function BackupPlannerPanel({
                         type="button"
                         className="action-btn"
                         onClick={() => void onOpenPbsSnapshot(snapshot.path)}
-                        disabled={pbsBusy}
+                        disabled={!canOperate || pbsBusy}
                       >
                         Voir archives
                       </button>
@@ -4267,6 +4356,7 @@ export default function BackupPlannerPanel({
                     type="button"
                     className={`backup-restore-item${pbsSelectedArchive === file.archiveName ? " is-active" : ""}`}
                     onClick={() => setPbsSelectedArchive(file.archiveName)}
+                    disabled={!canOperate}
                   >
                     <div>
                       <strong>{file.name}</strong>
@@ -4364,7 +4454,7 @@ export default function BackupPlannerPanel({
                 type="button"
                 className="action-btn"
                 onClick={() => onSelectCloudFolder(activeCloudFolder)}
-                disabled={cloudFolderBusy}
+                disabled={!canOperate || cloudFolderBusy}
               >
                 Sélectionner ici
               </button>
@@ -4372,7 +4462,7 @@ export default function BackupPlannerPanel({
                 type="button"
                 className="action-btn"
                 onClick={() => onOpenCloudFolderParent()}
-                disabled={cloudFolderBusy || cloudFolderTrail.length === 0}
+                disabled={!canOperate || cloudFolderBusy || cloudFolderTrail.length === 0}
               >
                 Retour
               </button>
@@ -4380,7 +4470,7 @@ export default function BackupPlannerPanel({
                 type="button"
                 className="action-btn"
                 onClick={() => void onBrowseCloudFolders()}
-                disabled={cloudFolderBusy}
+                disabled={!canOperate || cloudFolderBusy}
               >
                 {cloudFolderBusy ? "Lecture..." : "Actualiser"}
               </button>
@@ -4407,7 +4497,7 @@ export default function BackupPlannerPanel({
                 type="button"
                 className="action-btn"
                 onClick={() => void onCreateCloudFolder()}
-                disabled={cloudFolderBusy}
+                disabled={!canOperate || cloudFolderBusy}
               >
                 {cloudFolderBusy ? "Création..." : "Créer et sélectionner"}
               </button>
@@ -4423,10 +4513,20 @@ export default function BackupPlannerPanel({
                     <div className="item-subtitle">{folder.value}</div>
                   </div>
                   <div className="backup-folder-actions">
-                    <button type="button" className="action-btn" onClick={() => onOpenCloudFolder(folder)}>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => onOpenCloudFolder(folder)}
+                      disabled={!canOperate}
+                    >
                       Ouvrir
                     </button>
-                    <button type="button" className="action-btn" onClick={() => onSelectCloudFolder(folder)}>
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => onSelectCloudFolder(folder)}
+                      disabled={!canOperate}
+                    >
                       Choisir
                     </button>
                   </div>

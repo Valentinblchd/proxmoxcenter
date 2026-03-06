@@ -1,6 +1,10 @@
 import "server-only";
 
-import { createHash, randomBytes, randomUUID } from "node:crypto";
+import { createHash, randomBytes } from "node:crypto";
+import {
+  consumePersistedOauthState,
+  issuePersistedOauthState,
+} from "@/lib/backups/oauth-state-store";
 
 export type CloudOauthProvider = "onedrive" | "gdrive";
 export type CloudOauthMode = "central" | "local";
@@ -32,7 +36,8 @@ type GoogleBrokerState = BrokerStateBase & {
 type BrokerState = OneDriveBrokerState | GoogleBrokerState;
 
 const STATE_TTL_MS = 10 * 60_000;
-const STATE_CACHE_KEY = "__proxcenter_cloud_oauth_broker_state__";
+const BROKER_ONEDRIVE_STATE_KIND = "broker-onedrive";
+const BROKER_GDRIVE_STATE_KIND = "broker-gdrive";
 
 function trimTrailingSlash(value: string) {
   return value.replace(/\/+$/, "");
@@ -77,25 +82,6 @@ function makeCodeVerifier() {
 
 function makeCodeChallenge(codeVerifier: string) {
   return toBase64Url(createHash("sha256").update(codeVerifier, "ascii").digest());
-}
-
-function getStateCache() {
-  const globalRef = globalThis as typeof globalThis & {
-    [STATE_CACHE_KEY]?: Map<string, BrokerState>;
-  };
-
-  if (!globalRef[STATE_CACHE_KEY]) {
-    globalRef[STATE_CACHE_KEY] = new Map<string, BrokerState>();
-  }
-  return globalRef[STATE_CACHE_KEY];
-}
-
-function pruneExpiredStates(cache: Map<string, BrokerState>, nowMs: number) {
-  for (const [key, state] of cache.entries()) {
-    if (state.expiresAt <= nowMs) {
-      cache.delete(key);
-    }
-  }
 }
 
 export function getCloudOauthMode(): CloudOauthMode {
@@ -170,27 +156,22 @@ export function issueBrokerOneDriveOauthState(input: {
   redirectUri: string;
   targetOrigin: string;
 }) {
-  const cache = getStateCache();
-  const nowMs = Date.now();
-  pruneExpiredStates(cache, nowMs);
-
-  const id = randomUUID();
   const codeVerifier = makeCodeVerifier();
-  const state: OneDriveBrokerState = {
-    id,
-    provider: "onedrive",
-    clientId: input.clientId,
-    clientSecret: input.clientSecret ?? null,
-    authority: input.authority,
-    redirectUri: input.redirectUri,
-    targetOrigin: input.targetOrigin,
-    codeVerifier,
-    createdAt: nowMs,
-    expiresAt: nowMs + STATE_TTL_MS,
-  };
-  cache.set(id, state);
+  const state = issuePersistedOauthState({
+    kind: BROKER_ONEDRIVE_STATE_KIND,
+    ttlMs: STATE_TTL_MS,
+    payload: {
+      provider: "onedrive" as const,
+      clientId: input.clientId,
+      clientSecret: input.clientSecret ?? null,
+      authority: input.authority,
+      redirectUri: input.redirectUri,
+      targetOrigin: input.targetOrigin,
+      codeVerifier,
+    },
+  });
   return {
-    id,
+    id: state.id,
     codeChallenge: makeCodeChallenge(codeVerifier),
   };
 }
@@ -201,34 +182,30 @@ export function issueBrokerGoogleOauthState(input: {
   redirectUri: string;
   targetOrigin: string;
 }) {
-  const cache = getStateCache();
-  const nowMs = Date.now();
-  pruneExpiredStates(cache, nowMs);
-
-  const id = randomUUID();
-  const state: GoogleBrokerState = {
-    id,
-    provider: "gdrive",
-    clientId: input.clientId,
-    clientSecret: input.clientSecret,
-    redirectUri: input.redirectUri,
-    targetOrigin: input.targetOrigin,
-    createdAt: nowMs,
-    expiresAt: nowMs + STATE_TTL_MS,
-  };
-  cache.set(id, state);
-  return { id };
+  return issuePersistedOauthState({
+    kind: BROKER_GDRIVE_STATE_KIND,
+    ttlMs: STATE_TTL_MS,
+    payload: {
+      provider: "gdrive" as const,
+      clientId: input.clientId,
+      clientSecret: input.clientSecret,
+      redirectUri: input.redirectUri,
+      targetOrigin: input.targetOrigin,
+    },
+  });
 }
 
 export function consumeBrokerOauthState(id: string) {
-  const cache = getStateCache();
-  const nowMs = Date.now();
-  pruneExpiredStates(cache, nowMs);
-  const state = cache.get(id) ?? null;
-  if (!state) return null;
-  cache.delete(id);
-  if (state.expiresAt <= nowMs) return null;
-  return state;
+  return (
+    consumePersistedOauthState<Omit<OneDriveBrokerState, "id" | "createdAt" | "expiresAt">>({
+      kind: BROKER_ONEDRIVE_STATE_KIND,
+      id,
+    }) ??
+    consumePersistedOauthState<Omit<GoogleBrokerState, "id" | "createdAt" | "expiresAt">>({
+      kind: BROKER_GDRIVE_STATE_KIND,
+      id,
+    })
+  ) as BrokerState | null;
 }
 
 export function parseBrokerTargetOrigin(value: string | null | undefined) {

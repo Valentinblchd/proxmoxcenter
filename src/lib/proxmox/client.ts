@@ -1,6 +1,5 @@
 import "server-only";
 import {
-  applyProxmoxTlsMode,
   getProxmoxFetchDispatcher,
   getProxmoxAuthHeaderValue,
   getProxmoxConfig,
@@ -84,7 +83,6 @@ export async function proxmoxRawRequestWithConfig(
   path: string,
   init: RequestInit = {},
 ): Promise<Response> {
-  applyProxmoxTlsMode(config);
   const headers = buildRequestHeaders(init, getProxmoxAuthHeaderValue(config));
   const dispatcher = getProxmoxFetchDispatcher(config);
   return fetch(buildApiUrl(config.baseUrl, path), {

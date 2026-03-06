@@ -133,11 +133,9 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "action requise." }, { status: 400 });
   }
 
-  if (action === "cancel-job" || action === "restore-proxmox" || action === "restore-pbs") {
-    const capability = await requireRequestCapability(request, "operate");
-    if (!capability.ok) {
-      return capability.response;
-    }
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
   }
 
   if (action === "cancel-job") {

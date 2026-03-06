@@ -1,5 +1,8 @@
 import "server-only";
-import { randomUUID } from "node:crypto";
+import {
+  consumePersistedOauthState,
+  issuePersistedOauthState,
+} from "@/lib/backups/oauth-state-store";
 
 type GoogleOauthState = {
   id: string;
@@ -11,56 +14,27 @@ type GoogleOauthState = {
 };
 
 const OAUTH_STATE_TTL_MS = 10 * 60_000;
-const OAUTH_STATE_CACHE_KEY = "__proxcenter_google_oauth_state__";
-
-function getOAuthStateCache() {
-  const globalRef = globalThis as typeof globalThis & {
-    [OAUTH_STATE_CACHE_KEY]?: Map<string, GoogleOauthState>;
-  };
-
-  if (!globalRef[OAUTH_STATE_CACHE_KEY]) {
-    globalRef[OAUTH_STATE_CACHE_KEY] = new Map<string, GoogleOauthState>();
-  }
-  return globalRef[OAUTH_STATE_CACHE_KEY];
-}
-
-function pruneExpiredStates(cache: Map<string, GoogleOauthState>, nowMs: number) {
-  for (const [key, state] of cache.entries()) {
-    if (state.expiresAt <= nowMs) {
-      cache.delete(key);
-    }
-  }
-}
+const OAUTH_STATE_KIND = "google-local";
 
 export function issueGoogleOauthState(input: {
   clientId: string;
   clientSecret: string;
   redirectUri: string;
 }) {
-  const cache = getOAuthStateCache();
-  const nowMs = Date.now();
-  pruneExpiredStates(cache, nowMs);
-
-  const id = randomUUID();
-  cache.set(id, {
-    id,
-    clientId: input.clientId,
-    clientSecret: input.clientSecret,
-    redirectUri: input.redirectUri,
-    createdAt: nowMs,
-    expiresAt: nowMs + OAUTH_STATE_TTL_MS,
+  return issuePersistedOauthState({
+    kind: OAUTH_STATE_KIND,
+    ttlMs: OAUTH_STATE_TTL_MS,
+    payload: {
+      clientId: input.clientId,
+      clientSecret: input.clientSecret,
+      redirectUri: input.redirectUri,
+    },
   });
-
-  return { id };
 }
 
 export function consumeGoogleOauthState(id: string) {
-  const cache = getOAuthStateCache();
-  const nowMs = Date.now();
-  pruneExpiredStates(cache, nowMs);
-  const state = cache.get(id) ?? null;
-  if (!state) return null;
-  cache.delete(id);
-  if (state.expiresAt <= nowMs) return null;
-  return state;
+  return consumePersistedOauthState<Pick<GoogleOauthState, "clientId" | "clientSecret" | "redirectUri">>({
+    kind: OAUTH_STATE_KIND,
+    id,
+  });
 }

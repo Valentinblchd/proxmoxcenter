@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { getCloudOauthBrokerStatus } from "@/lib/backups/cloud-oauth-broker";
 import { readRuntimeCloudOauthAppConfig } from "@/lib/backups/oauth-app-config";
 import { issueGoogleOauthState } from "@/lib/backups/google-oauth";
@@ -33,6 +34,11 @@ export async function POST(request: NextRequest) {
       { ok: false, error: "Forbidden: origine de requête invalide." },
       { status: 403 },
     );
+  }
+
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
   }
 
   const gate = consumeRateLimit(`backup:gdrive:start:${getClientIp(request)}`, OAUTH_START_LIMIT);

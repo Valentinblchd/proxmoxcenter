@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { getEffectiveCloudOauthCredentials } from "@/lib/backups/oauth-app-config";
 import { readRuntimeBackupConfig } from "@/lib/backups/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
@@ -346,6 +347,11 @@ export async function POST(request: NextRequest) {
       { ok: false, error: "Forbidden: origine de requête invalide." },
       { status: 403 },
     );
+  }
+
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
   }
 
   const gate = consumeRateLimit(`backup:cloud-browser:${getClientIp(request)}`, CLOUD_BROWSER_LIMIT);

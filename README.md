@@ -8,6 +8,7 @@ Interface web Proxmox orientée exploitation : inventaire, sauvegardes local/clo
 - **Console** — accès console VMs et conteneurs directement depuis le navigateur (noVNC / xterm)
 - **Sauvegardes** — gestion des sauvegardes locales et vers le cloud (Google Drive, OneDrive) avec PBS optionnel
 - **Sécurité** — tableau de bord sécurité, alertes et bonnes pratiques
+- **Contrôle d’accès** — comptes locaux `reader`, `operator`, `admin` avec audit des actions
 - **Provisioning** — création et configuration de VMs/LXCs
 - **Observabilité** — métriques et état des ressources
 - **Opérations** — actions groupées sur les machines
@@ -61,6 +62,44 @@ Ouvre `http://<IP_DU_SERVEUR>:3000` dans ton navigateur, puis :
 
 Les connexions et données sont stockées dans `<INSTALL_DIR>/data/`.
 
+## Rôles et permissions
+
+- **`reader`** — lecture seule sur l’inventaire, l’observabilité, les journaux et l’état global des sauvegardes
+- **`operator`** — mêmes accès que `reader`, avec en plus les actions d’exploitation : runs manuels, restores, connexions cloud, PBS direct, provisioning et actions VM/CT
+- **`admin`** — mêmes accès que `operator`, avec en plus les paramètres sensibles : proxy Proxmox, comptes locaux, UI auth et configuration système
+
+En pratique :
+
+- la navigation reste visible en lecture seule pour éviter les écrans vides,
+- les routes sensibles `backup/cloud/PBS/OAuth` refusent côté serveur toute action sans le bon rôle,
+- l’UI marque explicitement les vues lecture seule sur les écrans d’exploitation.
+
+## Sécurité et stockage local
+
+Les données persistées vivent dans `<INSTALL_DIR>/data/` :
+
+- `app-auth.json` — comptes locaux, rôles et secret de session
+- `proxmox-connection.json` — connexion Proxmox runtime
+- `cloud-oauth-apps.json` — clients OAuth cloud locaux
+- `audit-log.json` — journal d’audit des connexions et actions sensibles
+- `secret-box.key` — clé locale servant à chiffrer les secrets stockés
+- `cloud-oauth-state.json` — états OAuth courts persistés pour survivre aux redémarrages
+
+Notes sécurité :
+
+- les cookies de session sont `HttpOnly` et `SameSite=Lax`,
+- les secrets sensibles stockés par l’application sont chiffrés au repos,
+- les flows OAuth cloud utilisent un `state` côté serveur et un retour popup contrôlé,
+- le mode TLS Proxmox `insecure` reste limité aux appels Proxmox et ne désactive plus la vérification TLS globale du process Node.js.
+
+## Sauvegardes et permissions
+
+La page `Sauvegardes` est organisée par cible, plans, historique, restauration et navigateur PBS.
+
+- la création/modification de plans et de cibles cloud demande `operator` ou `admin`,
+- la navigation cloud, l’extraction PBS et le restore cloud demandent `operator` ou `admin`,
+- un compte `reader` peut consulter l’état global, mais pas lancer ni préparer une action destructive ou sensible.
+
 ## Commandes utiles
 
 Après installation, ces scripts sont disponibles globalement :
@@ -86,6 +125,13 @@ curl -fsSL https://raw.githubusercontent.com/Valentinblchd/proxmoxcenter/main/in
 ## Cloud OAuth (avancé)
 
 Pour connecter Google Drive ou OneDrive sans saisir de `client_id` dans chaque instance, un broker OAuth central peut être déployé. Voir [`docs/cloud-oauth-broker.md`](docs/cloud-oauth-broker.md).
+
+Modes disponibles :
+
+- **`local`** — chaque instance stocke son propre client OAuth et ses refresh tokens chiffrés
+- **`central`** — un broker OAuth ProxmoxCenter centralise le flow popup et renvoie le refresh token à l’instance appelante
+
+Le flow reste popup-based côté interface, avec état OAuth persisté localement pour supporter un redémarrage de l’application pendant l’échange.
 
 ## Développement local
 
