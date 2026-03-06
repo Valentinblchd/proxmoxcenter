@@ -29,10 +29,12 @@ RUN set -eux; \
   fi; \
   rm -rf /var/lib/apt/lists/* /tmp/proxmox-release-bookworm.gpg
 
+COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/.next/standalone ./
-COPY --from=builder /app/.next/static ./.next/static
 COPY --from=builder /app/server ./server
+COPY --from=builder /app/next.config.mjs ./next.config.mjs
+COPY --from=builder /app/package.json ./package.json
+COPY --from=deps /app/node_modules ./node_modules
 
 EXPOSE 3000
 
