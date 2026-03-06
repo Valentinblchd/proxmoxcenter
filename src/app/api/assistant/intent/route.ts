@@ -933,7 +933,7 @@ export async function POST(request: NextRequest) {
         ok: true,
         intent: "unknown",
         message:
-          "Salut. Je peux aider sur ProxmoxCenter: création VM/LXC, actions power, backup, sécurité, VLAN/firewall.",
+          "Salut. Oui, je suis dispo. On peut préparer une création VM/LXC, une action Proxmox, du backup, du réseau ou de la sécurité.",
         followUps: [
           "Exemple: `Crée une VM Windows 2022 2 vCPU 12 Go 60 Go sur pve1`.",
           "Exemple: `Quelle segmentation VLAN pour un serveur web ?`.",
@@ -945,7 +945,10 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         intent: "unknown",
-        message: "Reçu. Si tu veux, donne directement ta demande technique ProxmoxCenter et je te guide.",
+        message: "Oui, ça va. Dis-moi ce que tu veux faire et on le prépare étape par étape dans ProxmoxCenter.",
+        followUps: [
+          "Tu peux juste me dire: créer une VM, modifier une VM, lancer un backup, ou revoir un bridge/VLAN.",
+        ],
       } satisfies AssistantIntentResponse);
     }
 

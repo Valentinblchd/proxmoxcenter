@@ -499,8 +499,8 @@ code {
 }
 
 .sidebar-toggle {
-  width: 44px;
-  height: 44px;
+  width: 36px;
+  height: 36px;
   border-radius: 12px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background: rgba(255, 255, 255, 0.02);
@@ -526,11 +526,11 @@ code {
 }
 
 .sidebar-toggle-chevrons {
-  font-size: 1.18rem;
+  font-size: 0.92rem;
   line-height: 1;
   font-weight: 800;
-  letter-spacing: -0.1em;
-  transform: translateY(-1px);
+  letter-spacing: -0.04em;
+  transform: translateY(-0.5px);
 }
 
 .sidebar-mobile-toggle {
@@ -3759,6 +3759,18 @@ select.inventory-node-filter option {
   box-shadow: 0 0 0 3px rgba(255, 159, 28, 0.12);
 }
 
+.inventory-remote-static {
+  width: 100%;
+  min-height: 32px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  background: rgba(9, 13, 30, 0.72);
+  color: #eef2ff;
+  padding: 0.48rem 0.68rem;
+  display: flex;
+  align-items: center;
+}
+
 .inventory-remote-chip-row {
   display: flex;
   flex-wrap: wrap;
@@ -5647,6 +5659,12 @@ html[data-theme="light"] .inventory-remote-label {
 }
 
 html[data-theme="light"] .inventory-remote-input {
+  border-color: rgba(28, 56, 102, 0.14);
+  background: rgba(255, 255, 255, 0.96);
+  color: var(--text);
+}
+
+html[data-theme="light"] .inventory-remote-static {
   border-color: rgba(28, 56, 102, 0.14);
   background: rgba(255, 255, 255, 0.96);
   color: var(--text);

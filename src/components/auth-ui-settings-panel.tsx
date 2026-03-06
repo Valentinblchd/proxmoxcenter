@@ -125,7 +125,7 @@ export default function AuthUiSettingsPanel({ initialSettings, ldapSecondaryEnab
           <strong>{stats?.enabledUsersCount ?? 0}</strong>
         </div>
         <div className="row-line">
-          <span>LDAP secondaire</span>
+          <span>LDAP</span>
           <strong>{ldapSecondaryEnabled ? "Activé" : "Désactivé"}</strong>
         </div>
         <div className="row-line">

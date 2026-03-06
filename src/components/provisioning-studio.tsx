@@ -91,6 +91,32 @@ function storageHasContent(content: string, target: string) {
     .includes(target.toLowerCase());
 }
 
+function storageSupportsProvisionKind(content: string, kind: ProvisionKind) {
+  return kind === "qemu"
+    ? storageHasContent(content, "images")
+    : storageHasContent(content, "rootdir");
+}
+
+function inferOstypeFromMedia(value: string) {
+  const normalized = value.trim().toLowerCase();
+  if (!normalized) return null;
+
+  if (/\bdebian\b/.test(normalized)) return "l26";
+  if (/\b(ubuntu|alma|rocky|centos|fedora|opensuse|suse|rhel|linux)\b/.test(normalized)) return "l26";
+  if (/\bwindows\s*server\s*2025\b/.test(normalized)) return "w2k22";
+  if (/\bwindows\s*server\s*2022\b/.test(normalized)) return "w2k22";
+  if (/\bwindows\s*server\s*2019\b/.test(normalized)) return "w2k19";
+  if (/\bwindows\s*server\s*2016\b/.test(normalized)) return "w2k16";
+  if (/\bwindows\s*server\s*2012\b/.test(normalized)) return "w2k12";
+  if (/\bwindows\s*server\s*2008\b/.test(normalized)) return "w2k8";
+  if (/\bwindows\s*11\b/.test(normalized)) return "win11";
+  if (/\bwindows\s*10\b/.test(normalized)) return "win10";
+  if (/\bwindows\s*8\b/.test(normalized)) return "win8";
+  if (/\bwindows\s*7\b/.test(normalized)) return "win7";
+  if (/\bwindows\b/.test(normalized)) return "win11";
+  return null;
+}
+
 function getFirmwarePresetForOstype(ostype: string) {
   const normalized = ostype.trim().toLowerCase();
 
@@ -206,6 +232,8 @@ export default function ProvisioningStudio({
   const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
   const [taskPollError, setTaskPollError] = useState<string | null>(null);
   const pollTimerRef = useRef<number | null>(null);
+  const autoDetectedOstypeRef = useRef("");
+  const [ostypeTouched, setOstypeTouched] = useState(false);
 
   const canCreate = Boolean(options?.configured) && !isCreating;
   const isQemu = draft.kind === "qemu";
@@ -216,6 +244,8 @@ export default function ProvisioningStudio({
   const storageOptions = useMemo(() => {
     const names = new Set<string>();
     return (options?.options.storages ?? [])
+      .filter((storage) => storage.active)
+      .filter((storage) => storageSupportsProvisionKind(storage.content, draft.kind))
       .filter((storage) => {
         if (names.has(storage.name)) return false;
         names.add(storage.name);
@@ -225,7 +255,7 @@ export default function ProvisioningStudio({
         value: storage.name,
         label: `${storage.name} (${storage.type})`,
       }));
-  }, [options]);
+  }, [draft.kind, options]);
 
   const isoStorageOptions = useMemo(() => {
     const names = new Set<string>();
@@ -269,6 +299,11 @@ export default function ProvisioningStudio({
       label: bridge,
     }));
   }, [options]);
+
+  useEffect(() => {
+    if (bridgeOptions.length !== 1 || draft.bridge.trim()) return;
+    setDraft((current) => ({ ...current, bridge: bridgeOptions[0].value }));
+  }, [bridgeOptions, draft.bridge]);
 
   const vmidConflict = useMemo(() => {
     if (!Number.isInteger(parsedVmid) || parsedVmid < 1) return false;
@@ -358,6 +393,30 @@ export default function ProvisioningStudio({
     });
   }, [draft.ostype, isQemu]);
 
+  useEffect(() => {
+    if (!isQemu) return;
+
+    const sourceLabel = draft.isoSourceMode === "url" ? draft.isoUrl : draft.isoVolume;
+    const inferred = inferOstypeFromMedia(sourceLabel);
+    const current = draft.ostype.trim().toLowerCase();
+    const previousAuto = autoDetectedOstypeRef.current.trim().toLowerCase();
+
+    if (!inferred) {
+      if (previousAuto && current === previousAuto) {
+        autoDetectedOstypeRef.current = "";
+      }
+      return;
+    }
+
+    if ((!current || !ostypeTouched || current === previousAuto) && current !== inferred) {
+      autoDetectedOstypeRef.current = inferred;
+      setDraft((currentDraft) => ({ ...currentDraft, ostype: inferred }));
+      if (!current || current === previousAuto) {
+        setOstypeTouched(false);
+      }
+    }
+  }, [draft.isoSourceMode, draft.isoUrl, draft.isoVolume, draft.ostype, isQemu, ostypeTouched]);
+
   function patchDraft(patch: Partial<ProvisionDraft>) {
     setDraft((current) => ({ ...current, ...patch }));
   }
@@ -374,6 +433,8 @@ export default function ProvisioningStudio({
         kind: nextKind,
       };
     });
+    setOstypeTouched(false);
+    autoDetectedOstypeRef.current = "";
     setAssistantResponse(null);
     setCreateResult(null);
     setTaskStatus(null);
@@ -550,7 +611,6 @@ export default function ProvisioningStudio({
     !draft.cores ||
     !draft.diskGb ||
     !draft.storage ||
-    !draft.bridge ||
     vmidConflict ||
     vmidInvalid ||
     (isQemu &&
@@ -620,9 +680,7 @@ export default function ProvisioningStudio({
       <section className="panel provision-panel provision-panel-compact">
         <div className="panel-head">
           <h2>Création VM / LXC</h2>
-          <span className="muted">
-            {options?.configured ? "Connexion active" : "Connexion requise"}
-          </span>
+          {!options?.configured ? <span className="muted">Connexion requise</span> : null}
         </div>
 
         <div className="provision-toolbar">
@@ -728,16 +786,22 @@ export default function ProvisioningStudio({
               value={draft.storage}
               onChange={(value) => patchDraft({ storage: value })}
               options={storageOptions}
-              placeholder="Choisir un stockage"
+              placeholder={
+                storageOptions.length > 0
+                  ? isQemu
+                    ? "Choisir un stockage VM"
+                    : "Choisir un stockage CT"
+                  : "Aucun stockage compatible"
+              }
             />
           </FieldRow>
 
-          <FieldRow label="Bridge réseau">
+          <FieldRow label="Bridge réseau" hint="Optionnel">
             <SelectInput
               value={draft.bridge}
               onChange={(value) => patchDraft({ bridge: value })}
               options={bridgeOptions}
-              placeholder="Choisir un bridge"
+              placeholder={bridgeOptions.length === 1 ? "Bridge auto" : "Aucun bridge"}
             />
           </FieldRow>
 
@@ -799,7 +863,10 @@ export default function ProvisioningStudio({
                 <input
                   className="provision-input"
                   value={draft.ostype}
-                  onChange={(event) => patchDraft({ ostype: event.target.value })}
+                  onChange={(event) => {
+                    setOstypeTouched(true);
+                    patchDraft({ ostype: event.target.value });
+                  }}
                   placeholder="l26"
                   list="vm-ostype-options"
                 />

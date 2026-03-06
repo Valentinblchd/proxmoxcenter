@@ -9,6 +9,7 @@ import {
   type AuthMethod,
 } from "@/lib/auth/session";
 import { touchRuntimeAuthUserLastLogin } from "@/lib/auth/runtime-config";
+import { appendAuditLogEntry } from "@/lib/audit/runtime-log";
 import { getDefaultSecondaryAuthRole } from "@/lib/auth/rbac";
 import { consumeRateLimit, resetRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -138,6 +139,28 @@ export async function POST(request: NextRequest) {
   if (authMethod === "local") {
     touchRuntimeAuthUserLastLogin(authenticatedUser.username);
   }
+
+  appendAuditLogEntry({
+    severity: "info",
+    category: "auth",
+    action: "login.success",
+    summary: `Connexion ${authMethod === "ldap" ? "LDAP" : "locale"} de ${authenticatedUser.username}`,
+    actor: {
+      username: authenticatedUser.username,
+      role: authenticatedUser.role,
+      authMethod,
+      userId: authenticatedUser.userId,
+    },
+    targetType: "session",
+    targetId: authenticatedUser.userId,
+    targetLabel: authenticatedUser.username,
+    changes: [],
+    details: {
+      authMethod,
+      clientIp,
+      nextPath,
+    },
+  });
 
   const session = await createSessionToken(authenticatedUser);
   const response = new NextResponse(null, {

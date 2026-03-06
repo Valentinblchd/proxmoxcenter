@@ -639,10 +639,14 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
       }
 
       const actionRequest = getActionRequest(data);
-      const quickLink = getGenericQuickLink(data);
+      const shouldExposeQuickLink =
+        Boolean(actionRequest) ||
+        data.intent !== "create-workload" ||
+        (data.followUps?.length ?? 0) === 0;
+      const quickLink = shouldExposeQuickLink ? getGenericQuickLink(data) : null;
       const actionLabel = quickLink
         ? data.intent === "create-workload"
-          ? "Ouvrir le wizard"
+          ? "Ouvrir la création"
           : "Ouvrir inventaire"
         : "Ouvrir l’assistant complet";
 

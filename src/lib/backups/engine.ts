@@ -2,6 +2,7 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 import { encryptUploadPayloadIfNeeded } from "@/lib/backups/cloud-encryption";
 import { uploadBackupObjectToCloud } from "@/lib/backups/cloud-providers";
+import { getLastScheduledRun } from "@/lib/backups/plan-policy";
 import { cancelProxmoxTask, startVzdumpJob, waitForTaskResult, findLatestBackupVolume, downloadBackupVolume } from "@/lib/backups/proxmox-runner";
 import { readRuntimeBackupConfig, type RuntimeBackupCloudTarget, type RuntimeBackupPlan } from "@/lib/backups/runtime-config";
 import {
@@ -70,42 +71,16 @@ function parseCursor(value: string | undefined) {
   return date;
 }
 
-function getWeekStart(now: Date) {
-  const start = new Date(now);
-  const day = start.getDay();
-  const distance = day === 0 ? 6 : day - 1; // Monday as start.
-  start.setDate(start.getDate() - distance);
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
-function parsePreferredTime(preferredTime: string) {
-  const match = preferredTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  if (!match) return { hours: 1, minutes: 0 };
-  return {
-    hours: Number.parseInt(match[1], 10),
-    minutes: Number.parseInt(match[2], 10),
-  };
-}
-
-function getLastSlotForPlan(plan: RuntimeBackupPlan, now: Date) {
-  const slotPeriodMs = (7 * 24 * 60 * 60 * 1000) / Math.max(1, plan.runsPerWeek);
-  const weekStart = getWeekStart(now);
-  const time = parsePreferredTime(plan.preferredTime);
-  const anchor = new Date(weekStart);
-  anchor.setHours(time.hours, time.minutes, 0, 0);
-  if (anchor.getTime() > now.getTime()) {
-    anchor.setDate(anchor.getDate() - 7);
-  }
-
-  const delta = now.getTime() - anchor.getTime();
-  const slotIndex = Math.floor(delta / slotPeriodMs);
-  return new Date(anchor.getTime() + slotIndex * slotPeriodMs);
-}
-
 function shouldRunPlan(plan: RuntimeBackupPlan, cursorIso: string | undefined, now: Date) {
   if (!plan.enabled) return { due: false, slot: null as Date | null };
-  const lastSlot = getLastSlotForPlan(plan, now);
+  const lastSlot = getLastScheduledRun(
+    {
+      recurrenceEvery: plan.recurrenceEvery,
+      recurrenceUnit: plan.recurrenceUnit,
+      preferredTime: plan.preferredTime,
+    },
+    now,
+  );
   const cursor = parseCursor(cursorIso);
   if (!cursor) return { due: true, slot: lastSlot };
   return {
@@ -690,6 +665,34 @@ export async function runBackupEngineTick(trigger = "auto") {
     }
   } catch (error) {
     globalState.lastError = error instanceof Error ? error.message : `Tick failure (${trigger})`;
+  } finally {
+    globalState.running = false;
+    globalState.currentExecutionId = null;
+    globalState.currentTask = null;
+    globalState.currentUploadAbort = null;
+  }
+}
+
+export async function runBackupPlanNow(planId: string) {
+  const globalState = getGlobalState();
+  if (globalState.running) {
+    throw new Error("Un run backup est déjà en cours.");
+  }
+  const config = readRuntimeBackupConfig();
+  const plan = config.plans.find((item) => item.id === planId && item.enabled) ?? null;
+  if (!plan) {
+    throw new Error("Plan backup introuvable ou inactif.");
+  }
+  globalState.running = true;
+  globalState.lastError = null;
+  globalState.lastTickAt = new Date().toISOString();
+  try {
+    const slotAt = new Date();
+    updatePlanCursor(plan.id, slotAt.toISOString());
+    await executePlan(plan, slotAt);
+  } catch (error) {
+    globalState.lastError = error instanceof Error ? error.message : "Run manuel échoué";
+    throw error;
   } finally {
     globalState.running = false;
     globalState.currentExecutionId = null;

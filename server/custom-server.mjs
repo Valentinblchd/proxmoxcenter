@@ -130,6 +130,7 @@ function consumeSession(id) {
       upstreamWsUrl,
       ticket: typeof parsed.ticket === "string" ? parsed.ticket : "",
       proxmoxOrigin: typeof parsed.proxmoxOrigin === "string" ? parsed.proxmoxOrigin : "",
+      proxmoxAuthHeader: typeof parsed.proxmoxAuthHeader === "string" ? parsed.proxmoxAuthHeader : "",
       tlsMode: parsed.tlsMode === "custom-ca" ? "custom-ca" : parsed.tlsMode === "insecure" ? "insecure" : "strict",
       allowInsecureTls: Boolean(parsed.allowInsecureTls),
       customCaCertPem: typeof parsed.customCaCertPem === "string" ? parsed.customCaCertPem : "",
@@ -142,7 +143,9 @@ function consumeSession(id) {
 function buildUpstreamSocket(session) {
   const headers = {};
   if (session.proxmoxOrigin) headers.Origin = session.proxmoxOrigin;
-  if (session.ticket) {
+  if (session.proxmoxAuthHeader) {
+    headers.Authorization = session.proxmoxAuthHeader.replace(/[\r\n]/g, "");
+  } else if (session.ticket) {
     const safeTicket = session.ticket.replace(/[\r\n]/g, "");
     headers.Cookie = `PVEAuthCookie=${safeTicket}`;
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
 import { getAuthStatus } from "@/lib/auth/session";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -99,9 +100,35 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    const runtimeAuth = readRuntimeAuthConfig();
+    const nextSessionTtlHours = asPositiveInt(body.sessionTtlHours, 12);
+    const nextSecureCookie = asBoolean(body.secureCookie, false);
     updateRuntimeAuthSessionSettings({
-      sessionTtlSeconds: asPositiveInt(body.sessionTtlHours, 12) * 3600,
-      secureCookie: asBoolean(body.secureCookie, false),
+      sessionTtlSeconds: nextSessionTtlHours * 3600,
+      secureCookie: nextSecureCookie,
+    });
+    appendAuditLogEntry({
+      severity: "info",
+      category: "settings",
+      action: "auth-ui.settings",
+      summary: "Réglages de session mis à jour",
+      actor: buildAuditActor(capability.session),
+      targetType: "auth-ui",
+      targetId: "session",
+      targetLabel: "Sessions UI",
+      changes: [
+        {
+          field: "sessionTtlHours",
+          before: runtimeAuth ? String(Math.max(1, Math.round(runtimeAuth.sessionTtlSeconds / 3600))) : null,
+          after: String(nextSessionTtlHours),
+        },
+        {
+          field: "secureCookie",
+          before: runtimeAuth ? String(runtimeAuth.secureCookie) : null,
+          after: String(nextSecureCookie),
+        },
+      ],
+      details: {},
     });
   } catch (error) {
     return NextResponse.json(

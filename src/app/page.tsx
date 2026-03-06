@@ -1,5 +1,4 @@
 import Link from "next/link";
-import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatBytes, formatRelativeTime } from "@/lib/ui/format";
 
@@ -31,9 +30,7 @@ export default async function HomePage() {
           <h1>ProxCenter</h1>
         </div>
         <div className="topbar-meta">
-          <InventoryRefreshButton auto intervalMs={5000} />
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

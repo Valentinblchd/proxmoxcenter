@@ -3,6 +3,7 @@ import { getPasswordPolicyError } from "@/lib/auth/password-policy";
 import { requireRequestCapability } from "@/lib/auth/authz";
 import { normalizeRuntimeAuthUserRole } from "@/lib/auth/rbac";
 import { hashPasswordWithSalt, randomHex } from "@/lib/auth/session";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import {
   addRuntimeAuthUser,
   deleteRuntimeAuthUser,
@@ -145,6 +146,23 @@ export async function POST(request: NextRequest) {
       passwordSalt,
       role,
     });
+    appendAuditLogEntry({
+      severity: "info",
+      category: "security",
+      action: "local-user.create",
+      summary: `Compte local créé: ${username}`,
+      actor: buildAuditActor(capability.session),
+      targetType: "local-user",
+      targetId: username,
+      targetLabel: username,
+      changes: [
+        { field: "role", before: null, after: role },
+        { field: "enabled", before: null, after: "true" },
+      ],
+      details: {
+        email: email ?? "",
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -193,16 +211,62 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ ok: false, error: "Action invalide." }, { status: 400 });
   }
 
+  const currentUser = listRuntimeAuthUsers().find((entry) => entry.id === userId) ?? null;
+
   try {
     if (action === "primary") {
       setRuntimeAuthPrimaryUser(userId);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: "info",
+          category: "security",
+          action: "local-user.set-primary",
+          summary: `Compte principal défini: ${currentUser.username}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [],
+          details: {},
+        });
+      }
     } else if (action === "enabled") {
-      setRuntimeAuthUserEnabled(userId, asBoolean(body.enabled, true));
+      const nextEnabled = asBoolean(body.enabled, true);
+      setRuntimeAuthUserEnabled(userId, nextEnabled);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: nextEnabled ? "info" : "warning",
+          category: "security",
+          action: "local-user.enabled",
+          summary: `${currentUser.username} ${nextEnabled ? "activé" : "désactivé"}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [{ field: "enabled", before: String(currentUser.enabled), after: String(nextEnabled) }],
+          details: {},
+        });
+      }
     } else if (action === "role") {
       if (capability.session.authMethod === "local" && capability.session.userId === userId) {
         throw new Error("Ton propre rôle ne peut pas être modifié depuis ta session active.");
       }
-      updateRuntimeAuthUserRole(userId, normalizeRuntimeAuthUserRole(body.role));
+      const nextRole = normalizeRuntimeAuthUserRole(body.role);
+      updateRuntimeAuthUserRole(userId, nextRole);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: "warning",
+          category: "security",
+          action: "local-user.role",
+          summary: `Rôle modifié pour ${currentUser.username}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [{ field: "role", before: currentUser.role, after: nextRole }],
+          details: {},
+        });
+      }
     } else if (action === "password") {
       const password = asNonEmptyString(body.password);
       if (!password) {
@@ -215,8 +279,36 @@ export async function PATCH(request: NextRequest) {
       const passwordSalt = randomHex(16);
       const passwordHash = await hashPasswordWithSalt(password, passwordSalt);
       updateRuntimeAuthUserPassword(userId, passwordHash, passwordSalt);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: "warning",
+          category: "security",
+          action: "local-user.password",
+          summary: `Mot de passe modifié pour ${currentUser.username}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [],
+          details: {},
+        });
+      }
     } else if (action === "force-logout") {
       revokeRuntimeAuthUserSessions(userId);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: "warning",
+          category: "security",
+          action: "local-user.force-logout",
+          summary: `Sessions révoquées pour ${currentUser.username}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [],
+          details: {},
+        });
+      }
     } else if (action === "force-logout-others") {
       if (
         capability.session.authMethod !== "local" ||
@@ -226,6 +318,20 @@ export async function PATCH(request: NextRequest) {
         throw new Error("Cette action doit être lancée depuis la session locale du compte concerné.");
       }
       revokeRuntimeAuthOtherSessions(userId, capability.session.issuedAt);
+      if (currentUser) {
+        appendAuditLogEntry({
+          severity: "warning",
+          category: "security",
+          action: "local-user.force-logout-others",
+          summary: `Autres sessions révoquées pour ${currentUser.username}`,
+          actor: buildAuditActor(capability.session),
+          targetType: "local-user",
+          targetId: currentUser.id,
+          targetLabel: currentUser.username,
+          changes: [],
+          details: {},
+        });
+      }
     } else {
       throw new Error("Action inconnue.");
     }
@@ -285,6 +391,23 @@ export async function DELETE(request: NextRequest) {
       `Confirmation forte requise. Tape "${expectedText}".`,
     );
     deleteRuntimeAuthUser(userId);
+    if (user) {
+      appendAuditLogEntry({
+        severity: "warning",
+        category: "security",
+        action: "local-user.delete",
+        summary: `Compte local supprimé: ${user.username}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "local-user",
+        targetId: user.id,
+        targetLabel: user.username,
+        changes: [],
+        details: {
+          role: user.role,
+          email: user.email ?? "",
+        },
+      });
+    }
   } catch (error) {
     return NextResponse.json(
       {

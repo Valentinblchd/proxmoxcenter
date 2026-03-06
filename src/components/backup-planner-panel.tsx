@@ -3,6 +3,17 @@
 import Link from "next/link";
 import { FormEvent, useCallback, useEffect, useState } from "react";
 import StrongConfirmDialog from "@/components/strong-confirm-dialog";
+import {
+  buildAutoRetentionPolicy,
+  formatRecurrenceLabel,
+  formatRetentionPolicy,
+  getLastScheduledRun,
+  getNextScheduledRun,
+  inferRetentionPreset,
+  type BackupRecurrenceUnit,
+  type BackupRetentionMode,
+  type BackupRetentionPreset,
+} from "@/lib/backups/plan-policy";
 
 type BackupWorkloadKind = "qemu" | "lxc";
 type BackupScopeMode = "all" | "selected";
@@ -12,8 +23,6 @@ type BackupCloudProviderChoice = "" | BackupCloudProvider;
 type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
 type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
 type PlanDeliveryMode = "local" | "cloud" | "local-cloud";
-type PlanRecurrencePreset = "q12h" | "daily" | "twice-weekly" | "weekly";
-type PlanRetentionPreset = "custom" | "auto-short" | "auto-balanced" | "auto-long";
 
 type BackupPlan = {
   id: string;
@@ -23,8 +32,13 @@ type BackupPlan = {
   workloadIds: string[];
   includeKinds: BackupWorkloadKind[];
   runsPerWeek: number;
+  recurrenceEvery: number;
+  recurrenceUnit: BackupRecurrenceUnit;
   preferredTime: string;
   backupStorage: string | null;
+  retentionMode: BackupRetentionMode;
+  retentionDays: number;
+  retentionWeeks: number;
   retentionYears: number;
   retentionMonths: number;
   targetMode: BackupTargetMode;
@@ -144,9 +158,13 @@ type PlanFormState = {
   scope: BackupScopeMode;
   workloadIds: string[];
   includeKinds: BackupWorkloadKind[];
-  runsPerWeek: number;
+  recurrenceEvery: number;
+  recurrenceUnit: BackupRecurrenceUnit;
   preferredTime: string;
   backupStorage: string;
+  retentionMode: BackupRetentionMode;
+  retentionDays: number;
+  retentionWeeks: number;
   retentionYears: number;
   retentionMonths: number;
   targetMode: BackupTargetMode;
@@ -429,6 +447,7 @@ const PROVIDER_SECRET_FIELDS: Record<
 };
 
 function defaultPlanForm(): PlanFormState {
+  const retention = buildAutoRetentionPolicy("balanced", 1, "week");
   return {
     id: null,
     name: "",
@@ -436,11 +455,15 @@ function defaultPlanForm(): PlanFormState {
     scope: "all",
     workloadIds: [],
     includeKinds: ["qemu", "lxc"],
-    runsPerWeek: 2,
+    recurrenceEvery: 1,
+    recurrenceUnit: "week",
     preferredTime: "01:00",
     backupStorage: "local",
-    retentionYears: 1,
-    retentionMonths: 3,
+    retentionMode: "auto",
+    retentionDays: retention.days,
+    retentionWeeks: retention.weeks,
+    retentionYears: retention.years,
+    retentionMonths: retention.months,
     targetMode: "local",
     cloudTargetId: "",
     notes: "",
@@ -500,45 +523,6 @@ function applyPlanDeliveryMode(form: PlanFormState, mode: PlanDeliveryMode): Pla
   };
 }
 
-function formatRetentionLabel(years: number, months: number) {
-  const chunks: string[] = [];
-  if (years > 0) chunks.push(`${years} an${years > 1 ? "s" : ""}`);
-  if (months > 0) chunks.push(`${months} mois`);
-  if (chunks.length === 0) return "0 mois";
-  return chunks.join(" ");
-}
-
-function recurrencePresetFromRunsPerWeek(runsPerWeek: number): PlanRecurrencePreset {
-  if (runsPerWeek >= 14) return "q12h";
-  if (runsPerWeek >= 7) return "daily";
-  if (runsPerWeek >= 2) return "twice-weekly";
-  return "weekly";
-}
-
-function runsPerWeekFromRecurrencePreset(preset: PlanRecurrencePreset) {
-  if (preset === "q12h") return 14;
-  if (preset === "daily") return 7;
-  if (preset === "twice-weekly") return 2;
-  return 1;
-}
-
-function retentionPresetFromValues(years: number, months: number): PlanRetentionPreset {
-  if (years === 0 && months === 1) return "auto-short";
-  if (years === 1 && months === 3) return "auto-balanced";
-  if (years === 1 && months === 0) return "auto-long";
-  return "custom";
-}
-
-function retentionValuesFromPreset(preset: Exclude<PlanRetentionPreset, "custom">) {
-  if (preset === "auto-short") {
-    return { retentionYears: 0, retentionMonths: 1 };
-  }
-  if (preset === "auto-balanced") {
-    return { retentionYears: 1, retentionMonths: 3 };
-  }
-  return { retentionYears: 1, retentionMonths: 0 };
-}
-
 function formatBytes(value: number | null) {
   if (value === null || !Number.isFinite(value)) return "—";
   if (value < 1024) return `${value} B`;
@@ -557,53 +541,35 @@ function formatBytes(value: number | null) {
 
 function parseCursor(value: string | undefined) {
   if (!value) return null;
-  const date = new Date(value);
-  if (Number.isNaN(date.getTime())) return null;
-  return date;
-}
-
-function getWeekStart(now: Date) {
-  const start = new Date(now);
-  const day = start.getDay();
-  const distance = day === 0 ? 6 : day - 1;
-  start.setDate(start.getDate() - distance);
-  start.setHours(0, 0, 0, 0);
-  return start;
-}
-
-function parsePreferredTime(preferredTime: string) {
-  const match = preferredTime.match(/^([01]\d|2[0-3]):([0-5]\d)$/);
-  if (!match) return { hours: 1, minutes: 0 };
-  return {
-    hours: Number.parseInt(match[1], 10),
-    minutes: Number.parseInt(match[2], 10),
-  };
-}
-
-function getLastSlotForPlan(plan: BackupPlan, now: Date) {
-  const slotPeriodMs = (7 * 24 * 60 * 60 * 1000) / Math.max(1, plan.runsPerWeek);
-  const weekStart = getWeekStart(now);
-  const time = parsePreferredTime(plan.preferredTime);
-  const anchor = new Date(weekStart);
-  anchor.setHours(time.hours, time.minutes, 0, 0);
-  if (anchor.getTime() > now.getTime()) {
-    anchor.setDate(anchor.getDate() - 7);
-  }
-
-  const delta = now.getTime() - anchor.getTime();
-  const slotIndex = Math.floor(delta / slotPeriodMs);
-  return new Date(anchor.getTime() + slotIndex * slotPeriodMs);
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) return null;
+  return parsed;
 }
 
 function computeUpcomingRuns(plans: BackupPlan[], cursors: Record<string, string>, now: Date) {
   return plans
     .filter((plan) => plan.enabled)
     .map((plan) => {
-      const slotPeriodMs = (7 * 24 * 60 * 60 * 1000) / Math.max(1, plan.runsPerWeek);
-      const lastSlot = getLastSlotForPlan(plan, now);
       const cursor = parseCursor(cursors[plan.id]);
+      const lastSlot = getLastScheduledRun(
+        {
+          recurrenceEvery: plan.recurrenceEvery,
+          recurrenceUnit: plan.recurrenceUnit,
+          preferredTime: plan.preferredTime,
+        },
+        now,
+      );
       const due = !cursor || lastSlot.getTime() > cursor.getTime();
-      const nextAt = due ? lastSlot : new Date(lastSlot.getTime() + slotPeriodMs);
+      const nextAt = due
+        ? lastSlot
+        : getNextScheduledRun(
+            {
+              recurrenceEvery: plan.recurrenceEvery,
+              recurrenceUnit: plan.recurrenceUnit,
+              preferredTime: plan.preferredTime,
+            },
+            now,
+          );
       return {
         planId: plan.id,
         planName: plan.name,
@@ -1449,9 +1415,13 @@ export default function BackupPlannerPanel({
       scope: plan.scope,
       workloadIds: [...plan.workloadIds],
       includeKinds: [...plan.includeKinds],
-      runsPerWeek: plan.runsPerWeek,
+      recurrenceEvery: plan.recurrenceEvery,
+      recurrenceUnit: plan.recurrenceUnit,
       preferredTime: plan.preferredTime,
       backupStorage: plan.backupStorage ?? "local",
+      retentionMode: plan.retentionMode,
+      retentionDays: plan.retentionDays,
+      retentionWeeks: plan.retentionWeeks,
       retentionYears: plan.retentionYears,
       retentionMonths: plan.retentionMonths,
       targetMode: plan.targetMode,
@@ -1492,9 +1462,13 @@ export default function BackupPlannerPanel({
           scope: planForm.scope,
           workloadIds: planForm.workloadIds,
           includeKinds: planForm.includeKinds,
-          runsPerWeek: planForm.runsPerWeek,
+          recurrenceEvery: planForm.recurrenceEvery,
+          recurrenceUnit: planForm.recurrenceUnit,
           preferredTime: planForm.preferredTime,
           backupStorage: planForm.backupStorage || null,
+          retentionMode: planForm.retentionMode,
+          retentionDays: planForm.retentionDays,
+          retentionWeeks: planForm.retentionWeeks,
           retentionYears: planForm.retentionYears,
           retentionMonths: planForm.retentionMonths,
           targetMode: planForm.targetMode,
@@ -1561,12 +1535,13 @@ export default function BackupPlannerPanel({
     });
   }
 
-  async function onRunNow() {
+  async function onRunNow(runPlanId?: string) {
     await submitAction(
       {
         action: "run-now",
+        runPlanId,
       },
-      "Cycle scheduler déclenché.",
+      runPlanId ? "Run manuel lancé." : "Cycle scheduler déclenché.",
     );
   }
 
@@ -2329,8 +2304,17 @@ export default function BackupPlannerPanel({
   const selectedPbsSnapshot = pbsSnapshots.find((item) => item.path === pbsSelectedSnapshot) ?? null;
   const selectedPbsFile = pbsFiles.find((item) => item.archiveName === pbsSelectedArchive) ?? null;
   const planDeliveryMode = inferPlanDeliveryMode(planForm);
-  const recurrencePreset = recurrencePresetFromRunsPerWeek(planForm.runsPerWeek);
-  const retentionPreset = retentionPresetFromValues(planForm.retentionYears, planForm.retentionMonths);
+  const retentionPreset = inferRetentionPreset(
+    planForm.retentionMode,
+    {
+      days: planForm.retentionDays,
+      weeks: planForm.retentionWeeks,
+      months: planForm.retentionMonths,
+      years: planForm.retentionYears,
+    },
+    planForm.recurrenceEvery,
+    planForm.recurrenceUnit,
+  );
   const filteredExecutions = executions.filter((execution) => {
     if (historyFilter === "all") return true;
     if (historyFilter === "failed") {
@@ -2339,11 +2323,11 @@ export default function BackupPlannerPanel({
     return execution.status === historyFilter;
   });
   const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> = [
-    { id: "overview", label: "Accueil" },
+    { id: "overview", label: "Actif" },
     { id: "targets", label: "Local / Cloud" },
     { id: "plans", label: "Plans" },
-    { id: "history", label: "Runs / erreurs" },
-    { id: "restore", label: "Restore + run actif" },
+    { id: "history", label: "Runs & erreurs" },
+    { id: "restore", label: "Restore" },
     ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
   ];
   const showTargetsPanel = activeTab === "targets";
@@ -2625,7 +2609,7 @@ export default function BackupPlannerPanel({
         <section className="panel">
           <div className="panel-head">
             <h2>{planForm.id ? "Modifier un plan" : "Nouveau plan backup"}</h2>
-            <span className="muted">Exécution {planForm.runsPerWeek}x / semaine</span>
+            <span className="muted">{formatRecurrenceLabel(planForm.recurrenceEvery, planForm.recurrenceUnit)}</span>
           </div>
 
           <div className="hint-box">
@@ -2772,31 +2756,47 @@ export default function BackupPlannerPanel({
 
             <div className="provision-grid">
               <label className="provision-field">
-                <span className="provision-field-label">Récurrence</span>
-                <select
+                <span className="provision-field-label">Tous les</span>
+                <input
                   className="provision-input"
-                  value={recurrencePreset}
-                  onChange={(event) => {
-                    const preset = event.target.value as PlanRecurrencePreset;
+                  type="number"
+                  min={1}
+                  value={planForm.recurrenceEvery}
+                  onChange={(event) =>
                     setPlanForm((current) => ({
                       ...current,
-                      runsPerWeek: runsPerWeekFromRecurrencePreset(preset),
-                    }));
-                  }}
+                      recurrenceEvery: Math.max(1, Number.parseInt(event.target.value || "1", 10) || 1),
+                    }))
+                  }
+                  required
+                />
+              </label>
+              <label className="provision-field">
+                <span className="provision-field-label">Unité</span>
+                <select
+                  className="provision-input"
+                  value={planForm.recurrenceUnit}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      recurrenceUnit: event.target.value as BackupRecurrenceUnit,
+                    }))
+                  }
                   required
                 >
-                  <option value="q12h">Toutes les 12 heures</option>
-                  <option value="daily">Tous les jours</option>
-                  <option value="twice-weekly">Deux fois par semaine</option>
-                  <option value="weekly">Chaque semaine</option>
+                  <option value="hour">Heure(s)</option>
+                  <option value="day">Jour(s)</option>
+                  <option value="week">Semaine(s)</option>
+                  <option value="month">Mois</option>
+                  <option value="year">Année(s)</option>
                 </select>
               </label>
+            </div>
 
-              <div className="hint-box">
-                <div className="row-line">
-                  <span>Passages / semaine</span>
-                  <strong>{planForm.runsPerWeek}</strong>
-                </div>
+            <div className="hint-box">
+              <div className="row-line">
+                <span>Récurrence</span>
+                <strong>{formatRecurrenceLabel(planForm.recurrenceEvery, planForm.recurrenceUnit)}</strong>
               </div>
             </div>
 
@@ -2842,94 +2842,159 @@ export default function BackupPlannerPanel({
               </label>
             ) : null}
 
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Rétention (années)</span>
-                <input
-                  className="provision-input"
-                  type="number"
-                  min={0}
-                  max={10}
-                  value={planForm.retentionYears}
-                  onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "0", 10);
-                    setPlanForm((current) => ({
-                      ...current,
-                      retentionYears: Number.isInteger(next) ? next : current.retentionYears,
-                    }));
-                  }}
-                />
-              </label>
-              <label className="provision-field">
-                <span className="provision-field-label">Rétention (mois)</span>
-                <input
-                  className="provision-input"
-                  type="number"
-                  min={0}
-                  max={11}
-                  value={planForm.retentionMonths}
-                  onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "0", 10);
-                    setPlanForm((current) => ({
-                      ...current,
-                      retentionMonths: Number.isInteger(next) ? next : current.retentionMonths,
-                    }));
-                  }}
-                />
-              </label>
+            <div className="hint-box">
+              <div className="item-title">Rétention</div>
+              <div className="item-subtitle">Presets auto ou conservation manuelle en jours, semaines, mois ou années.</div>
             </div>
 
-            <div className="provision-segment" role="group" aria-label="Presets de rétention">
+            <div className="provision-segment" role="group" aria-label="Mode de rétention">
               <button
                 type="button"
-                className={`provision-seg-btn${retentionPreset === "auto-short" ? " is-active" : ""}`}
+                className={`provision-seg-btn${planForm.retentionMode === "auto" && retentionPreset === "short" ? " is-active" : ""}`}
                 onClick={() =>
-                  setPlanForm((current) => ({
-                    ...current,
-                    ...retentionValuesFromPreset("auto-short"),
-                  }))
+                  setPlanForm((current) => {
+                    const nextPolicy = buildAutoRetentionPolicy("short", current.recurrenceEvery, current.recurrenceUnit);
+                    return {
+                      ...current,
+                      retentionMode: "auto",
+                      retentionDays: nextPolicy.days,
+                      retentionWeeks: nextPolicy.weeks,
+                      retentionMonths: nextPolicy.months,
+                      retentionYears: nextPolicy.years,
+                    };
+                  })
                 }
               >
                 Auto court
               </button>
               <button
                 type="button"
-                className={`provision-seg-btn${retentionPreset === "auto-balanced" ? " is-active" : ""}`}
+                className={`provision-seg-btn${planForm.retentionMode === "auto" && retentionPreset === "balanced" ? " is-active" : ""}`}
                 onClick={() =>
-                  setPlanForm((current) => ({
-                    ...current,
-                    ...retentionValuesFromPreset("auto-balanced"),
-                  }))
+                  setPlanForm((current) => {
+                    const nextPolicy = buildAutoRetentionPolicy("balanced", current.recurrenceEvery, current.recurrenceUnit);
+                    return {
+                      ...current,
+                      retentionMode: "auto",
+                      retentionDays: nextPolicy.days,
+                      retentionWeeks: nextPolicy.weeks,
+                      retentionMonths: nextPolicy.months,
+                      retentionYears: nextPolicy.years,
+                    };
+                  })
                 }
               >
                 Auto équilibré
               </button>
               <button
                 type="button"
-                className={`provision-seg-btn${retentionPreset === "auto-long" ? " is-active" : ""}`}
+                className={`provision-seg-btn${planForm.retentionMode === "auto" && retentionPreset === "long" ? " is-active" : ""}`}
                 onClick={() =>
-                  setPlanForm((current) => ({
-                    ...current,
-                    ...retentionValuesFromPreset("auto-long"),
-                  }))
+                  setPlanForm((current) => {
+                    const nextPolicy = buildAutoRetentionPolicy("long", current.recurrenceEvery, current.recurrenceUnit);
+                    return {
+                      ...current,
+                      retentionMode: "auto",
+                      retentionDays: nextPolicy.days,
+                      retentionWeeks: nextPolicy.weeks,
+                      retentionMonths: nextPolicy.months,
+                      retentionYears: nextPolicy.years,
+                    };
+                  })
                 }
               >
                 Auto long
               </button>
               <button
                 type="button"
-                className={`provision-seg-btn${retentionPreset === "custom" ? " is-active" : ""}`}
-                onClick={() => {
-                  /* Mode manuel: conserve les valeurs courantes */
-                }}
+                className={`provision-seg-btn${planForm.retentionMode === "manual" ? " is-active" : ""}`}
+                onClick={() => setPlanForm((current) => ({ ...current, retentionMode: "manual" }))}
               >
                 Manuel
               </button>
             </div>
 
+            <div className="provision-grid">
+              <label className="provision-field">
+                <span className="provision-field-label">Jours</span>
+                <input
+                  className="provision-input"
+                  type="number"
+                  min={0}
+                  value={planForm.retentionDays}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      retentionMode: "manual",
+                      retentionDays: Number.parseInt(event.target.value || "0", 10) || 0,
+                    }))
+                  }
+                />
+              </label>
+              <label className="provision-field">
+                <span className="provision-field-label">Semaines</span>
+                <input
+                  className="provision-input"
+                  type="number"
+                  min={0}
+                  value={planForm.retentionWeeks}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      retentionMode: "manual",
+                      retentionWeeks: Number.parseInt(event.target.value || "0", 10) || 0,
+                    }))
+                  }
+                />
+              </label>
+              <label className="provision-field">
+                <span className="provision-field-label">Mois</span>
+                <input
+                  className="provision-input"
+                  type="number"
+                  min={0}
+                  value={planForm.retentionMonths}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      retentionMode: "manual",
+                      retentionMonths: Number.parseInt(event.target.value || "0", 10) || 0,
+                    }))
+                  }
+                />
+              </label>
+              <label className="provision-field">
+                <span className="provision-field-label">Années</span>
+                <input
+                  className="provision-input"
+                  type="number"
+                  min={0}
+                  value={planForm.retentionYears}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      retentionMode: "manual",
+                      retentionYears: Number.parseInt(event.target.value || "0", 10) || 0,
+                    }))
+                  }
+                />
+              </label>
+            </div>
+
             <div className="hint-box">
               <p className="muted">
-                Rétention demandée: <strong>{formatRetentionLabel(planForm.retentionYears, planForm.retentionMonths)}</strong>
+                Politique retenue:{" "}
+                <strong>
+                  {formatRetentionPolicy(
+                    {
+                      days: planForm.retentionDays,
+                      weeks: planForm.retentionWeeks,
+                      months: planForm.retentionMonths,
+                      years: planForm.retentionYears,
+                    },
+                    planForm.retentionMode,
+                  )}
+                </strong>
               </p>
             </div>
 
@@ -2963,11 +3028,23 @@ export default function BackupPlannerPanel({
                     {plan.scope === "all"
                       ? "Toutes VM/CT"
                       : `${plan.workloadIds.length} workload(s) sélectionnée(s)`}{" "}
-                    • {plan.runsPerWeek}x/semaine • {formatRetentionLabel(plan.retentionYears, plan.retentionMonths)}
+                    • {formatRecurrenceLabel(plan.recurrenceEvery, plan.recurrenceUnit)} •{" "}
+                    {formatRetentionPolicy(
+                      {
+                        days: plan.retentionDays,
+                        weeks: plan.retentionWeeks,
+                        months: plan.retentionMonths,
+                        years: plan.retentionYears,
+                      },
+                      plan.retentionMode,
+                    )}
                     {plan.backupStorage ? ` • storage ${plan.backupStorage}` : ""}
                   </div>
                 </div>
                 <div className="backup-plan-actions">
+                  <button type="button" className="action-btn" onClick={() => void onRunNow(plan.id)} disabled={busy || !plan.enabled}>
+                    Lancer
+                  </button>
                   <button type="button" className="action-btn" onClick={() => populatePlanForm(plan)}>
                     Modifier
                   </button>
@@ -3482,7 +3559,8 @@ export default function BackupPlannerPanel({
               <div className="backup-target-meta">
                 {execution.steps.slice(0, 3).map((step) => (
                   <span key={`${execution.id}-${step.workloadId}`} className="inventory-tag">
-                    {step.workloadId} • {step.sync.status}
+                    {step.workloadId} • {step.status}
+                    {step.sync.provider ? ` • sync ${step.sync.status}` : ""}
                   </span>
                 ))}
               </div>

@@ -653,7 +653,7 @@ export default function ProxmoxConnectionForm() {
         key={deleteConfirmOpen ? "delete-proxmox-open" : "delete-proxmox-closed"}
         open={deleteConfirmOpen}
         title="Supprimer la connexion Proxmox"
-        message="Cette action retire l’URL, le token API et les paramètres LDAP secondaires stockés dans ProxmoxCenter."
+        message="Cette action retire l’URL, le token API et les paramètres LDAP stockés dans ProxmoxCenter."
         expectedText="DELETE PROXMOX CONFIG"
         confirmLabel="Supprimer la configuration"
         busy={busy === "delete"}

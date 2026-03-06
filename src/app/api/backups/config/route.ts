@@ -1,10 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { getCentralCloudOauthProviderStatus } from "@/lib/backups/cloud-oauth-broker";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
 import { readCloudTargetsSpaceMetrics, type CloudTargetSpaceMetrics } from "@/lib/backups/cloud-providers";
 import { readLocalBackupStorageMetrics, type LocalBackupStorageMetrics } from "@/lib/backups/local-storage-metrics";
+import {
+  approximateRunsPerWeek,
+  normalizeLegacyRecurrence,
+  type BackupRecurrenceUnit,
+  type BackupRetentionMode,
+} from "@/lib/backups/plan-policy";
 import {
   type BackupCloudProvider,
   type BackupScopeMode,
@@ -20,6 +27,7 @@ import {
   getBackupEngineStatus,
   ensureBackupEngineStarted,
   requestBackupExecutionCancellation,
+  runBackupPlanNow,
   runBackupEngineTick,
 } from "@/lib/backups/engine";
 import { readRuntimeBackupState } from "@/lib/backups/runtime-state";
@@ -46,6 +54,7 @@ type ConfigBody = {
   target?: unknown;
   targetId?: unknown;
   executionId?: unknown;
+  runPlanId?: unknown;
   confirmationText?: unknown;
 };
 
@@ -57,8 +66,13 @@ type PlanInput = {
   workloadIds?: unknown;
   includeKinds?: unknown;
   runsPerWeek?: unknown;
+  recurrenceEvery?: unknown;
+  recurrenceUnit?: unknown;
   preferredTime?: unknown;
   backupStorage?: unknown;
+  retentionMode?: unknown;
+  retentionDays?: unknown;
+  retentionWeeks?: unknown;
   retentionYears?: unknown;
   retentionMonths?: unknown;
   targetMode?: unknown;
@@ -90,6 +104,8 @@ const BACKUP_PROVIDER_SET = new Set<BackupCloudProvider>([
 const BACKUP_KIND_SET = new Set<BackupWorkloadKind>(["qemu", "lxc"]);
 const BACKUP_SCOPE_SET = new Set<BackupScopeMode>(["all", "selected"]);
 const BACKUP_TARGET_SET = new Set<BackupTargetMode>(["local", "cloud"]);
+const BACKUP_RECURRENCE_UNIT_SET = new Set<BackupRecurrenceUnit>(["hour", "day", "week", "month", "year"]);
+const BACKUP_RETENTION_MODE_SET = new Set<BackupRetentionMode>(["auto", "manual"]);
 
 const PROVIDER_RULES: Record<
   BackupCloudProvider,
@@ -287,16 +303,30 @@ function validatePlan(input: PlanInput, config: RuntimeBackupConfig) {
     throw new Error("En mode sélection, choisis au moins une VM/CT.");
   }
 
-  const runsPerWeek = asInt(input.runsPerWeek, 1, 14, existing?.runsPerWeek ?? 2);
+  const legacyRunsPerWeek = asInt(input.runsPerWeek, 1, 14, existing?.runsPerWeek ?? 2);
+  const legacyRecurrence = normalizeLegacyRecurrence(legacyRunsPerWeek);
+  const recurrenceEvery = asInt(input.recurrenceEvery, 1, 3650, existing?.recurrenceEvery ?? legacyRecurrence.recurrenceEvery);
+  const recurrenceUnitRaw = asNonEmptyString(input.recurrenceUnit, 16) as BackupRecurrenceUnit | null;
+  const recurrenceUnit =
+    recurrenceUnitRaw && BACKUP_RECURRENCE_UNIT_SET.has(recurrenceUnitRaw)
+      ? recurrenceUnitRaw
+      : existing?.recurrenceUnit ?? legacyRecurrence.recurrenceUnit;
   const preferredTime = asNonEmptyString(input.preferredTime, 5) ?? existing?.preferredTime ?? "01:00";
   if (!/^([01]\d|2[0-3]):([0-5]\d)$/.test(preferredTime)) {
     throw new Error("Heure préférée invalide (format HH:MM).");
   }
 
-  const retentionYears = asInt(input.retentionYears, 0, 10, existing?.retentionYears ?? 0);
-  const retentionMonths = asInt(input.retentionMonths, 0, 11, existing?.retentionMonths ?? 3);
-  if (retentionYears === 0 && retentionMonths === 0) {
-    throw new Error("La rétention doit être supérieure à 0 mois.");
+  const retentionModeRaw = asNonEmptyString(input.retentionMode, 16) as BackupRetentionMode | null;
+  const retentionMode =
+    retentionModeRaw && BACKUP_RETENTION_MODE_SET.has(retentionModeRaw)
+      ? retentionModeRaw
+      : existing?.retentionMode ?? "manual";
+  const retentionDays = asInt(input.retentionDays, 0, 3650, existing?.retentionDays ?? 0);
+  const retentionWeeks = asInt(input.retentionWeeks, 0, 520, existing?.retentionWeeks ?? 0);
+  const retentionMonths = asInt(input.retentionMonths, 0, 120, existing?.retentionMonths ?? 3);
+  const retentionYears = asInt(input.retentionYears, 0, 20, existing?.retentionYears ?? 0);
+  if (retentionDays === 0 && retentionWeeks === 0 && retentionMonths === 0 && retentionYears === 0) {
+    throw new Error("La rétention doit être supérieure à 0.");
   }
 
   const targetMode = asNonEmptyString(input.targetMode, 20) as BackupTargetMode | null;
@@ -322,9 +352,14 @@ function validatePlan(input: PlanInput, config: RuntimeBackupConfig) {
     scope,
     workloadIds: [...new Set(workloadIds)],
     includeKinds: [...new Set(includeKinds)],
-    runsPerWeek,
+    runsPerWeek: approximateRunsPerWeek(recurrenceEvery, recurrenceUnit),
+    recurrenceEvery,
+    recurrenceUnit,
     preferredTime,
     backupStorage: asNonEmptyString(input.backupStorage, 120),
+    retentionMode,
+    retentionDays,
+    retentionWeeks,
     retentionYears,
     retentionMonths,
     targetMode,
@@ -460,7 +495,24 @@ export async function POST(request: NextRequest) {
 
   try {
     if (action === "run-now") {
-      await runBackupEngineTick("manual");
+      const runPlanId = asNonEmptyString(body.runPlanId, 120);
+      if (runPlanId) {
+        await runBackupPlanNow(runPlanId);
+      } else {
+        await runBackupEngineTick("manual");
+      }
+      appendAuditLogEntry({
+        severity: "info",
+        category: "backup",
+        action: "backup.run-now",
+        summary: runPlanId ? "Run manuel lancé sur un plan" : "Cycle backup manuel déclenché",
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-plan",
+        targetId: runPlanId ?? "scheduler",
+        targetLabel: runPlanId ?? "scheduler",
+        changes: [],
+        details: {},
+      });
     }
 
     if (action === "cancel-execution") {
@@ -472,14 +524,47 @@ export async function POST(request: NextRequest) {
       if (!execution) {
         throw new Error("Exécution backup introuvable.");
       }
+      appendAuditLogEntry({
+        severity: "warning",
+        category: "backup",
+        action: "backup.cancel",
+        summary: `Annulation demandée pour ${execution.planName}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-execution",
+        targetId: executionId,
+        targetLabel: execution.planName,
+        changes: [],
+        details: {},
+      });
     }
 
     if (action === "save-plan") {
       const plan = validatePlan((body.plan ?? {}) as PlanInput, config);
+      const existingPlan = config.plans.find((item) => item.id === plan.id) ?? null;
       config.plans = [
         ...config.plans.filter((item) => item.id !== plan.id),
         plan,
       ].sort((a, b) => a.name.localeCompare(b.name));
+      appendAuditLogEntry({
+        severity: "info",
+        category: "backup",
+        action: existingPlan ? "backup-plan.update" : "backup-plan.create",
+        summary: existingPlan ? `Plan backup modifié: ${plan.name}` : `Plan backup créé: ${plan.name}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-plan",
+        targetId: plan.id,
+        targetLabel: plan.name,
+        changes: [
+          { field: "recurrence", before: existingPlan ? `${existingPlan.recurrenceEvery} ${existingPlan.recurrenceUnit}` : null, after: `${plan.recurrenceEvery} ${plan.recurrenceUnit}` },
+          { field: "retentionMode", before: existingPlan?.retentionMode ?? null, after: plan.retentionMode },
+          { field: "targetMode", before: existingPlan?.targetMode ?? null, after: plan.targetMode },
+        ],
+        details: {
+          preferredTime: plan.preferredTime,
+          backupStorage: plan.backupStorage ?? "",
+          cloudTargetId: plan.cloudTargetId ?? "",
+        },
+      });
     }
 
     if (action === "delete-plan") {
@@ -494,14 +579,39 @@ export async function POST(request: NextRequest) {
         `Confirmation forte requise. Tape "DELETE PLAN ${plan?.name ?? planId}".`,
       );
       config.plans = config.plans.filter((item) => item.id !== planId);
+      appendAuditLogEntry({
+        severity: "warning",
+        category: "backup",
+        action: "backup-plan.delete",
+        summary: `Plan backup supprimé: ${plan?.name ?? planId}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-plan",
+        targetId: planId,
+        targetLabel: plan?.name ?? planId,
+        changes: [],
+        details: {},
+      });
     }
 
     if (action === "save-cloud-target") {
       const target = validateCloudTarget((body.target ?? {}) as CloudTargetInput, config);
+      const existingTarget = config.cloudTargets.find((item) => item.id === target.id) ?? null;
       config.cloudTargets = [
         ...config.cloudTargets.filter((item) => item.id !== target.id),
         target,
       ].sort((a, b) => a.name.localeCompare(b.name));
+      appendAuditLogEntry({
+        severity: "info",
+        category: "backup",
+        action: existingTarget ? "backup-target.update" : "backup-target.create",
+        summary: existingTarget ? `Cible cloud modifiée: ${target.name}` : `Cible cloud créée: ${target.name}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-target",
+        targetId: target.id,
+        targetLabel: target.name,
+        changes: [{ field: "provider", before: existingTarget?.provider ?? null, after: target.provider }],
+        details: {},
+      });
     }
 
     if (action === "delete-cloud-target") {
@@ -523,6 +633,18 @@ export async function POST(request: NextRequest) {
         throw new Error("Cette cible cloud est encore utilisée par un plan backup.");
       }
       config.cloudTargets = config.cloudTargets.filter((item) => item.id !== targetId);
+      appendAuditLogEntry({
+        severity: "warning",
+        category: "backup",
+        action: "backup-target.delete",
+        summary: `Cible cloud supprimée: ${target?.name ?? targetId}`,
+        actor: buildAuditActor(capability.session),
+        targetType: "backup-target",
+        targetId,
+        targetLabel: target?.name ?? targetId,
+        changes: [],
+        details: {},
+      });
     }
 
     config.updatedAt = new Date().toISOString();

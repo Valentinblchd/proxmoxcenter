@@ -423,21 +423,21 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
           </form>
 
           <div className="quick-actions">
-            <select
-              className="field-input inventory-node-filter"
-              value={nodeFilter}
-              onChange={(event) => {
-                const value = event.target.value;
-                window.location.assign(buildInventoryHref({ node: value || null }));
-              }}
-            >
-              <option value="">Tous les nœuds</option>
-              {nodeNames.map((node) => (
-                <option key={node} value={node}>
-                  {node}
-                </option>
-              ))}
-            </select>
+            <form method="get" action="/inventory" className="quick-actions">
+              {activeTab !== "summary" ? <input type="hidden" name="tab" value={activeTab} /> : null}
+              {query ? <input type="hidden" name="q" value={query} /> : null}
+              <select className="field-input inventory-node-filter" name="node" defaultValue={nodeFilter}>
+                <option value="">Tous les nœuds</option>
+                {nodeNames.map((node) => (
+                  <option key={node} value={node}>
+                    {node}
+                  </option>
+                ))}
+              </select>
+              <button type="submit" className="action-btn">
+                Filtrer
+              </button>
+            </form>
 
             <InventoryRefreshButton auto={hasLiveData} intervalMs={5000} />
 

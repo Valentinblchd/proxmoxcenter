@@ -279,7 +279,7 @@ export default function LocalUsersSettings({ initialUsers, currentUsername }: Pr
 
   return (
     <div className="setup-grid">
-      <div className="setup-form-col">
+      <div className="setup-form-col panel">
         {flash ? (
           <div className={`setup-flash ${flash.type === "error" ? "error-box" : "setup-success"}`}>
             {flash.text}
@@ -391,7 +391,7 @@ export default function LocalUsersSettings({ initialUsers, currentUsername }: Pr
         </div>
       </div>
 
-      <div className="setup-status-col">
+      <div className="setup-status-col panel">
         <div className="panel-head">
           <h2>Comptes locaux</h2>
           <span className="muted">{filteredUsers.length} affiché(s) / {users.length}</span>

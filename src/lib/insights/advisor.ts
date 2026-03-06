@@ -47,6 +47,13 @@ export type GreenItAdvisorResult = {
   };
 };
 
+type GreenItRuntimeOverrides = {
+  estimatedPowerWatts?: number | null;
+  pue?: number | null;
+  co2FactorKgPerKwh?: number | null;
+  electricityPricePerKwh?: number | null;
+};
+
 function clampScore(value: number) {
   return Math.max(0, Math.min(100, Math.round(value)));
 }
@@ -163,10 +170,19 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
   };
 }
 
-export function buildGreenItAdvisor(snapshot: DashboardSnapshot): GreenItAdvisorResult {
-  const pue = parseNumberEnv("GREENIT_PUE", 1.45);
-  const co2FactorKgPerKwh = parseNumberEnv("GREENIT_CO2_FACTOR_KG_PER_KWH", 0.052);
-  const electricityPricePerKwh = parseNumberEnv("GREENIT_ELECTRICITY_PRICE", 0.18);
+export function buildGreenItAdvisor(
+  snapshot: DashboardSnapshot,
+  overrides?: GreenItRuntimeOverrides | null,
+): GreenItAdvisorResult {
+  const pue = overrides?.pue && overrides.pue > 0 ? overrides.pue : parseNumberEnv("GREENIT_PUE", 1.45);
+  const co2FactorKgPerKwh =
+    overrides?.co2FactorKgPerKwh && overrides.co2FactorKgPerKwh > 0
+      ? overrides.co2FactorKgPerKwh
+      : parseNumberEnv("GREENIT_CO2_FACTOR_KG_PER_KWH", 0.052);
+  const electricityPricePerKwh =
+    overrides?.electricityPricePerKwh && overrides.electricityPricePerKwh > 0
+      ? overrides.electricityPricePerKwh
+      : parseNumberEnv("GREENIT_ELECTRICITY_PRICE", 0.18);
 
   const avgNodeCpu =
     snapshot.nodes.length > 0
@@ -182,12 +198,14 @@ export function buildGreenItAdvisor(snapshot: DashboardSnapshot): GreenItAdvisor
 
   // Very rough homelab/datacenter estimate: base node overhead + CPU + RAM contribution.
   const estimatedPowerWatts =
-    snapshot.nodes.length > 0
-      ? snapshot.nodes.reduce((sum, node) => {
-          const memRatio = node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0;
-          return sum + (110 + node.cpuLoad * 220 + memRatio * 90);
-        }, 0)
-      : 0;
+    overrides?.estimatedPowerWatts && overrides.estimatedPowerWatts > 0
+      ? overrides.estimatedPowerWatts
+      : snapshot.nodes.length > 0
+        ? snapshot.nodes.reduce((sum, node) => {
+            const memRatio = node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0;
+            return sum + (110 + node.cpuLoad * 220 + memRatio * 90);
+          }, 0)
+        : 0;
 
   const effectivePowerWatts = estimatedPowerWatts * pue;
   const annualKwh = (effectivePowerWatts * 24 * 365) / 1000;

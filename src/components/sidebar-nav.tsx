@@ -15,6 +15,7 @@ import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
 
 const SIDEBAR_EXPANDED_STORAGE_KEY = "proxcenter_sidebar_expanded";
 const SIDEBAR_SECTIONS_STORAGE_KEY = "proxcenter_sidebar_sections";
+const HOVER_EXPAND_DELAY_MS = 1200;
 
 function MenuIcon({ itemId }: { itemId: string }) {
   const commonProps = {
@@ -355,6 +356,7 @@ export default function SidebarNav({
     () => getDefaultSectionOpenState(visibleSections),
   );
   const logoutFormRef = useRef<HTMLFormElement | null>(null);
+  const hoverTimerRef = useRef<number | null>(null);
   const sidebarExpanded = isExpanded || hoverExpanded;
   const allItems = visibleSections.flatMap((section) => section.items);
 
@@ -417,6 +419,15 @@ export default function SidebarNav({
     };
   }, [logoutConfirmOpen]);
 
+  useEffect(
+    () => () => {
+      if (hoverTimerRef.current !== null) {
+        window.clearTimeout(hoverTimerRef.current);
+      }
+    },
+    [],
+  );
+
   const toggleLabel = sidebarExpanded ? "Réduire le menu" : "Agrandir le menu";
 
   function toggleSection(sectionId: string) {
@@ -456,10 +467,20 @@ export default function SidebarNav({
   function handleSidebarMouseEnter() {
     if (isExpanded) return;
     if (!canUseHoverExpand()) return;
-    setHoverExpanded(true);
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+    }
+    hoverTimerRef.current = window.setTimeout(() => {
+      setHoverExpanded(true);
+      hoverTimerRef.current = null;
+    }, HOVER_EXPAND_DELAY_MS);
   }
 
   function handleSidebarMouseLeave() {
+    if (hoverTimerRef.current !== null) {
+      window.clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
     setHoverExpanded(false);
   }
 

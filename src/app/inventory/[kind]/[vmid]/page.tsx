@@ -5,6 +5,7 @@ import { notFound } from "next/navigation";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import InventoryRemoteAccess from "@/components/inventory-remote-access";
 import InventoryUpdateStatus from "@/components/inventory-update-status";
+import InventoryWorkloadConfigEditor from "@/components/inventory-workload-config-editor";
 import InventoryWorkloadActions from "@/components/inventory-workload-actions";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
@@ -28,6 +29,25 @@ function asKind(value: string): WorkloadKind | null {
 function parseVmid(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function parsePositiveInt(value: string | null) {
+  if (!value) return 0;
+  const parsed = Number.parseInt(value, 10);
+  return Number.isInteger(parsed) && parsed > 0 ? parsed : 0;
+}
+
+function pickPrimaryDiskKey(disks: Array<{ key: string }>) {
+  const preferred = ["rootfs", "scsi0", "virtio0", "sata0", "ide0"];
+  for (const key of preferred) {
+    if (disks.some((disk) => disk.key === key)) return key;
+  }
+  return disks.find((disk) => /^(scsi|virtio|sata|ide)\d+$/.test(disk.key))?.key ?? null;
+}
+
+function parseStorageName(volume: string) {
+  const [storage] = volume.split(":");
+  return storage?.trim() || null;
 }
 
 function buildWorkloadConsoleHref(kind: WorkloadKind, vmid: number, mode?: "console" | "novnc" | "spice") {
@@ -93,6 +113,14 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
   const session = token ? await verifySessionToken(token) : null;
   const canOperate = hasRuntimeCapability(session?.role, "operate");
   const consoleHref = buildWorkloadConsoleHref(detail.kind, detail.vmid, detail.kind === "qemu" ? "novnc" : undefined);
+  const primaryDiskKey = pickPrimaryDiskKey(detail.disks);
+  const primaryDisk = primaryDiskKey ? detail.disks.find((disk) => disk.key === primaryDiskKey) ?? null : null;
+  const currentStorage = primaryDisk ? parseStorageName(primaryDisk.volume) : null;
+  const memoryMiB = Math.max(256, Math.round(detail.memoryTotal / (1024 * 1024)));
+  const diskSizeGb =
+    detail.diskTotal > 0
+      ? Math.max(1, Math.ceil(detail.diskTotal / (1024 * 1024 * 1024)))
+      : null;
   const consoleOptions =
     detail.kind === "qemu"
       ? [
@@ -281,6 +309,23 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
           shellHref={updateShellHref}
         />
       </section>
+
+      <InventoryWorkloadConfigEditor
+        canOperate={canOperate}
+        node={detail.node}
+        kind={detail.kind}
+        vmid={detail.vmid}
+        name={detail.name}
+        memoryMiB={memoryMiB}
+        cores={Math.max(1, parsePositiveInt(detail.cores))}
+        sockets={Math.max(1, parsePositiveInt(detail.sockets))}
+        cpuType={detail.cpuType ?? ""}
+        ostype={detail.ostype ?? ""}
+        bridge={detail.remoteAccess.bridge ?? ""}
+        primaryDiskKey={primaryDiskKey}
+        currentStorage={currentStorage}
+        diskSizeGb={diskSizeGb}
+      />
 
       <section className="workload-grid">
         <section className="panel">

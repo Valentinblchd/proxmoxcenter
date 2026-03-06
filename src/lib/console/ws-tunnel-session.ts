@@ -8,6 +8,7 @@ export type ConsoleWsTunnelSession = {
   upstreamWsUrl: string;
   ticket: string | null;
   proxmoxOrigin: string;
+  proxmoxAuthHeader: string | null;
   tlsMode: "strict" | "insecure" | "custom-ca";
   allowInsecureTls: boolean;
   customCaCertPem: string | null;
@@ -71,6 +72,7 @@ export function createConsoleWsTunnelSession(input: {
   upstreamWsUrl: string;
   ticket?: string | null;
   proxmoxOrigin: string;
+  proxmoxAuthHeader?: string | null;
   tlsMode: "strict" | "insecure" | "custom-ca";
   allowInsecureTls?: boolean;
   customCaCertPem?: string | null;
@@ -85,6 +87,7 @@ export function createConsoleWsTunnelSession(input: {
     upstreamWsUrl: input.upstreamWsUrl,
     ticket: input.ticket ?? null,
     proxmoxOrigin: input.proxmoxOrigin,
+    proxmoxAuthHeader: input.proxmoxAuthHeader ?? null,
     tlsMode: input.tlsMode,
     allowInsecureTls: Boolean(input.allowInsecureTls),
     customCaCertPem: input.customCaCertPem ?? null,

@@ -41,8 +41,8 @@ export default function InventoryRemoteAccess({
   consoleHref,
   consoleOptions = [],
 }: InventoryRemoteAccessProps) {
-  const [target, setTarget] = useState(primaryIp ?? "");
   const [feedback, setFeedback] = useState("");
+  const target = primaryIp ?? "";
 
   const canLaunchRemote = running && target.trim().length > 0;
   const supportsRdp = kind === "qemu" && (osFamily === "windows" || osFamily === "unknown");
@@ -85,43 +85,15 @@ export default function InventoryRemoteAccess({
 
       <div className="inventory-remote-grid inventory-remote-grid-compact">
         <div className="inventory-remote-card">
-          <label className="inventory-remote-label" htmlFor="remote-target">
-            Adresse / IP
-          </label>
-          <input
-            id="remote-target"
-            className="inventory-remote-input"
-            list="remote-target-options"
-            value={target}
-            onChange={(event) => setTarget(event.target.value)}
-            placeholder={primaryIp ?? "192.168.1.20"}
-            autoComplete="off"
-          />
-          <datalist id="remote-target-options">
-            {primaryIp ? <option value={primaryIp} /> : null}
-            {detectedIps.map((ip) => (
-              <option key={ip} value={ip} />
-            ))}
-          </datalist>
+          <span className="inventory-remote-label">IP principale</span>
+          <div id="remote-target" className="inventory-remote-static">
+            {primaryIp ?? "Aucune IP détectée"}
+          </div>
           <div className="inventory-remote-chip-row">
-            {primaryIp ? (
-              <button
-                type="button"
-                className={`inventory-remote-chip${target === primaryIp ? " is-active" : ""}`}
-                onClick={() => setTarget(primaryIp)}
-              >
-                IP principale: {primaryIp}
-              </button>
-            ) : null}
             {detectedIps.map((ip) => (
-              <button
-                key={ip}
-                type="button"
-                className={`inventory-remote-chip${target === ip ? " is-active" : ""}`}
-                onClick={() => setTarget(ip)}
-              >
+              <span key={ip} className="inventory-remote-chip">
                 {ip}
-              </button>
+              </span>
             ))}
           </div>
         </div>
@@ -178,7 +150,7 @@ export default function InventoryRemoteAccess({
               disabled={!target.trim()}
               onClick={() => copyTarget(target.trim())}
             >
-              Copier cible
+              Copier IP
             </button>
           </div>
 

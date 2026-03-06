@@ -2,6 +2,7 @@ import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
+import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { formatBytes, formatPercent, formatRelativeTime } from "@/lib/ui/format";
@@ -29,6 +30,14 @@ type DiskHealthRow = {
   wearout: number | null;
   temperatureC: number | null;
   powerOnHours: number | null;
+};
+
+type NodeHealthRow = {
+  node: string;
+  cpuLoad: number;
+  memoryRatio: number;
+  temperatureC: number | null;
+  temperatureSource: string | null;
 };
 
 async function readSearchParams(
@@ -82,6 +91,84 @@ function estimateRemainingLifeYears(entry: DiskHealthRow) {
   const remainingYears = estimatedTotalYears - yearsInService;
   if (!Number.isFinite(remainingYears) || remainingYears <= 0) return 0;
   return remainingYears;
+}
+
+function findTemperatureCandidate(value: unknown, depth = 0): number | null {
+  if (depth > 5 || value === null || value === undefined) return null;
+  if (typeof value === "number" && Number.isFinite(value) && value >= -40 && value <= 130) {
+    return value;
+  }
+  if (Array.isArray(value)) {
+    for (const item of value) {
+      const found = findTemperatureCandidate(item, depth + 1);
+      if (found !== null) return found;
+    }
+    return null;
+  }
+  if (typeof value === "object") {
+    for (const [key, nested] of Object.entries(value as Record<string, unknown>)) {
+      if (/temp|temperature/i.test(key)) {
+        const found = findTemperatureCandidate(nested, depth + 1);
+        if (found !== null) return found;
+      }
+    }
+    for (const nested of Object.values(value as Record<string, unknown>)) {
+      const found = findTemperatureCandidate(nested, depth + 1);
+      if (found !== null) return found;
+    }
+  }
+  return null;
+}
+
+async function fetchNodeHealth(snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>) {
+  const rows = await Promise.all(
+    snapshot.nodes.map(async (node) => {
+      let temperatureC: number | null = null;
+      let temperatureSource: string | null = null;
+      const candidates = [
+        { path: `nodes/${encodeURIComponent(node.name)}/hardware/sensors`, label: "hardware/sensors" },
+        { path: `nodes/${encodeURIComponent(node.name)}/sensors`, label: "sensors" },
+        { path: `nodes/${encodeURIComponent(node.name)}/status`, label: "status" },
+      ];
+
+      for (const candidate of candidates) {
+        try {
+          const payload = await proxmoxRequest<unknown>(candidate.path);
+          const found = findTemperatureCandidate(payload);
+          if (found !== null) {
+            temperatureC = found;
+            temperatureSource = candidate.label;
+            break;
+          }
+        } catch {
+          // Ignore missing endpoints; keep probing.
+        }
+      }
+
+      return {
+        node: node.name,
+        cpuLoad: node.cpuLoad,
+        memoryRatio: node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0,
+        temperatureC,
+        temperatureSource,
+      } satisfies NodeHealthRow;
+    }),
+  );
+
+  return rows.sort((left, right) => left.node.localeCompare(right.node));
+}
+
+function healthStateFromRatio(value: number) {
+  if (value >= 0.95) return "critical";
+  if (value >= 0.85) return "warning";
+  return "ok";
+}
+
+function healthStateFromTemperature(value: number | null) {
+  if (value === null) return "unknown";
+  if (value >= 85) return "critical";
+  if (value >= 75) return "warning";
+  return "ok";
 }
 
 async function fetchDiskHealth(nodeNames: string[]) {
@@ -152,7 +239,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const snapshot = await getDashboardSnapshot();
   const hasLiveData = snapshot.mode === "live";
   const security = buildSecurityAdvisor(snapshot);
-  const greenit = buildGreenItAdvisor(snapshot);
+  const greenitSettings = readRuntimeGreenItConfig();
+  const greenit = buildGreenItAdvisor(snapshot, greenitSettings);
   const warningCount = snapshot.warnings.length;
   const avgCpu =
     snapshot.nodes.length > 0
@@ -170,9 +258,19 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
     hasLiveData && (activeTab === "overview" || activeTab === "health")
       ? await fetchDiskHealth(snapshot.nodes.map((node) => node.name))
       : [];
+  const nodeHealth =
+    hasLiveData && (activeTab === "overview" || activeTab === "health")
+      ? await fetchNodeHealth(snapshot)
+      : [];
   const diskCritical = diskHealth.filter((entry) => inferDiskSeverity(entry) === "critical").length;
   const diskWarning = diskHealth.filter((entry) => inferDiskSeverity(entry) === "warning").length;
   const diskUnknown = diskHealth.filter((entry) => inferDiskSeverity(entry) === "unknown").length;
+  const cpuCritical = nodeHealth.filter((entry) => healthStateFromRatio(entry.cpuLoad) === "critical").length;
+  const cpuWarning = nodeHealth.filter((entry) => healthStateFromRatio(entry.cpuLoad) === "warning").length;
+  const ramCritical = nodeHealth.filter((entry) => healthStateFromRatio(entry.memoryRatio) === "critical").length;
+  const ramWarning = nodeHealth.filter((entry) => healthStateFromRatio(entry.memoryRatio) === "warning").length;
+  const thermalCritical = nodeHealth.filter((entry) => healthStateFromTemperature(entry.temperatureC) === "critical").length;
+  const thermalWarning = nodeHealth.filter((entry) => healthStateFromTemperature(entry.temperatureC) === "warning").length;
   const hourlyKwh = Number((greenit.metrics.annualKwh / 8760).toFixed(3));
   const dailyKwh = Number((greenit.metrics.annualKwh / 365).toFixed(2));
   const monthlyKwh = Number((greenit.metrics.annualKwh / 12).toFixed(1));
@@ -180,6 +278,15 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const dailyCost = Number((greenit.metrics.annualCost / 365).toFixed(2));
   const monthlyCost = Number((greenit.metrics.annualCost / 12).toFixed(2));
   const dailyCo2 = Number((greenit.metrics.annualCo2Kg / 365).toFixed(2));
+  const representativeServerTemp =
+    greenitSettings?.serverTemperatureC ??
+    nodeHealth.find((entry) => entry.temperatureC !== null)?.temperatureC ??
+    null;
+  const outsideTemp = greenitSettings?.outsideTemperatureC ?? null;
+  const thermalDelta =
+    representativeServerTemp !== null && outsideTemp !== null
+      ? representativeServerTemp - outsideTemp
+      : null;
 
   const topRecommendations = [...security.recommendations, ...greenit.recommendations].slice(0, 8);
 
@@ -191,9 +298,9 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           <h1>Santé, GreenIT et recommandations</h1>
         </div>
         <div className="topbar-meta">
-          <InventoryRefreshButton auto intervalMs={5000} />
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
           <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
+          <InventoryRefreshButton auto intervalMs={5000} />
         </div>
       </header>
 
@@ -235,6 +342,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       </section>
 
       {(activeTab === "overview" || activeTab === "health") ? (
+        <>
         <section className="content-grid">
           <section className="panel">
             <div className="panel-head">
@@ -321,9 +429,61 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             )}
           </section>
         </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>CPU, RAM et sondes</h2>
+            <span className="muted">{nodeHealth.length} nœud(x)</span>
+          </div>
+          <div className="row-line">
+            <span>CPU critique / warning</span>
+            <strong>{cpuCritical} / {cpuWarning}</strong>
+          </div>
+          <div className="row-line">
+            <span>RAM critique / warning</span>
+            <strong>{ramCritical} / {ramWarning}</strong>
+          </div>
+          <div className="row-line">
+            <span>Sondes thermiques critique / warning</span>
+            <strong>{thermalCritical} / {thermalWarning}</strong>
+          </div>
+          {nodeHealth.length === 0 ? (
+            <p className="muted">Aucune télémétrie nœud disponible.</p>
+          ) : (
+            <div className="mini-list">
+              {nodeHealth.map((entry) => {
+                const cpuState = healthStateFromRatio(entry.cpuLoad);
+                const ramState = healthStateFromRatio(entry.memoryRatio);
+                const thermalState = healthStateFromTemperature(entry.temperatureC);
+                return (
+                  <article key={entry.node} className="mini-list-item">
+                    <div>
+                      <div className="item-title">{entry.node}</div>
+                      <div className="item-subtitle">
+                        CPU {formatPercent(entry.cpuLoad)} • RAM {formatPercent(entry.memoryRatio)}
+                        {entry.temperatureC !== null ? ` • ${Math.round(entry.temperatureC)}°C` : " • Température non remontée"}
+                      </div>
+                      {entry.temperatureSource ? (
+                        <div className="item-subtitle">Sonde: {entry.temperatureSource}</div>
+                      ) : null}
+                    </div>
+                    <div className="backup-target-meta">
+                      <span className={`inventory-tag ${cpuState === "critical" ? "status-bad" : ""}`}>CPU {cpuState}</span>
+                      <span className={`inventory-tag ${ramState === "critical" ? "status-bad" : ""}`}>RAM {ramState}</span>
+                      <span className={`inventory-tag ${thermalState === "critical" ? "status-bad" : ""}`}>
+                        Temp {thermalState}
+                      </span>
+                    </div>
+                  </article>
+                );
+              })}
+            </div>
+          )}
+        </section>
+        </>
       ) : null}
 
-      {(activeTab === "overview" || activeTab === "greenit") ? (
+      {activeTab === "greenit" ? (
         <section className="content-grid">
           <section className="panel">
             <div className="panel-head">
@@ -372,40 +532,36 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Hypothèses</h2>
-              <span className="muted">Ajustables ci-dessous</span>
+              <h2>Thermique & environnement</h2>
+              <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
             </div>
-            <div className="mini-list">
-              <article className="mini-list-item">
-                <div>
-                  <div className="item-title">GREENIT_PUE</div>
-                  <div className="item-subtitle">Facteur infra datacenter</div>
-                </div>
-                <div className="item-metric">{greenit.config.pue}</div>
-              </article>
-              <article className="mini-list-item">
-                <div>
-                  <div className="item-title">GREENIT_CO2_FACTOR_KG_PER_KWH</div>
-                  <div className="item-subtitle">Facteur carbone local</div>
-                </div>
-                <div className="item-metric">{greenit.config.co2FactorKgPerKwh}</div>
-              </article>
-              <article className="mini-list-item">
-                <div>
-                  <div className="item-title">GREENIT_ELECTRICITY_PRICE</div>
-                  <div className="item-subtitle">Prix du kWh</div>
-                </div>
-                <div className="item-metric">{greenit.config.electricityPricePerKwh} €</div>
-              </article>
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>Température serveur</span>
+                <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "Non remontée"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Température extérieure</span>
+                <strong>{outsideTemp !== null ? `${outsideTemp.toFixed(1)}°C` : "Non renseignée"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Ville extérieure</span>
+                <strong>{greenitSettings?.outsideCity ?? "Non renseignée"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Delta thermique</span>
+                <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "Indisponible"}</strong>
+              </div>
             </div>
             <p className="muted">
-              Formule: <code>(Puissance IT × PUE × 24 × 365) / 1000</code> puis conversion CO2 et coût.
+              La température serveur utilise d’abord une sonde nœud si Proxmox la remonte, sinon la valeur calibrée.
             </p>
           </section>
+
         </section>
       ) : null}
 
-      {(activeTab === "overview" || activeTab === "greenit") ? (
+      {activeTab === "greenit" ? (
         <GreenItCalibrationPanel
           defaults={{
             estimatedPowerWatts: greenit.metrics.estimatedPowerWatts,
@@ -413,6 +569,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
             electricityPricePerKwh: greenit.config.electricityPricePerKwh,
           }}
+          initialSettings={greenitSettings}
         />
       ) : null}
 

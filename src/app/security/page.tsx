@@ -3,10 +3,12 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import AuthUiSettingsPanel from "@/components/auth-ui-settings-panel";
 import LocalUsersSettings from "@/components/local-users-settings";
+import SecurityAuditLogPanel from "@/components/security-audit-log-panel";
 import { buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { readRuntimeAuthConfig } from "@/lib/auth/runtime-config";
+import { readRuntimeAuditLog } from "@/lib/audit/runtime-log";
 import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatRelativeTime } from "@/lib/ui/format";
@@ -79,27 +81,57 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
     const order = { critical: 0, high: 1, medium: 2, low: 3 } as const;
     return order[left.severity] - order[right.severity];
   });
+  const auditLog = readRuntimeAuditLog();
 
-  const securityLogs = [
+  const legacySecurityLogs = [
     ...localUsers
       .filter((user) => user.lastLoginAt)
       .map((user) => ({
         id: `login-${user.id}`,
-        type: "Connexion",
-        when: user.lastLoginAt as string,
-        message: `${user.username} connecté`,
+        at: user.lastLoginAt as string,
+        severity: "info" as const,
+        category: "auth" as const,
+        action: "login.success",
+        summary: `${user.username} connecté`,
+        actor: {
+          username: user.username,
+          role: user.role,
+          authMethod: "local" as const,
+          userId: user.id,
+        },
+        targetType: "session",
+        targetId: user.id,
+        targetLabel: user.username,
+        changes: [],
+        details: {},
       })),
     ...localUsers
       .filter((user) => user.sessionRevokedAt)
       .map((user) => ({
         id: `revoke-${user.id}`,
-        type: "Session",
-        when: user.sessionRevokedAt as string,
-        message: `Sessions révoquées pour ${user.username}`,
+        at: user.sessionRevokedAt as string,
+        severity: "warning" as const,
+        category: "security" as const,
+        action: "session.revoke",
+        summary: `Sessions révoquées pour ${user.username}`,
+        actor: {
+          username: user.username,
+          role: user.role,
+          authMethod: "local" as const,
+          userId: user.id,
+        },
+        targetType: "session",
+        targetId: user.id,
+        targetLabel: user.username,
+        changes: [],
+        details: {},
       })),
   ]
-    .sort((left, right) => Date.parse(right.when) - Date.parse(left.when))
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
     .slice(0, 40);
+  const securityLogs = [...auditLog.entries, ...legacySecurityLogs]
+    .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
+    .slice(0, 200);
 
   return (
     <section className="content security-page">
@@ -174,7 +206,7 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
                 <strong>{localUsers.filter((user) => user.enabled).length}</strong>
               </div>
               <div className="row-line">
-                <span>LDAP secondaire</span>
+                <span>LDAP</span>
                 <strong>{proxmoxRuntime?.ldap.enabled ? "Activé" : "Désactivé"}</strong>
               </div>
               <div className="row-line">
@@ -236,17 +268,7 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
           {securityLogs.length === 0 ? (
             <p className="muted">Aucun événement sécurité local récent.</p>
           ) : (
-            <div className="mini-list">
-              {securityLogs.map((entry) => (
-                <article key={entry.id} className="mini-list-item">
-                  <div>
-                    <div className="item-title">{entry.type}</div>
-                    <div className="item-subtitle">{entry.message}</div>
-                  </div>
-                  <div className="item-metric">{formatRelativeTime(entry.when)}</div>
-                </article>
-              ))}
-            </div>
+            <SecurityAuditLogPanel entries={securityLogs} />
           )}
           {snapshot.warnings.length > 0 ? (
             <div className="warning">

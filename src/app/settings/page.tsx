@@ -2,15 +2,19 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import AssistantMemorySettings from "@/components/assistant-memory-settings";
 import CloudOauthSettings from "@/components/cloud-oauth-settings";
+import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
 import ProxmoxConnectionForm from "@/components/proxmox-connection-form";
 import SelfUpdateSettingsPanel from "@/components/self-update-settings-panel";
 import ThemeSettingsPanel from "@/components/theme-settings-panel";
 import { readAssistantMemory } from "@/lib/assistant/memory";
 import { AUTH_COOKIE_NAME, getAuthStatus, verifySessionToken } from "@/lib/auth/session";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
+import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
+import { buildGreenItAdvisor } from "@/lib/insights/advisor";
 import { readRuntimePbsConfig } from "@/lib/pbs/runtime-config";
 import { readPbsToolingStatus } from "@/lib/pbs/tooling";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
+import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 
 export const dynamic = "force-dynamic";
 
@@ -31,6 +35,7 @@ function readString(value: string | string[] | undefined) {
 
 const TABS = [
   { id: "proxmox", label: "Proxmox" },
+  { id: "greenit", label: "GreenIT" },
   { id: "appearance", label: "Apparence" },
   { id: "ai", label: "Mémoire IA" },
 ] as const;
@@ -46,6 +51,9 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const pbsRuntime = readRuntimePbsConfig();
   const pbsTooling = await readPbsToolingStatus();
   const cloudOauthProviders = getPublicCloudOauthAppStatus();
+  const snapshot = await getDashboardSnapshot();
+  const greenitRuntime = readRuntimeGreenItConfig();
+  const greenit = buildGreenItAdvisor(snapshot, greenitRuntime);
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
@@ -83,7 +91,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       {activeTab === "proxmox" ? (
         <section className="settings-sections">
-          <details className="panel" open>
+          <details className="panel">
             <summary className="settings-collapsible-summary">
               <span>Proxmox</span>
               <span className="muted">{proxmoxConfigured ? "Configuré" : "À configurer"}</span>
@@ -155,6 +163,18 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <section className="panel">
           <ThemeSettingsPanel />
         </section>
+      ) : null}
+
+      {activeTab === "greenit" ? (
+        <GreenItCalibrationPanel
+          defaults={{
+            estimatedPowerWatts: greenit.metrics.estimatedPowerWatts,
+            pue: greenit.config.pue,
+            co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
+            electricityPricePerKwh: greenit.config.electricityPricePerKwh,
+          }}
+          initialSettings={greenitRuntime}
+        />
       ) : null}
 
       {activeTab === "ai" ? (

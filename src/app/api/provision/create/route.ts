@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -106,14 +107,14 @@ function validateCommon(body: ProvisionCreateBody) {
   const storage = asNonEmptyString(body.storage);
   const bridge = normalizeBridgeInput(asNonEmptyString(body.bridge));
 
-  if (!kind || !node || !vmid || !name || !memoryMiB || !cores || !diskGb || !storage || !bridge) {
+  if (!kind || !node || !vmid || !name || !memoryMiB || !cores || !diskGb || !storage) {
     return null;
   }
 
   if (
     !NODE_NAME_PATTERN.test(node) ||
     !STORAGE_NAME_PATTERN.test(storage) ||
-    !BRIDGE_NAME_PATTERN.test(bridge) ||
+    (bridge !== null && !BRIDGE_NAME_PATTERN.test(bridge)) ||
     vmid < 1 ||
     vmid > 9_999_999 ||
     memoryMiB > 8_388_608 ||
@@ -159,7 +160,9 @@ function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof v
   }
   params.set("scsihw", "virtio-scsi-pci");
   params.set("scsi0", `${common.storage}:${common.diskGb}`);
-  params.set("net0", `virtio,bridge=${common.bridge}`);
+  if (common.bridge) {
+    params.set("net0", `virtio,bridge=${common.bridge}`);
+  }
   params.set("machine", machine);
   params.set("bios", bios);
   params.set("agent", enableAgent ? "1" : "0");
@@ -167,9 +170,9 @@ function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof v
 
   if (isoVolume) {
     params.set("ide2", `${isoVolume},media=cdrom`);
-    params.set("boot", "order=scsi0;ide2;net0");
+    params.set("boot", common.bridge ? "order=scsi0;ide2;net0" : "order=scsi0;ide2");
   } else {
-    params.set("boot", "order=scsi0;net0");
+    params.set("boot", common.bridge ? "order=scsi0;net0" : "order=scsi0");
   }
 
   if (enableTpm && bios === "ovmf") {
@@ -201,7 +204,9 @@ function createLxcParams(body: ProvisionCreateBody, common: ReturnType<typeof va
   params.set("swap", String(swapMiB));
   params.set("rootfs", `${common.storage}:${common.diskGb}`);
   params.set("ostemplate", template);
-  params.set("net0", `name=eth0,bridge=${common.bridge},ip=dhcp`);
+  if (common.bridge) {
+    params.set("net0", `name=eth0,bridge=${common.bridge},ip=dhcp`);
+  }
   params.set("unprivileged", unprivileged ? "1" : "0");
   params.set("onboot", "1");
   if (password) {
@@ -243,7 +248,7 @@ export async function POST(request: NextRequest) {
   const common = validateCommon(body);
   if (!common) {
     return NextResponse.json(
-      { ok: false, error: "Champs requis manquants (kind/node/vmid/name/memory/cores/disk/storage/bridge)." },
+      { ok: false, error: "Champs requis manquants (kind/node/vmid/name/memory/cores/disk/storage)." },
       { status: 400 },
     );
   }
@@ -289,6 +294,23 @@ export async function POST(request: NextRequest) {
         "Content-Type": "application/x-www-form-urlencoded; charset=utf-8",
       },
       body: params.toString(),
+    });
+    appendAuditLogEntry({
+      severity: "info",
+      category: "workload",
+      action: "workload.create",
+      summary: `${common.kind === "qemu" ? "VM" : "CT"} ${common.name} (#${common.vmid}) créée`,
+      actor: buildAuditActor(capability.session),
+      targetType: common.kind,
+      targetId: String(common.vmid),
+      targetLabel: `${common.node}/${common.name}`,
+      changes: [],
+      details: {
+        node: common.node,
+        storage: common.storage,
+        bridge: common.bridge ?? "",
+        upid,
+      },
     });
 
     return NextResponse.json({

@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import {
   AUTH_COOKIE_NAME,
   createSessionToken,
@@ -116,6 +117,12 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   const authStatus = getAuthStatus();
+  let auditActor: ReturnType<typeof buildAuditActor> = {
+    username: "bootstrap",
+    role: "admin",
+    authMethod: "local",
+    userId: null,
+  };
 
   if (authStatus.active) {
     const capability = await requireRequestCapability(request, "admin");
@@ -130,6 +137,7 @@ export async function POST(request: NextRequest) {
         { status: 403 },
       );
     }
+    auditActor = buildAuditActor(capability.session);
   }
 
   const gate = consumeRateLimit(`setup-auth:post:${getClientIp(request)}`, AUTH_SETUP_POST_LIMIT);
@@ -247,6 +255,23 @@ export async function POST(request: NextRequest) {
         secureCookie: asBoolean(body.secureCookie, false),
       });
     }
+    appendAuditLogEntry({
+      severity: "info",
+      category: "security",
+      action: hadRuntimeAuth ? "auth.setup.update" : "auth.setup.create",
+      summary: hadRuntimeAuth ? "Configuration d’auth mise à jour" : "Compte admin bootstrap créé",
+      actor: auditActor,
+      targetType: "auth",
+      targetId: normalizedUsername,
+      targetLabel: normalizedUsername,
+      changes: [
+        { field: "username", before: existingRuntimeAuth?.username ?? null, after: normalizedUsername },
+        { field: "secureCookie", before: existingRuntimeAuth ? String(existingRuntimeAuth.secureCookie) : null, after: String(asBoolean(body.secureCookie, existingRuntimeAuth?.secureCookie ?? false)) },
+      ],
+      details: {
+        email: email ?? "",
+      },
+    });
   } catch (error) {
     return NextResponse.json(
       {
@@ -334,7 +359,7 @@ export async function DELETE(request: NextRequest) {
       {
         ok: false,
         error:
-          "Suppression bloquée: LDAP secondaire activé. Un compte local UI doit rester disponible en permanence.",
+          "Suppression bloquée: LDAP activé. Un compte local UI doit rester disponible en permanence.",
         ...buildAuthSetupStatus(),
       },
       { status: 409 },
@@ -342,6 +367,18 @@ export async function DELETE(request: NextRequest) {
   }
 
   deleteRuntimeAuthConfig();
+  appendAuditLogEntry({
+    severity: "warning",
+    category: "security",
+    action: "auth.setup.delete",
+    summary: "Configuration d’auth UI supprimée",
+    actor: buildAuditActor(capability.session),
+    targetType: "auth",
+    targetId: "runtime",
+    targetLabel: "Auth UI",
+    changes: [],
+    details: {},
+  });
   const response = NextResponse.json({
     ok: true,
     message: "Configuration d’auth UI supprimée.",

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
-import { getProxmoxConfig } from "@/lib/proxmox/config";
+import { getProxmoxAuthHeaderValue, getProxmoxConfig } from "@/lib/proxmox/config";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { ensureSameOriginRequest } from "@/lib/security/request-guards";
 import { createConsoleWsTunnelSession } from "@/lib/console/ws-tunnel-session";
@@ -116,6 +116,7 @@ export async function POST(request: NextRequest) {
         upstreamWsUrl: wsUrl,
         ticket,
         proxmoxOrigin: proxmox.baseUrl,
+        proxmoxAuthHeader: getProxmoxAuthHeaderValue(proxmox),
         tlsMode: proxmox.tlsMode,
         allowInsecureTls: proxmox.allowInsecureTls,
         customCaCertPem: proxmox.customCaCertPem,
@@ -141,6 +142,7 @@ export async function POST(request: NextRequest) {
         upstreamWsUrl: wsUrl,
         ticket,
         proxmoxOrigin: proxmox.baseUrl,
+        proxmoxAuthHeader: getProxmoxAuthHeaderValue(proxmox),
         tlsMode: proxmox.tlsMode,
         allowInsecureTls: proxmox.allowInsecureTls,
         customCaCertPem: proxmox.customCaCertPem,
@@ -175,6 +177,7 @@ export async function POST(request: NextRequest) {
           upstreamWsUrl: wsUrl,
           ticket,
           proxmoxOrigin: proxmox.baseUrl,
+          proxmoxAuthHeader: getProxmoxAuthHeaderValue(proxmox),
           tlsMode: proxmox.tlsMode,
           allowInsecureTls: proxmox.allowInsecureTls,
           customCaCertPem: proxmox.customCaCertPem,
@@ -199,6 +202,7 @@ export async function POST(request: NextRequest) {
         upstreamWsUrl: wsUrl,
         ticket,
         proxmoxOrigin: proxmox.baseUrl,
+        proxmoxAuthHeader: getProxmoxAuthHeaderValue(proxmox),
         tlsMode: proxmox.tlsMode,
         allowInsecureTls: proxmox.allowInsecureTls,
         customCaCertPem: proxmox.customCaCertPem,

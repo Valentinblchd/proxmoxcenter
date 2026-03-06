@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { getAuthStatus } from "@/lib/auth/session";
 import { proxmoxRequestWithConfig } from "@/lib/proxmox/client";
 import {
@@ -290,7 +291,24 @@ export async function POST(request: NextRequest) {
 
   if (!testOnly) {
     try {
+      const previous = readRuntimeProxmoxConfig();
       writeRuntimeProxmoxConfig(candidateInput);
+      appendAuditLogEntry({
+        severity: normalized.allowInsecureTls ? "warning" : "info",
+        category: "settings",
+        action: previous ? "proxmox.settings.update" : "proxmox.settings.create",
+        summary: previous ? "Connexion Proxmox mise à jour" : "Connexion Proxmox configurée",
+        actor: buildAuditActor(capability.session),
+        targetType: "proxmox",
+        targetId: normalized.host,
+        targetLabel: normalized.baseUrl,
+        changes: [
+          { field: "host", before: previous?.host ?? null, after: normalized.host },
+          { field: "tlsMode", before: previous?.tlsMode ?? null, after: normalized.tlsMode },
+          { field: "ldapEnabled", before: previous ? String(previous.ldap.enabled) : null, after: String(normalized.ldap.enabled) },
+        ],
+        details: {},
+      });
     } catch (error) {
       return NextResponse.json(
         {
@@ -346,6 +364,18 @@ export async function DELETE(request: NextRequest) {
   }
 
   deleteRuntimeProxmoxConfig();
+  appendAuditLogEntry({
+    severity: "warning",
+    category: "settings",
+    action: "proxmox.settings.delete",
+    summary: "Connexion Proxmox supprimée",
+    actor: buildAuditActor(capability.session),
+    targetType: "proxmox",
+    targetId: "runtime",
+    targetLabel: "Proxmox",
+    changes: [],
+    details: {},
+  });
   return NextResponse.json({
     ok: true,
     message: "Runtime Proxmox config deleted.",

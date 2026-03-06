@@ -2,6 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { openSecret, sealSecret } from "@/lib/security/secret-box";
+import { normalizeLegacyRecurrence, type BackupRecurrenceUnit, type BackupRetentionMode } from "@/lib/backups/plan-policy";
 
 export type BackupWorkloadKind = "qemu" | "lxc";
 export type BackupScopeMode = "all" | "selected";
@@ -16,8 +17,13 @@ export type RuntimeBackupPlan = {
   workloadIds: string[];
   includeKinds: BackupWorkloadKind[];
   runsPerWeek: number;
+  recurrenceEvery: number;
+  recurrenceUnit: BackupRecurrenceUnit;
   preferredTime: string;
   backupStorage: string | null;
+  retentionMode: BackupRetentionMode;
+  retentionDays: number;
+  retentionWeeks: number;
   retentionYears: number;
   retentionMonths: number;
   targetMode: BackupTargetMode;
@@ -70,8 +76,13 @@ type RuntimeBackupPlanFile = {
   workloadIds?: unknown;
   includeKinds?: unknown;
   runsPerWeek?: unknown;
+  recurrenceEvery?: unknown;
+  recurrenceUnit?: unknown;
   preferredTime?: unknown;
   backupStorage?: unknown;
+  retentionMode?: unknown;
+  retentionDays?: unknown;
+  retentionWeeks?: unknown;
   retentionYears?: unknown;
   retentionMonths?: unknown;
   targetMode?: unknown;
@@ -90,6 +101,8 @@ const CLOUD_PROVIDER_SET = new Set<BackupCloudProvider>([
 const WORKLOAD_KIND_SET = new Set<BackupWorkloadKind>(["qemu", "lxc"]);
 const SCOPE_SET = new Set<BackupScopeMode>(["all", "selected"]);
 const TARGET_MODE_SET = new Set<BackupTargetMode>(["local", "cloud"]);
+const RECURRENCE_UNIT_SET = new Set<BackupRecurrenceUnit>(["hour", "day", "week", "month", "year"]);
+const RETENTION_MODE_SET = new Set<BackupRetentionMode>(["auto", "manual"]);
 
 function asNonEmptyString(value: unknown, maxLength = 300) {
   if (typeof value !== "string") return null;
@@ -198,6 +211,18 @@ function normalizePlan(input: RuntimeBackupPlanFile): RuntimeBackupPlan | null {
     .filter((item): item is string => Boolean(item && /^(qemu|lxc)\/\d{1,7}$/.test(item)));
 
   const now = new Date().toISOString();
+  const legacyRunsPerWeek = asInt(input.runsPerWeek, 1, 14, 2);
+  const legacyRecurrence = normalizeLegacyRecurrence(legacyRunsPerWeek);
+  const recurrenceEvery = asInt(input.recurrenceEvery, 1, 3650, legacyRecurrence.recurrenceEvery);
+  const recurrenceUnitRaw = asNonEmptyString(input.recurrenceUnit, 16) as BackupRecurrenceUnit | null;
+  const recurrenceUnit = recurrenceUnitRaw && RECURRENCE_UNIT_SET.has(recurrenceUnitRaw) ? recurrenceUnitRaw : legacyRecurrence.recurrenceUnit;
+  const retentionModeRaw = asNonEmptyString(input.retentionMode, 20) as BackupRetentionMode | null;
+  const retentionMode = retentionModeRaw && RETENTION_MODE_SET.has(retentionModeRaw) ? retentionModeRaw : "manual";
+  const retentionDays = asInt(input.retentionDays, 0, 3650, 0);
+  const retentionWeeks = asInt(input.retentionWeeks, 0, 520, 0);
+  const retentionMonths = asInt(input.retentionMonths, 0, 120, 3);
+  const retentionYears = asInt(input.retentionYears, 0, 20, 0);
+
   return {
     id,
     name,
@@ -205,11 +230,16 @@ function normalizePlan(input: RuntimeBackupPlanFile): RuntimeBackupPlan | null {
     scope: scopeRaw,
     workloadIds: [...new Set(workloadIds)],
     includeKinds: finalKinds,
-    runsPerWeek: asInt(input.runsPerWeek, 1, 14, 2),
+    runsPerWeek: legacyRunsPerWeek,
+    recurrenceEvery,
+    recurrenceUnit,
     preferredTime,
     backupStorage: asNonEmptyString(input.backupStorage, 120),
-    retentionYears: asInt(input.retentionYears, 0, 10, 0),
-    retentionMonths: asInt(input.retentionMonths, 0, 11, 3),
+    retentionMode,
+    retentionDays,
+    retentionWeeks,
+    retentionYears,
+    retentionMonths,
     targetMode: targetModeRaw,
     cloudTargetId:
       targetModeRaw === "cloud"

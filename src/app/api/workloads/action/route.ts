@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
+import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -126,6 +127,22 @@ export async function POST(request: NextRequest) {
       `nodes/${encodeURIComponent(node)}/${kind}/${vmid}/status/${action}`,
       { method: "POST" },
     );
+    appendAuditLogEntry({
+      severity: action === "stop" ? "warning" : "info",
+      category: "workload",
+      action: `workload.${action}`,
+      summary: `${action.toUpperCase()} envoyé sur ${kind.toUpperCase()} #${vmid}`,
+      actor: buildAuditActor(capability.session),
+      targetType: kind,
+      targetId: String(vmid),
+      targetLabel: `${node}/${kind}/${vmid}`,
+      changes: [],
+      details: {
+        node,
+        vmid: String(vmid),
+        upid,
+      },
+    });
 
     return NextResponse.json({
       ok: true,
