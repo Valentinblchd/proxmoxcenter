@@ -1,5 +1,6 @@
 export type ProvisionKind = "qemu" | "lxc";
 export type WorkloadPowerAction = "start" | "stop" | "shutdown" | "reboot";
+export type AssistantGuidedMode = "windows-vm" | "linux-vm" | "debian-lxc";
 
 export type ProvisionPresetId =
   | "windows-server"
@@ -202,6 +203,8 @@ export type AssistantIntentResponse = {
   draft?: Partial<ProvisionDraft>;
   suggestedKind?: ProvisionKind;
   followUps?: string[];
+  guidedModes?: AssistantGuidedMode[];
+  guidedAutoStart?: AssistantGuidedMode;
   actionDraft?: {
     action?: WorkloadPowerAction;
     kind?: ProvisionKind;

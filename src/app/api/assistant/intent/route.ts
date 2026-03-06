@@ -14,6 +14,7 @@ import {
   evaluateAssistantPromptSafety,
 } from "@/lib/security/assistant-guardrails";
 import type {
+  AssistantGuidedMode,
   AssistantIntentResponse,
   ProvisionDraft,
   ProvisionKind,
@@ -686,6 +687,12 @@ function isPoliteSmallTalkPrompt(normalizedPrompt: string) {
   );
 }
 
+function isCapabilityPrompt(normalizedPrompt: string) {
+  return /\b(que peux tu faire|tu peux faire quoi|a quoi tu sers|tu sers a quoi|aide moi|je suis perdu|help|capacit|capability)\b/i.test(
+    normalizedPrompt,
+  );
+}
+
 function wantsCreateWorkload(normalizedPrompt: string) {
   const hasCreateVerb =
     /\b(cree|creer|creation|create|provision|deploy|deploie|lance|installe|ajoute|nouveau|nouvelle|new)\b/i.test(
@@ -710,6 +717,96 @@ function wantsCreateWorkload(normalizedPrompt: string) {
   return hasWorkloadNoun && (hasCreateVerb || hasSizingHints || shorthandCreate);
 }
 
+function wantsGenericCreationConversation(normalizedPrompt: string) {
+  const hasCreateVerb =
+    /\b(cree|creer|creation|create|provision|deploy|deploie|installe|ajoute|nouveau|nouvelle|new)\b/i.test(
+      normalizedPrompt,
+    );
+  return hasCreateVerb && !parsePowerAction(normalizedPrompt);
+}
+
+function isCreationTypeReply(normalizedPrompt: string) {
+  return /^(?:windows|linux|vm|vm windows|vm linux|machine|qemu|debian|ubuntu|rocky|alma|almalinux|fedora|opensuse|suse|lxc|ct|conteneur|container|debian lxc|linux vm)$/i.test(
+    normalizedPrompt,
+  );
+}
+
+function findPreviousCreationPrompt(normalizedPrompt: string, memory: AssistantMemory) {
+  const previousQuestions = memory.lastQuestions.slice(0, -1);
+  for (let index = previousQuestions.length - 1; index >= 0; index -= 1) {
+    const candidate = previousQuestions[index];
+    const normalizedCandidate = normalizeText(candidate);
+    if (normalizedCandidate === normalizedPrompt) continue;
+    if (
+      wantsCreateWorkload(normalizedCandidate) ||
+      wantsGenericCreationConversation(normalizedCandidate)
+    ) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+function resolveCreationPrompt(promptRaw: string, memory: AssistantMemory) {
+  const normalizedPrompt = normalizeText(promptRaw);
+  if (wantsCreateWorkload(normalizedPrompt) || wantsGenericCreationConversation(normalizedPrompt)) {
+    return promptRaw;
+  }
+  if (!isCreationTypeReply(normalizedPrompt)) {
+    return promptRaw;
+  }
+  const previousPrompt = findPreviousCreationPrompt(normalizedPrompt, memory);
+  if (!previousPrompt) {
+    return promptRaw;
+  }
+  return `${previousPrompt} ${promptRaw}`.trim();
+}
+
+function getGuidedModesForConversation(normalizedPrompt: string): AssistantGuidedMode[] {
+  if (/(windows|win11|win10|w2k22|w2k19|w2k16)/i.test(normalizedPrompt)) {
+    return ["windows-vm"];
+  }
+  if (/(lxc|ct|conteneur|container)/i.test(normalizedPrompt)) {
+    return ["debian-lxc"];
+  }
+  if (/(linux|debian|ubuntu|rocky|alma|almalinux|fedora|opensuse|suse)/i.test(normalizedPrompt)) {
+    return ["linux-vm"];
+  }
+  return ["windows-vm", "linux-vm", "debian-lxc"];
+}
+
+function formatGuidedModeLabel(mode: AssistantGuidedMode) {
+  if (mode === "windows-vm") return "VM Windows";
+  if (mode === "linux-vm") return "VM Linux";
+  return "LXC Debian";
+}
+
+function buildCreationConversationResponse(normalizedPrompt: string): AssistantIntentResponse {
+  const guidedModes = getGuidedModesForConversation(normalizedPrompt);
+  const guidedAutoStart = guidedModes.length === 1 ? guidedModes[0] : undefined;
+
+  return {
+    ok: true,
+    intent: "unknown",
+    message: guidedAutoStart
+      ? `Je peux le préparer ici avec toi. J’ouvre le questionnaire ${formatGuidedModeLabel(guidedAutoStart)}.`
+      : "Je peux le faire ici sans te renvoyer vers le wizard. Choisis le type de workload et je te demande les critères un par un.",
+    followUps: guidedAutoStart
+      ? [
+          "On va remplir le nom, le node, le stockage, le réseau et les ressources.",
+          "Tu gardes ensuite la main pour ajuster les détails avant création.",
+        ]
+      : [
+          "VM Windows",
+          "VM Linux",
+          "LXC Debian",
+          "Tu peux aussi écrire une phrase libre, par exemple: crée une VM Linux sur pve1.",
+        ],
+    guidedModes,
+    guidedAutoStart,
+  };
+}
+
 function buildSummaryMessage(kind: ProvisionKind, draft: Partial<ProvisionDraft>) {
   const kindLabel = kind === "qemu" ? "VM" : "LXC";
   const parts: string[] = [];
@@ -724,6 +821,39 @@ function buildSummaryMessage(kind: ProvisionKind, draft: Partial<ProvisionDraft>
   return parts.length > 0
     ? `${kindLabel} détecté (${parts.join(", ")}).`
     : `${kindLabel} détecté.`;
+}
+
+function getGuidedModeForContext(context: WorkloadContext): AssistantGuidedMode {
+  if (context.isWindows) return "windows-vm";
+  if (context.kind === "lxc") return "debian-lxc";
+  return "linux-vm";
+}
+
+function countMissingProvisionEssentials(kind: ProvisionKind, draft: Partial<ProvisionDraft>) {
+  const essentials: Array<string | undefined> = [
+    draft.node,
+    draft.storage,
+    draft.cores,
+    draft.memoryMiB,
+    draft.diskGb,
+  ];
+  if (kind === "qemu") {
+    essentials.push(draft.isoVolume || draft.isoUrl ? "ready" : undefined);
+  } else {
+    essentials.push(draft.lxcTemplate);
+  }
+  return essentials.filter((item) => !item).length;
+}
+
+function shouldAutoStartGuidedFlow(
+  promptRaw: string,
+  kind: ProvisionKind,
+  draft: Partial<ProvisionDraft>,
+  followUps: string[],
+) {
+  const wordCount = promptRaw.trim().split(/\s+/).filter(Boolean).length;
+  const missingEssentials = countMissingProvisionEssentials(kind, draft);
+  return missingEssentials >= 4 || (wordCount <= 7 && followUps.length >= 3);
 }
 
 function buildCreateIntent(promptRaw: string, memory: AssistantMemory): AssistantIntentResponse {
@@ -832,13 +962,22 @@ function buildCreateIntent(promptRaw: string, memory: AssistantMemory): Assistan
     kind === "lxc" && !draft.lxcTemplate ? "Quel template LXC (vztmpl) utiliser ?" : "",
   ]).slice(0, 6);
 
+  const guidedMode = getGuidedModeForContext(context);
+  const guidedAutoStart = shouldAutoStartGuidedFlow(promptRaw, kind, draft, followUps)
+    ? guidedMode
+    : undefined;
+
   return {
     ok: true,
     intent: "create-workload",
-    message: `${buildSummaryMessage(kind, draft)} Complète les champs puis lance la création.`,
+    message: guidedAutoStart
+      ? `${buildSummaryMessage(kind, draft)} Je complète le reste avec toi ici.`
+      : `${buildSummaryMessage(kind, draft)} Complète les champs puis lance la création.`,
     draft,
     suggestedKind: kind,
     followUps,
+    guidedModes: guidedAutoStart ? [guidedMode] : undefined,
+    guidedAutoStart,
   };
 }
 
@@ -911,7 +1050,11 @@ export async function POST(request: NextRequest) {
 
   const memory = rememberAssistantQuestion(safety.prompt, memoryScope);
   const normalizedPrompt = normalizeText(safety.prompt);
-  const requiresOperateRole = wantsCreateWorkload(normalizedPrompt) || Boolean(parsePowerAction(normalizedPrompt));
+  const resolvedCreatePrompt = resolveCreationPrompt(safety.prompt, memory);
+  const resolvedCreatePromptNormalized = normalizeText(resolvedCreatePrompt);
+  const createIntentDetected = wantsCreateWorkload(resolvedCreatePromptNormalized);
+  const powerActionDetected = Boolean(parsePowerAction(normalizedPrompt));
+  const requiresOperateRole = powerActionDetected;
 
   if (requiresOperateRole && !hasRuntimeCapability(session?.role, "operate")) {
     return NextResponse.json({
@@ -927,13 +1070,13 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(memoryRecall);
   }
 
-  if (!wantsCreateWorkload(normalizedPrompt) && !parsePowerAction(normalizedPrompt)) {
+  if (!createIntentDetected && !powerActionDetected) {
     if (isGreetingPrompt(normalizedPrompt)) {
       return NextResponse.json({
         ok: true,
         intent: "unknown",
         message:
-          "Salut. Oui, je suis dispo. On peut préparer une création VM/LXC, une action Proxmox, du backup, du réseau ou de la sécurité.",
+          "Salut. Oui, je suis dispo. On peut parler un peu, préparer une création VM/LXC, une action Proxmox, du backup, du réseau ou de la sécurité.",
         followUps: [
           "Exemple: `Crée une VM Windows 2022 2 vCPU 12 Go 60 Go sur pve1`.",
           "Exemple: `Quelle segmentation VLAN pour un serveur web ?`.",
@@ -945,11 +1088,29 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({
         ok: true,
         intent: "unknown",
-        message: "Oui, ça va. Dis-moi ce que tu veux faire et on le prépare étape par étape dans ProxmoxCenter.",
+        message: "Oui, ça va. Et toi ? Si tu veux, on peut discuter un peu ou préparer une tâche Proxmox étape par étape.",
         followUps: [
           "Tu peux juste me dire: créer une VM, modifier une VM, lancer un backup, ou revoir un bridge/VLAN.",
         ],
       } satisfies AssistantIntentResponse);
+    }
+
+    if (isCapabilityPrompt(normalizedPrompt)) {
+      return NextResponse.json({
+        ok: true,
+        intent: "unknown",
+        message:
+          "Je peux discuter normalement, préparer une création pas à pas, guider une modif de VM/CT, lancer une action Proxmox ou t’aider sur les backups, le réseau et la sécurité.",
+        followUps: [
+          "Si tu veux créer quelque chose, je peux te poser les critères un par un ici.",
+          "Si tu veux, commence juste par: création, modifier une VM, backup ou VLAN.",
+        ],
+        guidedModes: ["windows-vm", "linux-vm", "debian-lxc"],
+      } satisfies AssistantIntentResponse);
+    }
+
+    if (wantsGenericCreationConversation(normalizedPrompt)) {
+      return NextResponse.json(buildCreationConversationResponse(normalizedPrompt));
     }
 
     const securityAdvice = buildTechnicalSecurityResponse(normalizedPrompt, memory);
@@ -959,8 +1120,8 @@ export async function POST(request: NextRequest) {
   }
 
   let response: AssistantIntentResponse;
-  if (wantsCreateWorkload(normalizedPrompt)) {
-    response = buildCreateIntent(safety.prompt, memory);
+  if (createIntentDetected) {
+    response = buildCreateIntent(resolvedCreatePrompt, memory);
     if (response.intent === "create-workload" && response.draft) {
       rememberAssistantProvisionDraft(response.draft, memoryScope);
     }

@@ -66,6 +66,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <div>
           <p className="eyebrow">Paramètres</p>
           <h1>Configuration</h1>
+          <p className="muted">Connexion Proxmox, PBS, GreenIT, apparence et mémoire IA au même endroit.</p>
         </div>
         <div className="topbar-meta">
           <span className={`pill ${authStatus.active ? "live" : ""}`}>

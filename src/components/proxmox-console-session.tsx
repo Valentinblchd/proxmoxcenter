@@ -68,6 +68,9 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
   const [message, setMessage] = useState("");
   const [warning, setWarning] = useState("");
   const [wsTarget, setWsTarget] = useState("");
+  const [activeBackend, setActiveBackend] = useState<"terminal" | "novnc">(
+    target.type === "qemu-vnc" && target.mode !== "console" ? "novnc" : "terminal",
+  );
   const sessionRef = useRef<ConsoleSessionPayload | null>(null);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const noVncHostRef = useRef<HTMLDivElement | null>(null);
@@ -106,6 +109,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       }
       if (disposed) return;
       sessionRef.current = payload;
+      setActiveBackend(payload.backend);
       setWarning(asText(payload.warning));
       setWsTarget(asText(payload.wsPath));
       const browserWsUrl = toAbsoluteWsUrl(payload.wsPath);
@@ -321,11 +325,14 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
         </div>
 
         <div className="console-surface">
-          {target.type === "qemu-vnc" ? (
-            <div ref={noVncHostRef} className="console-surface-inner console-surface-vnc" />
-          ) : (
-            <div ref={terminalHostRef} className="console-surface-inner console-surface-terminal" />
-          )}
+          <div
+            ref={noVncHostRef}
+            className={`console-surface-inner console-surface-vnc${activeBackend === "novnc" ? " is-active" : " is-hidden"}`}
+          />
+          <div
+            ref={terminalHostRef}
+            className={`console-surface-inner console-surface-terminal${activeBackend === "terminal" ? " is-active" : " is-hidden"}`}
+          />
         </div>
       </section>
     </section>

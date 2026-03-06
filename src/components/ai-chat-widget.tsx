@@ -3,7 +3,12 @@
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { hasRuntimeCapability, type RuntimeAuthUserRole } from "@/lib/auth/rbac";
-import type { ProvisionDraft, ProvisionKind, WorkloadPowerAction } from "@/lib/provision/schema";
+import type {
+  AssistantGuidedMode,
+  ProvisionDraft,
+  ProvisionKind,
+  WorkloadPowerAction,
+} from "@/lib/provision/schema";
 
 type WorkloadActionDraft = {
   action?: WorkloadPowerAction;
@@ -19,6 +24,8 @@ type AssistantApiResponse = {
   draft?: Partial<ProvisionDraft>;
   suggestedKind?: ProvisionKind;
   followUps?: string[];
+  guidedModes?: AssistantGuidedMode[];
+  guidedAutoStart?: AssistantGuidedMode;
   actionDraft?: WorkloadActionDraft;
   actionReady?: boolean;
   error?: string;
@@ -47,6 +54,7 @@ type ChatMessage = {
   role: "assistant" | "user" | "system";
   text: string;
   followUps?: string[];
+  guidedModes?: GuidedFlowMode[];
   actionHref?: string;
   actionLabel?: string;
   actionRequest?: WorkloadActionRequest;
@@ -62,7 +70,7 @@ type ProvisionOptionsResponse = {
   error?: string;
 };
 
-type GuidedFlowMode = "windows-vm" | "debian-lxc";
+type GuidedFlowMode = AssistantGuidedMode;
 type GuidedVmidMode = "auto" | "manual";
 
 type GuidedProvisionForm = {
@@ -106,7 +114,19 @@ const WINDOWS_VERSION_OPTIONS = [
   "Windows 10",
 ];
 
+const LINUX_VM_VERSION_OPTIONS = [
+  "Debian 12",
+  "Ubuntu 24.04",
+  "Ubuntu 22.04",
+  "Rocky Linux 9",
+  "AlmaLinux 9",
+  "Fedora 41",
+  "OpenSUSE Leap 15.6",
+];
+
 const DEBIAN_VERSION_OPTIONS = ["Debian 13", "Debian 12", "Debian 11"];
+
+const DEFAULT_GUIDED_MODES: GuidedFlowMode[] = ["windows-vm", "linux-vm", "debian-lxc"];
 
 function makeId(prefix: string) {
   return `${prefix}-${Date.now()}-${Math.random().toString(16).slice(2, 8)}`;
@@ -117,7 +137,7 @@ function getInitialMessages(): ChatMessage[] {
     {
       id: makeId("hello"),
       role: "assistant",
-      text: "Assistant IA prêt.",
+      text: "Je suis là. On peut discuter un peu, préparer une création pas à pas, ou piloter une VM/CT.",
     },
   ];
 }
@@ -179,6 +199,13 @@ function getGenericQuickLink(data: AssistantApiResponse) {
   return getProvisionQuickLink(data) ?? getActionFallbackLink(data);
 }
 
+function getGuidedModes(data: AssistantApiResponse): GuidedFlowMode[] {
+  return (data.guidedModes ?? []).filter(
+    (mode): mode is GuidedFlowMode =>
+      mode === "windows-vm" || mode === "linux-vm" || mode === "debian-lxc",
+  );
+}
+
 function createGuidedForm(mode: GuidedFlowMode): GuidedProvisionForm {
   return {
     mode,
@@ -196,6 +223,33 @@ function createGuidedForm(mode: GuidedFlowMode): GuidedProvisionForm {
     isoVolume: "",
     lxcTemplate: "",
   };
+}
+
+function applyGuidedProvisionDefaults(
+  form: GuidedProvisionForm,
+  options: ProvisionOptionsResponse["options"],
+) {
+  if (!options) return form;
+  return {
+    ...form,
+    node: form.node.trim() || (options.nodes.length === 1 ? options.nodes[0] : form.node),
+    storage:
+      form.storage.trim() ||
+      (options.storages.length === 1 ? options.storages[0]?.name ?? form.storage : form.storage),
+    bridge: form.bridge.trim() || (options.bridges.length === 1 ? options.bridges[0] : form.bridge),
+  };
+}
+
+function getGuidedModeLabel(mode: GuidedFlowMode) {
+  if (mode === "windows-vm") return "VM Windows";
+  if (mode === "linux-vm") return "VM Linux";
+  return "LXC Debian";
+}
+
+function getGuidedQuestionnaireLabel(mode: GuidedFlowMode) {
+  if (mode === "windows-vm") return "Questionnaire VM Windows";
+  if (mode === "linux-vm") return "Questionnaire VM Linux";
+  return "Questionnaire LXC Debian";
 }
 
 function resolveVersionValue(form: GuidedProvisionForm) {
@@ -219,12 +273,26 @@ function buildGuidedPrompt(form: GuidedProvisionForm) {
     `${form.memoryGiB.trim()} Go RAM`,
     `${form.diskGb.trim()} Go disque`,
     `storage ${form.storage.trim()}`,
-    `bridge ${form.bridge.trim()}`,
+    form.bridge.trim() ? `bridge ${form.bridge.trim()}` : "",
   ].filter(Boolean);
 
   if (form.mode === "windows-vm") {
     return [
       `Crée une VM Windows version ${version}`,
+      ...commonParts,
+      form.isoVolume.trim()
+        ? /^https?:\/\//i.test(form.isoVolume.trim())
+          ? `url iso ${form.isoVolume.trim()}`
+          : `iso ${form.isoVolume.trim()}`
+        : "",
+    ]
+      .filter(Boolean)
+      .join(", ");
+  }
+
+  if (form.mode === "linux-vm") {
+    return [
+      `Crée une VM Linux version ${version}`,
       ...commonParts,
       form.isoVolume.trim()
         ? /^https?:\/\//i.test(form.isoVolume.trim())
@@ -246,7 +314,9 @@ function buildGuidedPrompt(form: GuidedProvisionForm) {
 }
 
 function getShortcutLabel(mode: GuidedFlowMode) {
-  return mode === "windows-vm" ? "Créer VM Windows" : "Créer LXC Debian";
+  if (mode === "windows-vm") return "Créer VM Windows";
+  if (mode === "linux-vm") return "Créer VM Linux";
+  return "Créer LXC Debian";
 }
 
 function getShortcutId(mode: GuidedFlowMode) {
@@ -263,7 +333,7 @@ function parseShortcutStorage(raw: string | null): DynamicShortcut[] {
         if (!entry || typeof entry !== "object") return null;
         const item = entry as Partial<DynamicShortcut>;
         if (item.kind !== "guided") return null;
-        if (item.mode !== "windows-vm" && item.mode !== "debian-lxc") return null;
+        if (item.mode !== "windows-vm" && item.mode !== "linux-vm" && item.mode !== "debian-lxc") return null;
         if (typeof item.id !== "string" || !item.id.trim()) return null;
         if (typeof item.label !== "string" || !item.label.trim()) return null;
         const count = Number.isInteger(item.count) && (item.count ?? 0) > 0 ? (item.count as number) : 1;
@@ -301,12 +371,16 @@ function inferGuidedShortcutFromPrompt(prompt: string): GuidedFlowMode | null {
   if (!wantsCreate) return null;
 
   const mentionsWindows = /\b(windows|win11|win10|server)\b/.test(normalized);
-  const mentionsVm = /\b(vm|qemu|machine)\b/.test(normalized);
-  if (mentionsWindows || mentionsVm) return "windows-vm";
+  if (mentionsWindows) return "windows-vm";
 
   const mentionsDebian = /\b(debian)\b/.test(normalized);
   const mentionsLxc = /\b(lxc|ct|conteneur|container)\b/.test(normalized);
   if (mentionsDebian && mentionsLxc) return "debian-lxc";
+
+  const mentionsLinuxVm =
+    /\b(linux|debian|ubuntu|rocky|alma|almalinux|fedora|opensuse|suse)\b/.test(normalized) &&
+    /\b(vm|qemu|machine)\b/.test(normalized);
+  if (mentionsLinuxVm) return "linux-vm";
 
   return null;
 }
@@ -338,7 +412,6 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
     guidedFlow &&
       guidedFlow.node.trim() &&
       guidedFlow.storage.trim() &&
-      guidedFlow.bridge.trim() &&
       (guidedFlow.vmidMode === "auto" || isPositiveIntegerString(guidedFlow.vmid)),
   );
   const step3Valid = Boolean(
@@ -348,6 +421,9 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
       isPositiveIntegerString(guidedFlow.diskGb),
   );
   const visibleShortcuts = dynamicShortcuts.slice(0, MAX_DYNAMIC_SHORTCUTS);
+  const starterModes = DEFAULT_GUIDED_MODES.filter(
+    (mode) => !visibleShortcuts.some((shortcut) => shortcut.mode === mode),
+  );
 
   useEffect(() => {
     const container = bodyRef.current;
@@ -482,7 +558,12 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
       if (!response.ok || !data.ok) {
         throw new Error(data.error || "Options Proxmox indisponibles.");
       }
-      setProvisionOptions(data.options ?? { nodes: [], storages: [], bridges: [] });
+      const nextOptions = data.options ?? { nodes: [], storages: [], bridges: [] };
+      setProvisionOptions(nextOptions);
+      setGuidedFlow((current) => {
+        if (!current) return current;
+        return applyGuidedProvisionDefaults(current, nextOptions);
+      });
     } catch (error) {
       setOptionsError(error instanceof Error ? error.message : "Erreur options.");
     } finally {
@@ -505,7 +586,9 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
     if (shouldTrack) {
       trackGuidedShortcutUsage(mode);
     }
-    setGuidedFlow(createGuidedForm(mode));
+    setGuidedFlow(
+      provisionOptions ? applyGuidedProvisionDefaults(createGuidedForm(mode), provisionOptions) : createGuidedForm(mode),
+    );
     setGuidedStep(1);
     setInput("");
     setMessages((current) => [
@@ -513,13 +596,16 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
       {
         id: makeId("guide"),
         role: "assistant",
-        text:
-          mode === "windows-vm"
-            ? "Questionnaire VM Windows lancé."
-            : "Questionnaire LXC Debian lancé.",
+        text: `${getGuidedQuestionnaireLabel(mode)} lancé.`,
       },
     ]);
-    void ensureProvisionOptions();
+    if (!provisionOptions) {
+      void ensureProvisionOptions();
+    }
+  }
+
+  function handleGuidedChoice(mode: GuidedFlowMode) {
+    startGuidedFlow(mode, true);
   }
 
   async function executeAction(message: ChatMessage) {
@@ -639,10 +725,12 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
       }
 
       const actionRequest = getActionRequest(data);
+      const guidedModes = getGuidedModes(data);
       const shouldExposeQuickLink =
-        Boolean(actionRequest) ||
-        data.intent !== "create-workload" ||
-        (data.followUps?.length ?? 0) === 0;
+        guidedModes.length === 0 &&
+        (Boolean(actionRequest) ||
+          data.intent !== "create-workload" ||
+          (data.followUps?.length ?? 0) === 0);
       const quickLink = shouldExposeQuickLink ? getGenericQuickLink(data) : null;
       const actionLabel = quickLink
         ? data.intent === "create-workload"
@@ -657,11 +745,15 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
           role: "assistant",
           text: data.message || "Réponse reçue.",
           followUps: data.followUps,
+          guidedModes,
           actionHref: actionRequest ? quickLink ?? "/inventory" : quickLink ?? undefined,
           actionLabel,
           actionRequest: actionRequest ?? undefined,
         },
       ]);
+      if (canOperate && data.guidedAutoStart && guidedModes.includes(data.guidedAutoStart)) {
+        startGuidedFlow(data.guidedAutoStart, false);
+      }
     } catch (error) {
       setMessages((current) => [
         ...current,
@@ -723,7 +815,7 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                 </span>
                 <div className="ai-widget-title">
                   <strong>{title}</strong>
-                  <small>Chat rapide + création guidée</small>
+                  <small>Discussion + actions Proxmox guidées</small>
                 </div>
               </div>
 
@@ -764,30 +856,41 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                   <span className="ai-widget-chip-empty">
                     Mode lecture: chat technique disponible, actions désactivées.
                   </span>
-                ) : visibleShortcuts.length === 0 ? (
-                  <span className="ai-widget-chip-empty">
-                    Les raccourcis apparaissent automatiquement selon ton usage.
-                  </span>
                 ) : (
-                  visibleShortcuts.map((shortcut) => (
-                    <button
-                      key={shortcut.id}
-                      type="button"
-                      className="ai-widget-chip"
-                      onClick={() => runDynamicShortcut(shortcut)}
-                    >
-                      {shortcut.label}
-                    </button>
-                  ))
+                  <>
+                    {starterModes.map((mode) => (
+                      <button
+                        key={`starter-${mode}`}
+                        type="button"
+                        className="ai-widget-chip"
+                        onClick={() => handleGuidedChoice(mode)}
+                      >
+                        {getShortcutLabel(mode)}
+                      </button>
+                    ))}
+                    {visibleShortcuts.map((shortcut) => (
+                      <button
+                        key={shortcut.id}
+                        type="button"
+                        className="ai-widget-chip"
+                        onClick={() => runDynamicShortcut(shortcut)}
+                      >
+                        {shortcut.label}
+                      </button>
+                    ))}
+                    {visibleShortcuts.length === 0 ? (
+                      <span className="ai-widget-chip-empty">
+                        Tu peux aussi écrire simplement: création, backup, VLAN ou modifie une VM.
+                      </span>
+                    ) : null}
+                  </>
                 )}
               </div>
 
               {guidedFlow ? (
                 <section className="ai-guide-card">
                   <div className="ai-guide-head">
-                    <strong>
-                      {guidedFlow.mode === "windows-vm" ? "Questionnaire VM Windows" : "Questionnaire LXC Debian"}
-                    </strong>
+                    <strong>{getGuidedQuestionnaireLabel(guidedFlow.mode)}</strong>
                     <span>Étape {guidedStep}/3</span>
                   </div>
 
@@ -808,7 +911,9 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                           <option value="">Sélectionner</option>
                           {(guidedFlow.mode === "windows-vm"
                             ? WINDOWS_VERSION_OPTIONS
-                            : DEBIAN_VERSION_OPTIONS
+                            : guidedFlow.mode === "linux-vm"
+                              ? LINUX_VM_VERSION_OPTIONS
+                              : DEBIAN_VERSION_OPTIONS
                           ).map((option) => (
                             <option key={option} value={option}>
                               {option}
@@ -840,7 +945,13 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                           type="text"
                           value={guidedFlow.name}
                           onChange={(event) => patchGuidedFlow({ name: event.target.value })}
-                          placeholder={guidedFlow.mode === "windows-vm" ? "win-app-01" : "debian-app-01"}
+                          placeholder={
+                            guidedFlow.mode === "windows-vm"
+                              ? "win-app-01"
+                              : guidedFlow.mode === "linux-vm"
+                                ? "linux-app-01"
+                                : "debian-app-01"
+                          }
                         />
                       </label>
                     </div>
@@ -911,13 +1022,13 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                       </label>
 
                       <label className="ai-guide-field">
-                        <span>Bridge réseau</span>
+                        <span>Bridge réseau (optionnel)</span>
                         <input
                           className="ai-guide-input"
                           list="ai-guide-bridge-list"
                           value={guidedFlow.bridge}
                           onChange={(event) => patchGuidedFlow({ bridge: event.target.value })}
-                          placeholder="vmbr0"
+                          placeholder="vmbr0 ou vide"
                         />
                         <datalist id="ai-guide-bridge-list">
                           {(provisionOptions?.bridges ?? []).map((item) => (
@@ -966,7 +1077,7 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                         />
                       </label>
 
-                      {guidedFlow.mode === "windows-vm" ? (
+                      {guidedFlow.mode !== "debian-lxc" ? (
                         <label className="ai-guide-field">
                           <span>ISO volume ou URL .iso (optionnel)</span>
                           <input
@@ -974,7 +1085,11 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                             type="text"
                             value={guidedFlow.isoVolume}
                             onChange={(event) => patchGuidedFlow({ isoVolume: event.target.value })}
-                            placeholder="local:iso/Windows2022.iso ou https://.../Windows2022.iso"
+                            placeholder={
+                              guidedFlow.mode === "windows-vm"
+                                ? "local:iso/Windows2022.iso ou https://.../Windows2022.iso"
+                                : "local:iso/debian-12.iso ou https://.../debian-12.iso"
+                            }
                           />
                         </label>
                       ) : (
@@ -1048,8 +1163,18 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                         ))}
                       </ul>
                     ) : null}
-                    {message.actionHref || message.actionRequest ? (
+                    {message.guidedModes?.length || message.actionHref || message.actionRequest ? (
                       <div className="ai-msg-actions">
+                        {message.guidedModes?.map((mode) => (
+                          <button
+                            key={`${message.id}-${mode}`}
+                            type="button"
+                            className="ai-msg-action-btn"
+                            onClick={() => handleGuidedChoice(mode)}
+                          >
+                            {getShortcutLabel(mode)}
+                          </button>
+                        ))}
                         {message.actionRequest ? (
                           <button
                             type="button"
@@ -1087,7 +1212,7 @@ export default function AiChatWidget({ sessionRole }: { sessionRole: RuntimeAuth
                 value={input}
                 onChange={(event) => setInput(event.target.value)}
                 maxLength={MAX_ASSISTANT_PROMPT_CHARS}
-                placeholder="Demande VM/LXC ou action (ex: reboot vm 100 node pve1)..."
+                placeholder="Parle-moi normalement ou demande une action Proxmox..."
                 aria-label="Message à l'assistant IA"
               />
               <button type="submit" className="ai-widget-send" disabled={!canSend}>

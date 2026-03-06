@@ -296,6 +296,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         <div>
           <p className="eyebrow">Observabilité</p>
           <h1>Santé, GreenIT et recommandations</h1>
+          <p className="muted">Vue globale du cluster, sondes nœuds et impact énergétique, sans noyer la page principale.</p>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
@@ -341,7 +342,73 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         </article>
       </section>
 
-      {(activeTab === "overview" || activeTab === "health") ? (
+      {activeTab === "overview" ? (
+        <>
+        <section className="content-grid">
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Résumé santé</h2>
+              <span className="muted">Lecture rapide</span>
+            </div>
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>CPU critique / warning</span>
+                <strong>{cpuCritical} / {cpuWarning}</strong>
+              </div>
+              <div className="row-line">
+                <span>RAM critique / warning</span>
+                <strong>{ramCritical} / {ramWarning}</strong>
+              </div>
+              <div className="row-line">
+                <span>Disques critique / warning / inconnus</span>
+                <strong>{diskCritical} / {diskWarning} / {diskUnknown}</strong>
+              </div>
+              <div className="row-line">
+                <span>Sondes thermiques critique / warning</span>
+                <strong>{thermalCritical} / {thermalWarning}</strong>
+              </div>
+            </div>
+            <div className="quick-actions">
+              <Link href="/observability?tab=health" className="action-btn">
+                Ouvrir le détail santé
+              </Link>
+            </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Contexte GreenIT</h2>
+              <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
+            </div>
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>Température serveur</span>
+                <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "Non remontée"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Température extérieure</span>
+                <strong>{outsideTemp !== null ? `${outsideTemp.toFixed(1)}°C` : "Non renseignée"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Delta thermique</span>
+                <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "Indisponible"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Puissance effective</span>
+                <strong>{greenit.metrics.effectivePowerWatts} W</strong>
+              </div>
+            </div>
+            <div className="quick-actions">
+              <Link href="/observability?tab=greenit" className="action-btn">
+                Ouvrir GreenIT
+              </Link>
+            </div>
+          </section>
+        </section>
+        </>
+      ) : null}
+
+      {activeTab === "health" ? (
         <>
         <section className="content-grid">
           <section className="panel">
@@ -562,15 +629,33 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       ) : null}
 
       {activeTab === "greenit" ? (
-        <GreenItCalibrationPanel
-          defaults={{
-            estimatedPowerWatts: greenit.metrics.estimatedPowerWatts,
-            pue: greenit.config.pue,
-            co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
-            electricityPricePerKwh: greenit.config.electricityPricePerKwh,
-          }}
-          initialSettings={greenitSettings}
-        />
+        greenitSettings ? (
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Réglages GreenIT</h2>
+              <span className="muted">Calibration déjà enregistrée</span>
+            </div>
+            <p className="muted">
+              La calibration initiale est déjà faite. Pour modifier la puissance locale, le PUE, la ville extérieure
+              ou les facteurs GreenIT, passe par Paramètres.
+            </p>
+            <div className="quick-actions">
+              <Link href="/settings?tab=greenit" className="action-btn primary">
+                Ouvrir Paramètres GreenIT
+              </Link>
+            </div>
+          </section>
+        ) : (
+          <GreenItCalibrationPanel
+            defaults={{
+              estimatedPowerWatts: greenit.metrics.estimatedPowerWatts,
+              pue: greenit.config.pue,
+              co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
+              electricityPricePerKwh: greenit.config.electricityPricePerKwh,
+            }}
+            initialSettings={greenitSettings}
+          />
+        )
       ) : null}
 
       {activeTab === "overview" ? (

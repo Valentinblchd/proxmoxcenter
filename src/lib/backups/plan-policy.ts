@@ -71,9 +71,9 @@ export function buildAutoRetentionPolicy(
   }
 
   if (recurrenceUnit === "week") {
-    if (preset === "short") return { days: 0, weeks: Math.max(4, every * 4), months: 3, years: 0 };
-    if (preset === "balanced") return { days: 0, weeks: Math.max(8, every * 8), months: 6, years: 1 };
-    return { days: 0, weeks: Math.max(12, every * 12), months: 12, years: 1 };
+    if (preset === "short") return { days: 0, weeks: Math.max(6, every * 6), months: 3, years: 0 };
+    if (preset === "balanced") return { days: 0, weeks: Math.max(12, every * 12), months: 6, years: 1 };
+    return { days: 0, weeks: Math.max(26, every * 26), months: 12, years: 2 };
   }
 
   if (recurrenceUnit === "month") {
@@ -116,7 +116,7 @@ export function formatRetentionPolicy(policy: BackupRetentionPolicy, mode: Backu
   if (policy.months > 0) chunks.push(`${policy.months} mois`);
   if (policy.years > 0) chunks.push(`${policy.years} an${policy.years > 1 ? "s" : ""}`);
   if (chunks.length === 0) return "Aucune";
-  return mode === "auto" ? `Auto: ${chunks.join(" • ")}` : chunks.join(" • ");
+  return mode === "auto" ? `${chunks.join(" • ")} (auto)` : chunks.join(" • ");
 }
 
 function parsePreferredTime(preferredTime: string) {

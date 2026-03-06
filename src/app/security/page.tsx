@@ -139,10 +139,11 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
         <div>
           <p className="eyebrow">Sécurité</p>
           <h1>Accès, posture et journaux</h1>
+          <p className="muted">Comptes locaux, sessions UI et audit des changements sur la plateforme.</p>
         </div>
         <div className="topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
+          <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

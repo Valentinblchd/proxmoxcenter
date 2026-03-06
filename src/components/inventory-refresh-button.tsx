@@ -14,14 +14,12 @@ export default function InventoryRefreshButton({
 }: InventoryRefreshButtonProps) {
   const router = useRouter();
   const [refreshing, setRefreshing] = useState(false);
-  const [remainingMs, setRemainingMs] = useState(intervalMs);
   const refreshingRef = useRef(false);
 
   const refreshNow = useCallback(() => {
     if (refreshingRef.current) return;
     refreshingRef.current = true;
     setRefreshing(true);
-    setRemainingMs(intervalMs);
     startTransition(() => {
       router.refresh();
       window.setTimeout(() => {
@@ -34,37 +32,23 @@ export default function InventoryRefreshButton({
   useEffect(() => {
     if (!auto) return;
 
-    let nextRefreshAt = Date.now() + intervalMs;
     const timer = window.setInterval(() => {
       if (document.visibilityState !== "visible") {
-        nextRefreshAt = Date.now() + intervalMs;
-        setRemainingMs(intervalMs);
         return;
       }
-
-      const delta = nextRefreshAt - Date.now();
-      if (delta <= 0) {
-        refreshNow();
-        nextRefreshAt = Date.now() + intervalMs;
-        setRemainingMs(intervalMs);
-        return;
-      }
-
-      setRemainingMs(delta);
-    }, 500);
+      refreshNow();
+    }, intervalMs);
 
     return () => {
       window.clearInterval(timer);
     };
   }, [auto, intervalMs, refreshNow]);
 
-  const remainingSeconds = Math.max(1, Math.ceil(remainingMs / 1000));
-
   return (
     <div className="inventory-refresh-cluster">
       {auto ? (
         <span className="inventory-refresh-status" aria-live="polite">
-          {refreshing ? "Sync..." : `Auto ${remainingSeconds}s`}
+          {refreshing ? "Mise à jour..." : "Auto actif"}
         </span>
       ) : null}
       <button
@@ -73,7 +57,7 @@ export default function InventoryRefreshButton({
         disabled={refreshing}
         onClick={refreshNow}
       >
-        {refreshing ? "Refreshing..." : "Refresh"}
+        {refreshing ? "Actualisation..." : "Actualiser"}
       </button>
     </div>
   );
