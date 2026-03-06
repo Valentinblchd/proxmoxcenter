@@ -11,8 +11,6 @@ import { readRuntimeAuthConfig } from "@/lib/auth/runtime-config";
 import { readRuntimeAuditLog } from "@/lib/audit/runtime-log";
 import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { formatRelativeTime } from "@/lib/ui/format";
-
 export const metadata: Metadata = {
   title: "Sécurité | ProxCenter",
   description: "Sécurité plateforme, accès utilisateurs, sessions et journal sécurité.",
@@ -143,7 +141,6 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
         </div>
         <div className="topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import ProxmoxConnectionForm from "@/components/proxmox-connection-form";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { formatRelativeTime } from "@/lib/ui/format";
 
 export const metadata: Metadata = {
   title: "Connexion Proxmox | ProxCenter",
@@ -27,7 +26,6 @@ export default async function SetupConnectionPage() {
           ) : (
             <span className="pill">Hors ligne</span>
           )}
-          <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

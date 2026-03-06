@@ -403,7 +403,6 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

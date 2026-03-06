@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { formatBytes, formatRelativeTime } from "@/lib/ui/format";
+import { formatBytes } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 
@@ -48,10 +48,6 @@ export default async function HomePage() {
             <strong className={hasLiveData ? "status-good" : undefined}>
               {hasLiveData ? "Opérationnelle" : "À configurer"}
             </strong>
-          </div>
-          <div className="row-line">
-            <span>Dernière synchronisation</span>
-            <strong>{formatRelativeTime(snapshot.lastUpdatedAt)}</strong>
           </div>
         </div>
 

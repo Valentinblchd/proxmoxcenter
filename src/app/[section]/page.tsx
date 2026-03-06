@@ -6,7 +6,6 @@ import {
   getSectionPage,
   getSectionSlugs,
 } from "@/lib/navigation/menu";
-import { formatRelativeTime } from "@/lib/ui/format";
 
 type SectionPageProps = {
   params: Promise<{ section: string }>;
@@ -63,9 +62,6 @@ export default async function SectionPage({ params }: SectionPageProps) {
           ) : (
             <span className="pill">Hors ligne</span>
           )}
-          <span className="muted">
-            Mis à jour {formatRelativeTime(snapshot.lastUpdatedAt)}
-          </span>
         </div>
       </header>
 

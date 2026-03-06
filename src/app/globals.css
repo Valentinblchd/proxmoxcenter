@@ -2652,14 +2652,23 @@ select.inventory-node-filter option {
 }
 
 .inventory-toolbar-actions {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 0.42rem;
 }
 
 .inventory-toolbar-actions .action-btn {
-  min-height: 36px;
-  padding: 0.5rem 0.74rem;
-  font-size: 0.82rem;
+  min-height: 34px;
+  padding: 0.44rem 0.68rem;
+  font-size: 0.8rem;
+}
+
+.inventory-toolbar-actions .field-input {
+  min-height: 34px;
+  width: auto;
+  padding: 0.44rem 0.68rem;
+  font-size: 0.8rem;
 }
 
 .inventory-search {

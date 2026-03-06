@@ -38,6 +38,12 @@ type SelfUpdateAvailability = {
   serviceImage: string | null;
 };
 
+type SelfComposeMetadata = {
+  workingDir: string | null;
+  configFile: string | null;
+  service: string | null;
+};
+
 type SelfUpdateConfig = {
   enabled: boolean;
   hostInstallDir: string;
@@ -90,6 +96,13 @@ function asSafeImage(value: string | undefined, fallback: string) {
   if (!text) return fallback;
   if (!/^[a-zA-Z0-9./:_-]+$/.test(text)) return fallback;
   return text;
+}
+
+function asAbsolutePath(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed || !path.isAbsolute(trimmed)) return null;
+  return trimmed;
 }
 
 function getStateDir() {
@@ -172,6 +185,54 @@ function writeAvailability(availability: SelfUpdateAvailability) {
   });
 }
 
+function readSelfComposeMetadata(): SelfComposeMetadata {
+  const containerId =
+    fs.existsSync("/etc/hostname") ? fs.readFileSync("/etc/hostname", "utf8").trim() : "";
+  if (!containerId) {
+    return {
+      workingDir: null,
+      configFile: null,
+      service: null,
+    };
+  }
+
+  const inspect = readCommandText("docker", ["inspect", containerId, "--format", "{{json .Config.Labels}}"], 8_000);
+  if (!inspect.ok || !inspect.stdout) {
+    return {
+      workingDir: null,
+      configFile: null,
+      service: null,
+    };
+  }
+
+  try {
+    const labels = JSON.parse(inspect.stdout) as Record<string, unknown>;
+    const configFilesRaw =
+      typeof labels["com.docker.compose.project.config_files"] === "string"
+        ? labels["com.docker.compose.project.config_files"]
+        : "";
+    const configFile = configFilesRaw.split(",").map((entry) => entry.trim()).find(Boolean) ?? null;
+    return {
+      workingDir: asAbsolutePath(
+        typeof labels["com.docker.compose.project.working_dir"] === "string"
+          ? labels["com.docker.compose.project.working_dir"]
+          : null,
+      ),
+      configFile: asAbsolutePath(configFile),
+      service:
+        typeof labels["com.docker.compose.service"] === "string"
+          ? labels["com.docker.compose.service"].trim() || null
+          : null,
+    };
+  } catch {
+    return {
+      workingDir: null,
+      configFile: null,
+      service: null,
+    };
+  }
+}
+
 function mutateState<T>(mutator: (state: SelfUpdateState) => T) {
   const state = readState();
   const out = mutator(state);
@@ -184,21 +245,26 @@ function shQuote(value: string) {
 }
 
 function resolveConfig(): SelfUpdateConfig {
+  const composeMetadata = readSelfComposeMetadata();
   const enabled = asBooleanEnv(process.env.PROXMOXCENTER_SELF_UPDATE_ENABLED, false);
+  const configuredInstallDir = asAbsolutePath(process.env.PROXMOXCENTER_SELF_UPDATE_INSTALL_DIR);
   const hostInstallDir =
-    process.env.PROXMOXCENTER_SELF_UPDATE_INSTALL_DIR?.trim() ||
+    composeMetadata.workingDir ||
+    configuredInstallDir ||
     "/opt/proxmoxcenter";
+  const configuredDataDir = asAbsolutePath(process.env.PROXMOXCENTER_SELF_UPDATE_DATA_DIR);
   const hostDataDir =
-    process.env.PROXMOXCENTER_SELF_UPDATE_DATA_DIR?.trim() ||
-    "/opt/proxmoxcenter/data";
+    configuredDataDir ||
+    (composeMetadata.workingDir ? path.join(composeMetadata.workingDir, "data") : null) ||
+    path.join(hostInstallDir, "data");
 
   return {
     enabled,
     hostInstallDir,
     hostDataDir,
-    composeFile: path.join(hostInstallDir, "docker-compose.yml"),
+    composeFile: composeMetadata.configFile || path.join(hostInstallDir, "docker-compose.yml"),
     branch: asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_BRANCH, "main"),
-    service: asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_SERVICE, "proxmoxcenter"),
+    service: composeMetadata.service || asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_SERVICE, "proxmoxcenter"),
     runnerImage: asSafeImage(process.env.PROXMOXCENTER_SELF_UPDATE_RUNNER_IMAGE, "docker:27-cli"),
     maxHistory: 24,
   };
@@ -265,6 +331,18 @@ function readCommandText(binary: string, args: string[], timeout = 15_000) {
   };
 }
 
+function parseKeyValueOutput(raw: string) {
+  const out: Record<string, string> = {};
+  for (const line of raw.split(/\r?\n/u)) {
+    const idx = line.indexOf("=");
+    if (idx <= 0) continue;
+    const key = line.slice(0, idx).trim();
+    const value = line.slice(idx + 1).trim();
+    if (key) out[key] = value;
+  }
+  return out;
+}
+
 function shortenRef(value: string | null) {
   if (!value) return null;
   const trimmed = value.trim();
@@ -272,28 +350,67 @@ function shortenRef(value: string | null) {
   return trimmed.slice(0, 20);
 }
 
-function readComposeServiceImage(config: SelfUpdateConfig) {
-  const envImage = process.env.PROXMOXCENTER_IMAGE?.trim();
-  if (envImage) return envImage;
-  if (!fs.existsSync(config.composeFile)) return null;
+function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000) {
+  if (!config.hostInstallDir || !path.isAbsolute(config.hostInstallDir)) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "Host install dir invalide.",
+    };
+  }
 
-  const result = readCommandText("docker", ["compose", "-f", config.composeFile, "config", "--images"], 10_000);
-  if (!result.ok || !result.stdout) return null;
-  const lines = result.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
-  return lines[0] ?? null;
+  const args = [
+    "run",
+    "--rm",
+    "-v",
+    "/var/run/docker.sock:/var/run/docker.sock",
+    "-v",
+    `${config.hostInstallDir}:/host:ro`,
+    config.runnerImage,
+    "sh",
+    "-lc",
+    script,
+  ];
+
+  return readCommandText("docker", args, timeout);
 }
 
 function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability | null {
-  const repoDir = config.hostInstallDir;
-  if (!fs.existsSync(path.join(repoDir, ".git"))) {
+  const probe = runHostProbe(
+    config,
+    [
+      "set -eu",
+      "if [ ! -d /host/.git ]; then",
+      "  printf 'mode=none\\n'",
+      "  exit 0",
+      "fi",
+      "if ! command -v git >/dev/null 2>&1; then apk add --no-cache git >/dev/null 2>&1 || true; fi",
+      "if ! command -v git >/dev/null 2>&1; then",
+      "  printf 'mode=git\\nerror=git_missing\\n'",
+      "  exit 0",
+      "fi",
+      "current=$(git -C /host rev-parse HEAD 2>/dev/null || true)",
+      `remote=$(git -C /host ls-remote origin refs/heads/${shQuote(config.branch)} 2>/dev/null | awk 'NR==1{print $1}')`,
+      "printf 'mode=git\\n'",
+      "printf 'current=%s\\n' \"$current\"",
+      "printf 'remote=%s\\n' \"$remote\"",
+    ].join("\n"),
+    30_000,
+  );
+
+  if (!probe.ok && !probe.stdout) {
     return null;
   }
 
-  const gitVersion = readCommandText("git", ["--version"], 8_000);
-  if (!gitVersion.ok) {
+  const parsed = parseKeyValueOutput(probe.stdout);
+  if (parsed.mode !== "git") {
+    return null;
+  }
+
+  if (parsed.error === "git_missing") {
     return {
       status: "error",
-      message: "Git absent dans le conteneur ProxmoxCenter.",
+      message: "Git absent dans le runner de vérification.",
       checkedAt: timestamp(),
       currentRef: null,
       availableRef: null,
@@ -301,17 +418,10 @@ function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability
     };
   }
 
-  const current = readCommandText("git", ["-C", repoDir, "rev-parse", "HEAD"], 8_000);
-  const remote = readCommandText(
-    "git",
-    ["-C", repoDir, "ls-remote", "origin", `refs/heads/${config.branch}`],
-    15_000,
-  );
-
-  if (!current.ok || !current.stdout) {
+  if (!parsed.current) {
     return {
       status: "error",
-      message: current.stderr || "Impossible de lire le commit local.",
+      message: "Impossible de lire le commit local.",
       checkedAt: timestamp(),
       currentRef: null,
       availableRef: null,
@@ -319,34 +429,66 @@ function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability
     };
   }
 
-  if (!remote.ok || !remote.stdout) {
+  if (!parsed.remote) {
     return {
       status: "error",
-      message: remote.stderr || "Impossible de joindre le dépôt distant.",
+      message: "Impossible de joindre le dépôt distant.",
       checkedAt: timestamp(),
-      currentRef: shortenRef(current.stdout),
+      currentRef: shortenRef(parsed.current),
       availableRef: null,
       serviceImage: null,
     };
   }
 
-  const remoteSha = remote.stdout.split(/\s+/u)[0] ?? "";
-  const updateAvailable = remoteSha.trim() !== current.stdout.trim();
-
+  const updateAvailable = parsed.remote.trim() !== parsed.current.trim();
   return {
     status: updateAvailable ? "update-available" : "up-to-date",
     message: updateAvailable
       ? "Un nouveau commit est disponible sur la branche distante."
       : "Le dépôt local est déjà à jour.",
     checkedAt: timestamp(),
-    currentRef: shortenRef(current.stdout),
-    availableRef: shortenRef(remoteSha),
+    currentRef: shortenRef(parsed.current),
+    availableRef: shortenRef(parsed.remote),
     serviceImage: null,
   };
 }
 
 function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailability {
-  const serviceImage = readComposeServiceImage(config);
+  const probe = runHostProbe(
+    config,
+    [
+      "set -eu",
+      "service_image=$(docker compose -f /host/docker-compose.yml config --images 2>/dev/null | head -n 1)",
+      `current=$(docker inspect --format '{{.Image}}' ${shQuote(config.service)} 2>/dev/null || true)`,
+      "before=$(if [ -n \"$service_image\" ]; then docker image inspect --format '{{.Id}}' \"$service_image\" 2>/dev/null || true; fi)",
+      "pull_output=$(if [ -n \"$service_image\" ]; then docker pull \"$service_image\" 2>&1 || true; fi)",
+      "after=$(if [ -n \"$service_image\" ]; then docker image inspect --format '{{.Id}}' \"$service_image\" 2>/dev/null || true; fi)",
+      "printf 'service_image=%s\\n' \"$service_image\"",
+      "printf 'current=%s\\n' \"$current\"",
+      "printf 'before=%s\\n' \"$before\"",
+      "printf 'after=%s\\n' \"$after\"",
+      "printf 'pull_output_b64=%s\\n' \"$(printf '%s' \"$pull_output\" | base64 | tr -d '\\n')\"",
+    ].join("\n"),
+    90_000,
+  );
+
+  if (!probe.ok && !probe.stdout) {
+    return {
+      status: "error",
+      message: probe.stderr || "Impossible de lancer la vérification image.",
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
+  const parsed = parseKeyValueOutput(probe.stdout);
+  const serviceImage = parsed.service_image || null;
+  const pullOutput = parsed.pull_output_b64
+    ? Buffer.from(parsed.pull_output_b64, "base64").toString("utf8")
+    : "";
+
   if (!serviceImage) {
     return {
       status: "unknown",
@@ -358,27 +500,34 @@ function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailabili
     };
   }
 
-  const runningImage = readCommandText("docker", ["inspect", "--format", "{{.Image}}", config.service], 10_000);
-  const beforeLocal = readCommandText("docker", ["image", "inspect", "--format", "{{.Id}}", serviceImage], 10_000);
-  const pull = readCommandText("docker", ["pull", serviceImage], 120_000);
-
-  if (!pull.ok) {
+  if (
+    /pull access denied|repository does not exist|requested access to the resource is denied/i.test(pullOutput)
+  ) {
     return {
-      status: "error",
-      message: pull.stderr || pull.stdout || "Impossible de vérifier l’image distante.",
+      status: "unknown",
+      message: "Image locale build détectée: aucun registre distant exploitable pour comparer.",
       checkedAt: timestamp(),
-      currentRef: shortenRef(runningImage.stdout || beforeLocal.stdout || null),
-      availableRef: null,
+      currentRef: shortenRef(parsed.current || parsed.before || null),
+      availableRef: shortenRef(parsed.after || null),
       serviceImage,
     };
   }
 
-  const afterLocal = readCommandText("docker", ["image", "inspect", "--format", "{{.Id}}", serviceImage], 10_000);
-  const pullOutput = `${pull.stdout}\n${pull.stderr}`;
+  if (pullOutput && /error|denied|unauthorized|not found/i.test(pullOutput) && !/image is up to date/i.test(pullOutput)) {
+    return {
+      status: "error",
+      message: pullOutput.split(/\r?\n/u).filter(Boolean)[0] ?? "Impossible de vérifier l’image distante.",
+      checkedAt: timestamp(),
+      currentRef: shortenRef(parsed.current || parsed.before || null),
+      availableRef: shortenRef(parsed.after || null),
+      serviceImage,
+    };
+  }
+
   const updateAvailable =
     /downloaded newer image/i.test(pullOutput) ||
-    (Boolean(beforeLocal.stdout) && Boolean(afterLocal.stdout) && beforeLocal.stdout !== afterLocal.stdout) ||
-    (Boolean(runningImage.stdout) && Boolean(afterLocal.stdout) && runningImage.stdout !== afterLocal.stdout);
+    (Boolean(parsed.before) && Boolean(parsed.after) && parsed.before !== parsed.after) ||
+    (Boolean(parsed.current) && Boolean(parsed.after) && parsed.current !== parsed.after);
 
   return {
     status: updateAvailable ? "update-available" : "up-to-date",
@@ -386,8 +535,8 @@ function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailabili
       ? "Une nouvelle image est prête. Lance la mise à jour pour la redéployer."
       : "Aucune nouvelle image détectée.",
     checkedAt: timestamp(),
-    currentRef: shortenRef(runningImage.stdout || beforeLocal.stdout || null),
-    availableRef: shortenRef(afterLocal.stdout || null),
+    currentRef: shortenRef(parsed.current || parsed.before || null),
+    availableRef: shortenRef(parsed.after || null),
     serviceImage,
   };
 }

@@ -3,7 +3,6 @@ import BackupPlannerPanel from "@/components/backup-planner-panel";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { formatRelativeTime } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 
@@ -51,7 +50,6 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
         </div>
         <div className="topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
 

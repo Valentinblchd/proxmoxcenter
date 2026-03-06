@@ -5,7 +5,7 @@ import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/adviso
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { proxmoxRequest } from "@/lib/proxmox/client";
-import { formatBytes, formatPercent, formatRelativeTime } from "@/lib/ui/format";
+import { formatBytes, formatPercent } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 
@@ -300,7 +300,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
-          <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
           <InventoryRefreshButton auto intervalMs={2000} />
         </div>
       </header>
