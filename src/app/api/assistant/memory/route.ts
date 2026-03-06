@@ -1,20 +1,18 @@
 import { NextRequest, NextResponse } from "next/server";
 import { readAssistantMemory, resetAssistantMemory } from "@/lib/assistant/memory";
-import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { ensureSameOriginRequest } from "@/lib/security/request-guards";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-async function getMemoryScopeFromRequest(request: NextRequest) {
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  if (!token) return "default";
-  const session = await verifySessionToken(token);
-  return session?.username ?? "default";
-}
-
 export async function GET(request: NextRequest) {
-  const scope = await getMemoryScopeFromRequest(request);
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
+  const scope = capability.session.username;
   const memory = readAssistantMemory(scope);
   return NextResponse.json({
     ok: true,
@@ -23,6 +21,11 @@ export async function GET(request: NextRequest) {
 }
 
 export async function DELETE(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
@@ -31,8 +34,7 @@ export async function DELETE(request: NextRequest) {
     );
   }
 
-  const scope = await getMemoryScopeFromRequest(request);
-  resetAssistantMemory(scope);
+  resetAssistantMemory(capability.session.username);
   return NextResponse.json({
     ok: true,
     message: "Mémoire IA réinitialisée.",

@@ -1,4 +1,5 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 
@@ -102,7 +103,12 @@ function parseIsoVolumes(
     .sort((a, b) => a.label.localeCompare(b.label));
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "operate");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const snapshot = await getDashboardSnapshot();
 
   const fallback = {

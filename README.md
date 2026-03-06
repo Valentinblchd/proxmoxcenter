@@ -41,6 +41,7 @@ Passe-les en préfixe de la commande d'installation :
 | `PROXMOXCENTER_INSTALL_DIR` | `/opt/proxmoxcenter` | Répertoire d'installation |
 | `PROXMOXCENTER_DATA_DIR` | `<INSTALL_DIR>/data` | Répertoire des données persistées |
 | `PROXMOXCENTER_PUBLIC_ORIGIN` | _(vide)_ | URL canonique de l'instance. Laisse vide en accès direct local IP/FQDN, renseigne-la derrière un reverse proxy ou en HTTPS public |
+| `PROXMOXCENTER_TRUST_PROXY_HEADERS` | `0` | Fais confiance à `X-Forwarded-For` / `X-Real-IP` pour les rate limits et l’audit IP. Active-le uniquement derrière un reverse proxy que tu contrôles |
 | `PROXMOXCENTER_CLOUD_OAUTH_MODE` | `local` | `local` ou `central` (broker OAuth) |
 | `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` | _(vide)_ | Obligatoire sur un broker OAuth public: liste d'origins autorisées à recevoir le refresh token |
 | `PROXMOXCENTER_IMAGE` | `ghcr.io/valentinblchd/proxmoxcenter:latest` | Image Docker à utiliser |
@@ -69,6 +70,7 @@ Si tu exposes ProxCenter derrière un reverse proxy HTTPS :
 
 - définis `PROXMOXCENTER_PUBLIC_ORIGIN=https://ton-fqdn`
 - active `Secure cookie` dans `Sécurité > Sessions & accès`
+- active `PROXMOXCENTER_TRUST_PROXY_HEADERS=1` si tu veux conserver les vraies IP clientes dans les rate limits et l’audit
 - laisse le proxy transmettre `Host`, `X-Real-IP`, `X-Forwarded-For`
 - autorise l’upgrade WebSocket pour la console
 
@@ -119,10 +121,12 @@ Les données persistées vivent dans `<INSTALL_DIR>/data/` :
 Notes sécurité :
 
 - les cookies de session sont `HttpOnly` et `SameSite=Lax`,
+- les mutations sensibles refusent maintenant les requêtes `same-site` qui ne sont pas du même origin exact,
 - les secrets sensibles stockés par l’application sont chiffrés au repos,
 - les flows OAuth cloud utilisent un `state` côté serveur et un retour popup contrôlé,
 - un broker OAuth central public doit déclarer `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`, sinon le flow est bloqué,
 - les en-têtes `X-Forwarded-*` ne servent plus d’origin canonique implicite ; en reverse proxy/HTTPS public, renseigne `PROXMOXCENTER_PUBLIC_ORIGIN`,
+- les IP clientes en `X-Forwarded-*` ne sont plus trustées par défaut pour éviter le bypass de rate limit par spoofing ; active `PROXMOXCENTER_TRUST_PROXY_HEADERS=1` uniquement si le proxy est de confiance,
 - le mode TLS Proxmox `insecure` reste limité aux appels Proxmox et ne désactive plus la vérification TLS globale du process Node.js.
 
 ## Sauvegardes et permissions

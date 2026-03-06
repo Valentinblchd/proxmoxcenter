@@ -5,7 +5,7 @@ import {
   rememberAssistantWorkloadAction,
   type AssistantMemory,
 } from "@/lib/assistant/memory";
-import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
@@ -1002,6 +1002,11 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   let body: IntentBody;
   try {
     body = (await request.json()) as IntentBody;
@@ -1044,9 +1049,8 @@ export async function POST(request: NextRequest) {
     } satisfies AssistantIntentResponse);
   }
 
-  const token = request.cookies.get(AUTH_COOKIE_NAME)?.value;
-  const session = token ? await verifySessionToken(token) : null;
-  const memoryScope = session?.username ?? "default";
+  const session = capability.session;
+  const memoryScope = session.username;
 
   const memory = rememberAssistantQuestion(safety.prompt, memoryScope);
   const normalizedPrompt = normalizeText(safety.prompt);
@@ -1056,7 +1060,7 @@ export async function POST(request: NextRequest) {
   const powerActionDetected = Boolean(parsePowerAction(normalizedPrompt));
   const requiresOperateRole = powerActionDetected;
 
-  if (requiresOperateRole && !hasRuntimeCapability(session?.role, "operate")) {
+  if (requiresOperateRole && !hasRuntimeCapability(session.role, "operate")) {
     return NextResponse.json({
       ok: true,
       intent: "unknown",

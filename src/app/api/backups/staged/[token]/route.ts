@@ -1,4 +1,5 @@
 import { NextRequest } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { consumeStagedRestorePayload } from "@/lib/backups/restore-staging";
 
 export const runtime = "nodejs";
@@ -13,6 +14,11 @@ async function getParams(context: RouteContext): Promise<{ token: string }> {
 }
 
 export async function GET(_request: NextRequest, context: RouteContext) {
+  const capability = await requireRequestCapability(_request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const { token } = await getParams(context);
   const staged = consumeStagedRestorePayload(token);
   if (!staged) {

@@ -1,14 +1,37 @@
 import type { NextRequest } from "next/server";
 
-export function getClientIp(request: NextRequest) {
-  const xff = request.headers.get("x-forwarded-for");
-  if (xff) {
-    const first = xff.split(",")[0]?.trim();
-    if (first) return first;
-  }
+function asBooleanEnv(value: string | null | undefined, fallback = false) {
+  if (!value) return fallback;
+  const normalized = value.trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(normalized)) return true;
+  if (["0", "false", "no", "off"].includes(normalized)) return false;
+  return fallback;
+}
 
-  const realIp = request.headers.get("x-real-ip")?.trim();
-  if (realIp) return realIp;
+function shouldTrustProxyHeaders() {
+  return asBooleanEnv(
+    process.env.PROXMOXCENTER_TRUST_PROXY_HEADERS ??
+      process.env.PROXCENTER_TRUST_PROXY_HEADERS ??
+      process.env.PROXMOXCENTER_TRUST_PROXY ??
+      process.env.PROXCENTER_TRUST_PROXY,
+    false,
+  );
+}
+
+export function getClientIp(request: NextRequest) {
+  if (shouldTrustProxyHeaders()) {
+    const cfConnectingIp = request.headers.get("cf-connecting-ip")?.trim();
+    if (cfConnectingIp) return cfConnectingIp;
+
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) {
+      const first = xff.split(",")[0]?.trim();
+      if (first) return first;
+    }
+
+    const realIp = request.headers.get("x-real-ip")?.trim();
+    if (realIp) return realIp;
+  }
 
   return "unknown";
 }
@@ -119,6 +142,12 @@ function parseOriginFromReferer(referer: string | null) {
   }
 }
 
+function getSourceOrigin(request: NextRequest) {
+  const origin = request.headers.get("origin")?.trim() ?? null;
+  const refererOrigin = parseOriginFromReferer(request.headers.get("referer"));
+  return origin || refererOrigin;
+}
+
 function normalizePort(protocol: string, port: string) {
   if (port) return port;
   return protocol === "https:" ? "443" : protocol === "http:" ? "80" : "";
@@ -150,9 +179,7 @@ export function ensureSameOriginRequest(
     return { ok: false, reason: "Host header missing." };
   }
 
-  const origin = request.headers.get("origin")?.trim() ?? null;
-  const refererOrigin = parseOriginFromReferer(request.headers.get("referer"));
-  const sourceOrigin = origin || refererOrigin;
+  const sourceOrigin = getSourceOrigin(request);
 
   if (!sourceOrigin) {
     if (options?.allowMissingOrigin) {
@@ -164,10 +191,7 @@ export function ensureSameOriginRequest(
   if (!acceptedOrigins.has(sourceOrigin)) {
     const sameEndpoint = [...acceptedOrigins].some((candidate) => sameHostAndPort(candidate, sourceOrigin));
     if (!sameEndpoint) {
-      const secFetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
-      if (!["same-origin", "same-site", "none"].includes(secFetchSite)) {
-        return { ok: false, reason: "Cross-origin request blocked." };
-      }
+      return { ok: false, reason: "Cross-origin request blocked." };
     }
   }
 
@@ -180,9 +204,13 @@ export function ensureTrustedNavigationRequest(request: NextRequest): SameOrigin
     return directOriginCheck;
   }
 
+  if (getSourceOrigin(request)) {
+    return directOriginCheck;
+  }
+
   const secFetchMode = request.headers.get("sec-fetch-mode")?.trim().toLowerCase() ?? "";
   const secFetchSite = request.headers.get("sec-fetch-site")?.trim().toLowerCase() ?? "";
-  const allowedSites = new Set(["same-origin", "same-site", "none"]);
+  const allowedSites = new Set(["same-origin", "none"]);
 
   if (secFetchMode === "navigate" && allowedSites.has(secFetchSite)) {
     return { ok: true };

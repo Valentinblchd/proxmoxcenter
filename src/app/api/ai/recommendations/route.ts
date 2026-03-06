@@ -1,11 +1,17 @@
-import { NextResponse } from "next/server";
+import { NextRequest, NextResponse } from "next/server";
+import { requireRequestCapability } from "@/lib/auth/authz";
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const capability = await requireRequestCapability(request, "read");
+  if (!capability.ok) {
+    return capability.response;
+  }
+
   const snapshot = await getDashboardSnapshot();
   const security = buildSecurityAdvisor(snapshot);
   const greenit = buildGreenItAdvisor(snapshot);
