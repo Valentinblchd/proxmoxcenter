@@ -9,6 +9,9 @@ type AuthUiState = {
   auth: {
     active: boolean;
   };
+  deployment?: {
+    recommendedSecureCookie: boolean;
+  };
   settings: {
     sessionTtlHours: number;
     secureCookie: boolean;
@@ -24,9 +27,14 @@ type AuthUiState = {
 type Props = {
   initialSettings: AuthUiState["settings"];
   ldapSecondaryEnabled: boolean;
+  recommendedSecureCookie?: boolean;
 };
 
-export default function AuthUiSettingsPanel({ initialSettings, ldapSecondaryEnabled }: Props) {
+export default function AuthUiSettingsPanel({
+  initialSettings,
+  ldapSecondaryEnabled,
+  recommendedSecureCookie = false,
+}: Props) {
   const router = useRouter();
   const [ttlHours, setTtlHours] = useState(String(initialSettings?.sessionTtlHours ?? 12));
   const [secureCookie, setSecureCookie] = useState(initialSettings?.secureCookie ?? false);
@@ -98,6 +106,13 @@ export default function AuthUiSettingsPanel({ initialSettings, ldapSecondaryEnab
           />
           <span>Cookie sécurisé si accès HTTPS direct</span>
         </label>
+
+        {recommendedSecureCookie && !secureCookie ? (
+          <div className="setup-hint warning-box">
+            <code>PROXMOXCENTER_PUBLIC_ORIGIN</code> est en HTTPS. Active <code>Secure cookie</code>{" "}
+            pour éviter l’envoi du cookie de session hors HTTPS.
+          </div>
+        ) : null}
 
         <div className="setup-actions">
           <button

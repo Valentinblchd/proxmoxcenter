@@ -114,6 +114,20 @@ Effet :
 - les popups OAuth restent compatibles sans `unsafe-inline`,
 - l’application ne prend plus `X-Forwarded-*` comme origin canonique implicite ; en reverse proxy public, il faut fixer `PROXMOXCENTER_PUBLIC_ORIGIN`.
 
+### 7. Console WebSocket alignée sur la même origine canonique
+
+Avant correction, le serveur WebSocket console acceptait encore `X-Forwarded-*` comme candidate d’origine implicite.
+
+Corrigé :
+
+- `server/custom-server.mjs`
+
+Effet :
+
+- la console WebSocket suit maintenant la même règle que le reste de l’application :
+  - accès direct local => `Host`
+  - reverse proxy/public => `PROXMOXCENTER_PUBLIC_ORIGIN`
+
 ## Vérifications effectuées
 
 - `npm run typecheck` : OK

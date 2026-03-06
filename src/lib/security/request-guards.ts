@@ -63,11 +63,16 @@ function buildOriginFromHost(host: string | null | undefined, proto: string | nu
   return normalizeOrigin(`${normalizedProto}://${normalizedHost}`);
 }
 
-function getConfiguredPublicOrigin() {
+export function getConfiguredPublicOrigin() {
   return (
     normalizeOrigin(process.env.PROXMOXCENTER_PUBLIC_ORIGIN) ??
     normalizeOrigin(process.env.PROXCENTER_PUBLIC_ORIGIN)
   );
+}
+
+export function isConfiguredPublicOriginHttps() {
+  const origin = getConfiguredPublicOrigin();
+  return Boolean(origin?.startsWith("https://"));
 }
 
 export function getTrustedOriginForRequest(request: NextRequest) {

@@ -15,6 +15,9 @@ type AuthSetupStatus = {
     active: boolean;
   };
   localAccountRequired?: boolean;
+  deployment?: {
+    recommendedSecureCookie: boolean;
+  };
   runtimeSaved: {
     enabled: boolean;
     username: string;
@@ -64,6 +67,8 @@ export default function AppAuthSetupForm() {
         setEmail(payload.runtimeSaved.email ?? "");
         setSecureCookie(payload.runtimeSaved.secureCookie);
         setTtlHours(String(Math.max(1, Math.round(payload.runtimeSaved.sessionTtlSeconds / 3600))));
+      } else {
+        setSecureCookie(Boolean(payload.deployment?.recommendedSecureCookie));
       }
     } catch (error) {
       setFlash({
@@ -227,6 +232,14 @@ export default function AppAuthSetupForm() {
             />
             <span>Cookie sécurisé (HTTPS direct uniquement)</span>
           </label>
+
+          {status?.deployment?.recommendedSecureCookie && !secureCookie ? (
+            <div className="setup-hint warning-box">
+              <code>PROXMOXCENTER_PUBLIC_ORIGIN</code> pointe vers une URL HTTPS. Active{" "}
+              <code>Secure cookie</code> pour ne plus exposer le cookie de session sur une URL
+              non chiffrée.
+            </div>
+          ) : null}
 
           <PasswordPolicyLiveStatus password={password} />
 

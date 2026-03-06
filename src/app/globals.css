@@ -4474,6 +4474,23 @@ select.inventory-node-filter option {
   color: #d5ffed;
 }
 
+.setup-hint {
+  border-radius: 12px;
+  padding: 0.7rem 0.75rem;
+  font-size: 0.84rem;
+  line-height: 1.5;
+}
+
+.warning-box {
+  background: rgba(255, 184, 77, 0.08);
+  border: 1px solid rgba(255, 184, 77, 0.2);
+  color: #ffe3b4;
+}
+
+.warning-box code {
+  color: #fff2cf;
+}
+
 .setup-grid {
   display: grid;
   gap: 0.8rem;

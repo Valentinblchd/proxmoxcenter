@@ -17,7 +17,11 @@ import {
 } from "@/lib/auth/runtime-config";
 import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
-import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
+import {
+  ensureSameOriginRequest,
+  getClientIp,
+  isConfiguredPublicOriginHttps,
+} from "@/lib/security/request-guards";
 import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
 
 export const runtime = "nodejs";
@@ -82,10 +86,14 @@ function buildAuthSetupStatus() {
   const status = getAuthStatus();
   const proxmoxRuntime = readRuntimeProxmoxConfig();
   const localAccountRequired = Boolean(proxmoxRuntime?.ldap.enabled);
+  const recommendedSecureCookie = isConfiguredPublicOriginHttps();
 
   return {
     auth: status,
     localAccountRequired,
+    deployment: {
+      recommendedSecureCookie,
+    },
     runtimeSaved: runtime
       ? {
           enabled: runtime.enabled,
@@ -225,7 +233,7 @@ export async function POST(request: NextRequest) {
         primaryUserId: existingRuntimeAuth.primaryUserId,
         sessionSecret: asNonEmptyString(body.sessionSecret) ?? existingRuntimeAuth.sessionSecret,
         sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, existingRuntimeAuth.sessionTtlSeconds),
-        secureCookie: asBoolean(body.secureCookie, existingRuntimeAuth.secureCookie),
+        secureCookie: asBoolean(body.secureCookie, existingRuntimeAuth.secureCookie || isConfiguredPublicOriginHttps()),
         updatedAt: now,
       });
     } else {
@@ -252,7 +260,7 @@ export async function POST(request: NextRequest) {
         primaryUserId: "local-admin-bootstrap",
         sessionSecret: asNonEmptyString(body.sessionSecret) ?? randomHex(32),
         sessionTtlSeconds: asPositiveInt(body.sessionTtlSeconds, 60 * 60 * 12),
-        secureCookie: asBoolean(body.secureCookie, false),
+        secureCookie: asBoolean(body.secureCookie, isConfiguredPublicOriginHttps()),
       });
     }
     appendAuditLogEntry({

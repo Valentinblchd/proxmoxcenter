@@ -63,6 +63,36 @@ Ouvre `http://<IP_DU_SERVEUR>:3000` dans ton navigateur, puis :
 
 Les connexions et données sont stockées dans `<INSTALL_DIR>/data/`.
 
+## Reverse Proxy
+
+Si tu exposes ProxCenter derrière un reverse proxy HTTPS :
+
+- définis `PROXMOXCENTER_PUBLIC_ORIGIN=https://ton-fqdn`
+- active `Secure cookie` dans `Sécurité > Sessions & accès`
+- laisse le proxy transmettre `Host`, `X-Real-IP`, `X-Forwarded-For`
+- autorise l’upgrade WebSocket pour la console
+
+Exemple nginx minimal :
+
+```nginx
+server {
+  listen 443 ssl http2;
+  server_name proxmox.exemple.fr;
+
+  location / {
+    proxy_pass http://127.0.0.1:3000;
+    proxy_http_version 1.1;
+    proxy_set_header Host $host;
+    proxy_set_header X-Real-IP $remote_addr;
+    proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+    proxy_set_header Upgrade $http_upgrade;
+    proxy_set_header Connection "upgrade";
+  }
+}
+```
+
+En accès direct local sur IP ou FQDN de la machine, `PROXMOXCENTER_PUBLIC_ORIGIN` peut rester vide.
+
 ## Rôles et permissions
 
 - **`reader`** — lecture seule sur l’inventaire, l’observabilité, les journaux et l’état global des sauvegardes

@@ -70,9 +70,6 @@ function isAllowedOrigin(req) {
     normalizeOrigin(process.env.PROXCENTER_PUBLIC_ORIGIN);
   if (configured) accepted.add(configured);
 
-  const forwardedOrigin = buildOriginFromHost(req.headers["x-forwarded-host"], req.headers["x-forwarded-proto"]);
-  if (forwardedOrigin) accepted.add(forwardedOrigin);
-
   const guessedProto = req.socket.encrypted ? "https" : "http";
   const hostOrigin = buildOriginFromHost(req.headers.host, guessedProto);
   if (hostOrigin) accepted.add(hostOrigin);
