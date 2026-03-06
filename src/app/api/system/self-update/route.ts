@@ -28,10 +28,11 @@ function asString(value: unknown, max = 120) {
 export async function GET(request: NextRequest) {
   const capability = await requireRequestCapability(request, "admin");
   if (!capability.ok) return capability.response;
+  const refreshAvailability = request.nextUrl.searchParams.get("refresh") === "1";
 
   return NextResponse.json({
     ok: true,
-    ...getSelfUpdateOverview(),
+    ...getSelfUpdateOverview({ refreshAvailability }),
   });
 }
 

@@ -3,6 +3,7 @@
 import { usePathname } from "next/navigation";
 import { Suspense, useState } from "react";
 import AiChatWidget from "@/components/ai-chat-widget";
+import LiveSyncAlerts from "@/components/live-sync-alerts";
 import SidebarNav from "@/components/sidebar-nav";
 import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
 
@@ -42,6 +43,7 @@ export default function AppFrame({
       ) : null}
       <>
         {children}
+        <LiveSyncAlerts />
         <AiChatWidget sessionRole={sessionRole} />
       </>
     </div>

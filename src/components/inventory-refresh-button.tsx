@@ -1,7 +1,7 @@
 "use client";
 
 import { useRouter } from "next/navigation";
-import { startTransition, useCallback, useEffect, useRef, useState } from "react";
+import { startTransition, useEffect, useRef } from "react";
 
 type InventoryRefreshButtonProps = {
   auto?: boolean;
@@ -10,55 +10,45 @@ type InventoryRefreshButtonProps = {
 
 export default function InventoryRefreshButton({
   auto = false,
-  intervalMs = 5000,
+  intervalMs = 2000,
 }: InventoryRefreshButtonProps) {
   const router = useRouter();
-  const [refreshing, setRefreshing] = useState(false);
   const refreshingRef = useRef(false);
-
-  const refreshNow = useCallback(() => {
-    if (refreshingRef.current) return;
-    refreshingRef.current = true;
-    setRefreshing(true);
-    startTransition(() => {
-      router.refresh();
-      window.setTimeout(() => {
-        refreshingRef.current = false;
-        setRefreshing(false);
-      }, 700);
-    });
-  }, [intervalMs, router]);
 
   useEffect(() => {
     if (!auto) return;
 
-    const timer = window.setInterval(() => {
-      if (document.visibilityState !== "visible") {
+    const refreshNow = () => {
+      if (document.visibilityState !== "visible" || refreshingRef.current) {
         return;
       }
+
+      refreshingRef.current = true;
+      startTransition(() => {
+        router.refresh();
+      });
+      window.setTimeout(() => {
+        refreshingRef.current = false;
+      }, 700);
+    };
+
+    const timer = window.setInterval(() => {
       refreshNow();
     }, intervalMs);
 
+    const onVisibilityChange = () => {
+      if (document.visibilityState === "visible") {
+        refreshNow();
+      }
+    };
+
+    document.addEventListener("visibilitychange", onVisibilityChange);
+
     return () => {
       window.clearInterval(timer);
+      document.removeEventListener("visibilitychange", onVisibilityChange);
     };
-  }, [auto, intervalMs, refreshNow]);
+  }, [auto, intervalMs, router]);
 
-  return (
-    <div className="inventory-refresh-cluster">
-      {auto ? (
-        <span className="inventory-refresh-status" aria-live="polite">
-          {refreshing ? "Mise à jour..." : "Auto actif"}
-        </span>
-      ) : null}
-      <button
-        type="button"
-        className="inventory-ghost-btn"
-        disabled={refreshing}
-        onClick={refreshNow}
-      >
-        {refreshing ? "Actualisation..." : "Actualiser"}
-      </button>
-    </div>
-  );
+  return null;
 }

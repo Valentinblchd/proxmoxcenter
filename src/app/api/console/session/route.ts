@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
         headers: {
           "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
         },
-        body: new URLSearchParams({ cmd: "shell" }).toString(),
+        body: new URLSearchParams({ cmd: "login" }).toString(),
       });
       const { ticket, port } = ticketPayloadToResponse(ticketData);
       const wsUrl = `${toWsBase(proxmox.baseUrl)}/api2/json/nodes/${encodeURIComponent(node)}/vncwebsocket?port=${encodeURIComponent(String(port))}&vncticket=${encodeURIComponent(ticket)}`;
@@ -168,7 +168,7 @@ export async function POST(request: NextRequest) {
             headers: {
               "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
             },
-            body: new URLSearchParams({ serial: "0" }).toString(),
+            body: new URLSearchParams({ serial: "serial0" }).toString(),
           },
         );
         const { ticket, port } = ticketPayloadToResponse(ticketData);

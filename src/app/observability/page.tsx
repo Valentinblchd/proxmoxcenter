@@ -301,7 +301,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
           <span className="muted">MàJ {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
-          <InventoryRefreshButton auto intervalMs={5000} />
+          <InventoryRefreshButton auto intervalMs={2000} />
         </div>
       </header>
 

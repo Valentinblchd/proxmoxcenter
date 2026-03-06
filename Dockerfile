@@ -18,7 +18,7 @@ ENV HOSTNAME=0.0.0.0
 RUN set -eux; \
   export DEBIAN_FRONTEND=noninteractive; \
   apt-get update; \
-  apt-get install -y --no-install-recommends ca-certificates curl gpg docker.io; \
+  apt-get install -y --no-install-recommends ca-certificates curl git gpg docker.io; \
   mkdir -p /usr/share/keyrings; \
   if curl -fsSL https://download.proxmox.com/debian/proxmox-release-bookworm.gpg -o /tmp/proxmox-release-bookworm.gpg; then \
     if gpg --batch --yes --dearmor -o /usr/share/keyrings/proxmox-release-bookworm.gpg /tmp/proxmox-release-bookworm.gpg; then \

@@ -17,6 +17,17 @@ type UpdateJob = {
   error: string | null;
 };
 
+type UpdateAvailabilityStatus = "disabled" | "unknown" | "up-to-date" | "update-available" | "error";
+
+type UpdateAvailability = {
+  status: UpdateAvailabilityStatus;
+  message: string;
+  checkedAt: string | null;
+  currentRef: string | null;
+  availableRef: string | null;
+  serviceImage: string | null;
+};
+
 type UpdateOverview = {
   ok?: boolean;
   error?: string;
@@ -34,6 +45,7 @@ type UpdateOverview = {
   current: UpdateJob | null;
   history: UpdateJob[];
   logs: string[];
+  availability: UpdateAvailability;
 };
 
 const EXPECTED_CONFIRM = "UPDATE PROXMOXCENTER";
@@ -51,6 +63,21 @@ function statusLabel(status: UpdateStatus | null | undefined) {
   }
 }
 
+function availabilityLabel(status: UpdateAvailabilityStatus | null | undefined) {
+  switch (status) {
+    case "update-available":
+      return "Update dispo";
+    case "up-to-date":
+      return "À jour";
+    case "error":
+      return "Erreur";
+    case "disabled":
+      return "Désactivé";
+    default:
+      return "Inconnu";
+  }
+}
+
 export default function SelfUpdateSettingsPanel() {
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -63,9 +90,11 @@ export default function SelfUpdateSettingsPanel() {
   const previousStatusRef = useRef<UpdateStatus | null>(null);
   const currentStatusRef = useRef<UpdateStatus | null>(null);
 
-  const loadOverview = useCallback(async () => {
+  const loadOverview = useCallback(async (refreshAvailability = false) => {
     try {
-      const response = await fetch("/api/system/self-update", { cache: "no-store" });
+      const response = await fetch(`/api/system/self-update${refreshAvailability ? "?refresh=1" : ""}`, {
+        cache: "no-store",
+      });
       const payload = (await response.json().catch(() => ({}))) as UpdateOverview;
       if (!response.ok || payload.ok === false) {
         throw new Error(payload.error || "Impossible de lire l’état update.");
@@ -88,7 +117,7 @@ export default function SelfUpdateSettingsPanel() {
   useEffect(() => {
     let disposed = false;
     setLoading(true);
-    loadOverview()
+    loadOverview(true)
       .catch((requestError) => {
         if (disposed) return;
         setError(requestError instanceof Error ? requestError.message : "Erreur de chargement.");
@@ -118,12 +147,22 @@ export default function SelfUpdateSettingsPanel() {
   }, [currentStatus]);
 
   useEffect(() => {
-    if (currentStatus !== "running") return;
+    if (currentStatus === "running") {
+      const timer = window.setInterval(() => {
+        void loadOverview().catch((requestError) => {
+          setError(requestError instanceof Error ? requestError.message : "Erreur update.");
+        });
+      }, 2500);
+      return () => {
+        window.clearInterval(timer);
+      };
+    }
+
     const timer = window.setInterval(() => {
       void loadOverview().catch((requestError) => {
         setError(requestError instanceof Error ? requestError.message : "Erreur update.");
       });
-    }, 2500);
+    }, 5 * 60_000);
     return () => {
       window.clearInterval(timer);
     };
@@ -220,6 +259,51 @@ export default function SelfUpdateSettingsPanel() {
             <span>Service compose</span>
             <strong>{overview.config.service}</strong>
           </div>
+          <div className="row-line">
+            <span>Détection updates</span>
+            <strong
+              className={
+                overview.availability.status === "update-available"
+                  ? "status-bad"
+                  : overview.availability.status === "up-to-date"
+                    ? "status-good"
+                    : ""
+              }
+            >
+              {availabilityLabel(overview.availability.status)}
+            </strong>
+          </div>
+          <div className="row-line">
+            <span>Dernier check</span>
+            <strong>
+              {overview.availability.checkedAt
+                ? new Date(overview.availability.checkedAt).toLocaleString()
+                : "Jamais"}
+            </strong>
+          </div>
+          {overview.availability.serviceImage ? (
+            <div className="row-line">
+              <span>Image service</span>
+              <strong>{overview.availability.serviceImage}</strong>
+            </div>
+          ) : null}
+          {overview.availability.currentRef ? (
+            <div className="row-line">
+              <span>Version active</span>
+              <strong>{overview.availability.currentRef}</strong>
+            </div>
+          ) : null}
+          {overview.availability.availableRef ? (
+            <div className="row-line">
+              <span>Version dispo</span>
+              <strong>{overview.availability.availableRef}</strong>
+            </div>
+          ) : null}
+
+          <div className="backup-alert info">
+            <strong>Détection</strong>
+            <p>{overview.availability.message}</p>
+          </div>
 
           {overview.current ? (
             <div className="mini-list-item">
@@ -247,10 +331,14 @@ export default function SelfUpdateSettingsPanel() {
             <button
               type="button"
               className="action-btn"
-              onClick={() => void loadOverview().catch((requestError) => setError(requestError instanceof Error ? requestError.message : "Erreur"))}
+              onClick={() =>
+                void loadOverview(true).catch((requestError) =>
+                  setError(requestError instanceof Error ? requestError.message : "Erreur"),
+                )
+              }
               disabled={busy}
             >
-              Rafraîchir
+              Vérifier les updates
             </button>
             {overview.current && overview.current.status !== "running" ? (
               <button

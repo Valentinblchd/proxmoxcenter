@@ -1,6 +1,11 @@
 import "server-only";
 import { proxmoxRequest, ProxmoxConfigError } from "@/lib/proxmox/client";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
+import {
+  clearLiveSyncState,
+  recordLiveSyncFailure,
+  recordLiveSyncSuccess,
+} from "@/lib/proxmox/live-sync-runtime";
 
 type ProxmoxClusterResource = {
   id: string;
@@ -88,6 +93,7 @@ function buildOfflineSnapshot(warnings: string[] = []): DashboardSnapshot {
 export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
   const config = getProxmoxConfig();
   if (!config) {
+    clearLiveSyncState();
     return buildOfflineSnapshot(["Aucune donnée Proxmox disponible pour le moment."]);
   }
 
@@ -133,7 +139,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       })
       .slice(0, 300);
 
-    return {
+    const snapshot: DashboardSnapshot = {
       mode: "live",
       lastUpdatedAt: new Date().toISOString(),
       warnings: [],
@@ -150,6 +156,8 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
       nodes,
       workloads,
     };
+    recordLiveSyncSuccess(workloads);
+    return snapshot;
   } catch (error) {
     const details =
       error instanceof ProxmoxConfigError
@@ -157,6 +165,7 @@ export async function getDashboardSnapshot(): Promise<DashboardSnapshot> {
         : error instanceof Error
           ? error.message
           : "Erreur inconnue";
+    recordLiveSyncFailure(details);
 
     return buildOfflineSnapshot([`Connexion Proxmox indisponible: ${details}`]);
   }

@@ -422,8 +422,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
             />
           </form>
 
-          <div className="quick-actions">
-            <form method="get" action="/inventory" className="quick-actions">
+          <div className="quick-actions inventory-toolbar-actions">
+            <form method="get" action="/inventory" className="quick-actions inventory-toolbar-actions">
               {activeTab !== "summary" ? <input type="hidden" name="tab" value={activeTab} /> : null}
               {query ? <input type="hidden" name="q" value={query} /> : null}
               <select className="field-input inventory-node-filter" name="node" defaultValue={nodeFilter}>
@@ -439,7 +439,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
               </button>
             </form>
 
-            <InventoryRefreshButton auto={hasLiveData} intervalMs={5000} />
+            <InventoryRefreshButton auto={hasLiveData} intervalMs={2000} />
 
             <Link href="/provision?kind=qemu" className="action-btn primary">
               Créer VM
@@ -694,6 +694,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                             status={row.status}
                             actionable={canOperate && hasLiveData}
                             consoleHref={buildWorkloadConsoleHref(row.kind, row.vmid)}
+                            compact
                           />
                         </td>
                       </tr>

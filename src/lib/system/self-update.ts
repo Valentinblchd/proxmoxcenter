@@ -6,6 +6,7 @@ import { randomUUID } from "node:crypto";
 import { spawnSync } from "node:child_process";
 
 type SelfUpdateStatus = "idle" | "running" | "success" | "failed";
+type UpdateAvailabilityStatus = "disabled" | "unknown" | "up-to-date" | "update-available" | "error";
 
 export type SelfUpdateJob = {
   id: string;
@@ -28,10 +29,20 @@ type SelfUpdateState = {
   updatedAt: string;
 };
 
+type SelfUpdateAvailability = {
+  status: UpdateAvailabilityStatus;
+  message: string;
+  checkedAt: string | null;
+  currentRef: string | null;
+  availableRef: string | null;
+  serviceImage: string | null;
+};
+
 type SelfUpdateConfig = {
   enabled: boolean;
   hostInstallDir: string;
   hostDataDir: string;
+  composeFile: string;
   branch: string;
   service: string;
   runnerImage: string;
@@ -43,6 +54,17 @@ const DEFAULT_STATE: SelfUpdateState = {
   history: [],
   updatedAt: new Date(0).toISOString(),
 };
+
+const DEFAULT_AVAILABILITY: SelfUpdateAvailability = {
+  status: "unknown",
+  message: "Aucune vérification distante lancée.",
+  checkedAt: null,
+  currentRef: null,
+  availableRef: null,
+  serviceImage: null,
+};
+
+const AVAILABILITY_TTL_MS = 15 * 60_000;
 
 function timestamp() {
   return new Date().toISOString();
@@ -84,6 +106,10 @@ function getStatePath() {
   return path.join(getStateDir(), "state.json");
 }
 
+function getAvailabilityPath() {
+  return path.join(getStateDir(), "availability.json");
+}
+
 function readState(): SelfUpdateState {
   const filePath = getStatePath();
   if (!fs.existsSync(filePath)) return { ...DEFAULT_STATE, history: [] };
@@ -105,6 +131,42 @@ function writeState(state: SelfUpdateState) {
   ensureStateDir();
   state.updatedAt = timestamp();
   fs.writeFileSync(getStatePath(), `${JSON.stringify(state, null, 2)}\n`, {
+    encoding: "utf8",
+    mode: 0o600,
+  });
+}
+
+function readAvailability(): SelfUpdateAvailability {
+  const filePath = getAvailabilityPath();
+  if (!fs.existsSync(filePath)) return { ...DEFAULT_AVAILABILITY };
+
+  try {
+    const raw = fs.readFileSync(filePath, "utf8");
+    if (!raw.trim()) return { ...DEFAULT_AVAILABILITY };
+    const parsed = JSON.parse(raw) as Partial<SelfUpdateAvailability>;
+    return {
+      status:
+        parsed.status === "disabled" ||
+        parsed.status === "unknown" ||
+        parsed.status === "up-to-date" ||
+        parsed.status === "update-available" ||
+        parsed.status === "error"
+          ? parsed.status
+          : "unknown",
+      message: typeof parsed.message === "string" ? parsed.message : DEFAULT_AVAILABILITY.message,
+      checkedAt: typeof parsed.checkedAt === "string" ? parsed.checkedAt : null,
+      currentRef: typeof parsed.currentRef === "string" ? parsed.currentRef : null,
+      availableRef: typeof parsed.availableRef === "string" ? parsed.availableRef : null,
+      serviceImage: typeof parsed.serviceImage === "string" ? parsed.serviceImage : null,
+    };
+  } catch {
+    return { ...DEFAULT_AVAILABILITY };
+  }
+}
+
+function writeAvailability(availability: SelfUpdateAvailability) {
+  ensureStateDir();
+  fs.writeFileSync(getAvailabilityPath(), `${JSON.stringify(availability, null, 2)}\n`, {
     encoding: "utf8",
     mode: 0o600,
   });
@@ -134,6 +196,7 @@ function resolveConfig(): SelfUpdateConfig {
     enabled,
     hostInstallDir,
     hostDataDir,
+    composeFile: path.join(hostInstallDir, "docker-compose.yml"),
     branch: asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_BRANCH, "main"),
     service: asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_SERVICE, "proxmoxcenter"),
     runnerImage: asSafeImage(process.env.PROXMOXCENTER_SELF_UPDATE_RUNNER_IMAGE, "docker:27-cli"),
@@ -187,6 +250,175 @@ function tailLogLines(logFile: string | null | undefined, maxLines = 120) {
   } catch {
     return [] as string[];
   }
+}
+
+function readCommandText(binary: string, args: string[], timeout = 15_000) {
+  const result = spawnSync(binary, args, {
+    encoding: "utf8",
+    timeout,
+  });
+
+  return {
+    ok: result.status === 0,
+    stdout: (result.stdout ?? "").trim(),
+    stderr: (result.stderr ?? "").trim(),
+  };
+}
+
+function shortenRef(value: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (trimmed.length <= 20) return trimmed;
+  return trimmed.slice(0, 20);
+}
+
+function readComposeServiceImage(config: SelfUpdateConfig) {
+  const envImage = process.env.PROXMOXCENTER_IMAGE?.trim();
+  if (envImage) return envImage;
+  if (!fs.existsSync(config.composeFile)) return null;
+
+  const result = readCommandText("docker", ["compose", "-f", config.composeFile, "config", "--images"], 10_000);
+  if (!result.ok || !result.stdout) return null;
+  const lines = result.stdout.split(/\r?\n/u).map((line) => line.trim()).filter(Boolean);
+  return lines[0] ?? null;
+}
+
+function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability | null {
+  const repoDir = config.hostInstallDir;
+  if (!fs.existsSync(path.join(repoDir, ".git"))) {
+    return null;
+  }
+
+  const gitVersion = readCommandText("git", ["--version"], 8_000);
+  if (!gitVersion.ok) {
+    return {
+      status: "error",
+      message: "Git absent dans le conteneur ProxmoxCenter.",
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
+  const current = readCommandText("git", ["-C", repoDir, "rev-parse", "HEAD"], 8_000);
+  const remote = readCommandText(
+    "git",
+    ["-C", repoDir, "ls-remote", "origin", `refs/heads/${config.branch}`],
+    15_000,
+  );
+
+  if (!current.ok || !current.stdout) {
+    return {
+      status: "error",
+      message: current.stderr || "Impossible de lire le commit local.",
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
+  if (!remote.ok || !remote.stdout) {
+    return {
+      status: "error",
+      message: remote.stderr || "Impossible de joindre le dépôt distant.",
+      checkedAt: timestamp(),
+      currentRef: shortenRef(current.stdout),
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
+  const remoteSha = remote.stdout.split(/\s+/u)[0] ?? "";
+  const updateAvailable = remoteSha.trim() !== current.stdout.trim();
+
+  return {
+    status: updateAvailable ? "update-available" : "up-to-date",
+    message: updateAvailable
+      ? "Un nouveau commit est disponible sur la branche distante."
+      : "Le dépôt local est déjà à jour.",
+    checkedAt: timestamp(),
+    currentRef: shortenRef(current.stdout),
+    availableRef: shortenRef(remoteSha),
+    serviceImage: null,
+  };
+}
+
+function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailability {
+  const serviceImage = readComposeServiceImage(config);
+  if (!serviceImage) {
+    return {
+      status: "unknown",
+      message: "Image du service introuvable dans la compose.",
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
+  const runningImage = readCommandText("docker", ["inspect", "--format", "{{.Image}}", config.service], 10_000);
+  const beforeLocal = readCommandText("docker", ["image", "inspect", "--format", "{{.Id}}", serviceImage], 10_000);
+  const pull = readCommandText("docker", ["pull", serviceImage], 120_000);
+
+  if (!pull.ok) {
+    return {
+      status: "error",
+      message: pull.stderr || pull.stdout || "Impossible de vérifier l’image distante.",
+      checkedAt: timestamp(),
+      currentRef: shortenRef(runningImage.stdout || beforeLocal.stdout || null),
+      availableRef: null,
+      serviceImage,
+    };
+  }
+
+  const afterLocal = readCommandText("docker", ["image", "inspect", "--format", "{{.Id}}", serviceImage], 10_000);
+  const pullOutput = `${pull.stdout}\n${pull.stderr}`;
+  const updateAvailable =
+    /downloaded newer image/i.test(pullOutput) ||
+    (Boolean(beforeLocal.stdout) && Boolean(afterLocal.stdout) && beforeLocal.stdout !== afterLocal.stdout) ||
+    (Boolean(runningImage.stdout) && Boolean(afterLocal.stdout) && runningImage.stdout !== afterLocal.stdout);
+
+  return {
+    status: updateAvailable ? "update-available" : "up-to-date",
+    message: updateAvailable
+      ? "Une nouvelle image est prête. Lance la mise à jour pour la redéployer."
+      : "Aucune nouvelle image détectée.",
+    checkedAt: timestamp(),
+    currentRef: shortenRef(runningImage.stdout || beforeLocal.stdout || null),
+    availableRef: shortenRef(afterLocal.stdout || null),
+    serviceImage,
+  };
+}
+
+function resolveAvailability(config: SelfUpdateConfig, options?: { refresh?: boolean }) {
+  if (!config.enabled) {
+    const availability = {
+      status: "disabled",
+      message: "Mise à jour UI désactivée.",
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    } satisfies SelfUpdateAvailability;
+    writeAvailability(availability);
+    return availability;
+  }
+
+  const cached = readAvailability();
+  const checkedAtMs = cached.checkedAt ? new Date(cached.checkedAt).getTime() : Number.NaN;
+  const cacheStillFresh =
+    Number.isFinite(checkedAtMs) && Date.now() - checkedAtMs <= AVAILABILITY_TTL_MS;
+
+  if (!options?.refresh && cacheStillFresh) {
+    return cached;
+  }
+
+  const byGit = verifyGitAvailability(config);
+  const availability = byGit ?? verifyImageAvailability(config);
+  writeAvailability(availability);
+  return availability;
 }
 
 function refreshStateFromResult(state: SelfUpdateState) {
@@ -251,10 +483,10 @@ function buildRunnerScript(options: {
     "  fi",
     "}",
     "trap on_exit EXIT",
-    "if [ -d /host/app/.git ]; then",
+    "if [ -d /host/.git ]; then",
     "  if ! command -v git >/dev/null 2>&1; then apk add --no-cache git >/dev/null; fi",
     "  log 'Update ProxmoxCenter: git pull'",
-    `  git -C /host/app pull origin ${shQuote(options.branch)} 2>&1 | tee -a \"$LOG_FILE\"`,
+    `  git -C /host pull origin ${shQuote(options.branch)} 2>&1 | tee -a \"$LOG_FILE\"`,
     "else",
     "  log 'Update ProxmoxCenter: repo local absent, docker compose pull'",
     "  docker compose -f /host/docker-compose.yml pull 2>&1 | tee -a \"$LOG_FILE\"",
@@ -307,12 +539,15 @@ function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob
   };
 }
 
-export function getSelfUpdateOverview() {
+export function getSelfUpdateOverview(options?: { refreshAvailability?: boolean }) {
   const config = resolveConfig();
   const prereq = checkPrerequisites();
 
   const state = refreshStateFromResult(readState());
   const job = state.current;
+  const availability = resolveAvailability(config, {
+    refresh: Boolean(options?.refreshAvailability) && job?.status !== "running",
+  });
 
   return {
     enabled: config.enabled,
@@ -323,6 +558,7 @@ export function getSelfUpdateOverview() {
       installDir: config.hostInstallDir,
     },
     prerequisites: prereq,
+    availability,
     current: job,
     history: state.history.slice(0, 12),
     logs: tailLogLines(job?.logFile),
