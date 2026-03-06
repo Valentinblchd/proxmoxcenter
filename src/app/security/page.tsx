@@ -131,6 +131,7 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
   const securityLogs = [...auditLog.entries, ...legacySecurityLogs]
     .sort((left, right) => Date.parse(right.at) - Date.parse(left.at))
     .slice(0, 200);
+  const recentSecurityEvents = securityLogs.slice(0, 4);
 
   return (
     <section className="content security-page">
@@ -160,7 +161,7 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
       </section>
 
       {activeTab === "overview" ? (
-        <section className="content-grid">
+        <section className="content-grid security-overview-grid">
           <section className="panel">
             <div className="panel-head">
               <h2>Posture sécurité</h2>
@@ -217,6 +218,30 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
                 <strong>{canOperate ? "Oui" : "Lecture seule"}</strong>
               </div>
             </div>
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Journaux récents</h2>
+              <span className="muted">{recentSecurityEvents.length}</span>
+            </div>
+            {recentSecurityEvents.length === 0 ? (
+              <p className="muted">Aucun événement récent.</p>
+            ) : (
+              <div className="mini-list">
+                {recentSecurityEvents.map((entry) => (
+                  <Link key={entry.id} href="/security?tab=logs" className="mini-list-item mini-list-link">
+                    <div>
+                      <div className="item-title">{entry.summary}</div>
+                      <div className="item-subtitle">
+                        {entry.actor?.username ?? "Système"} • {new Date(entry.at).toLocaleString("fr-FR")}
+                      </div>
+                    </div>
+                    <div className="item-metric">{entry.category}</div>
+                  </Link>
+                ))}
+              </div>
+            )}
           </section>
         </section>
       ) : null}

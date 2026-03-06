@@ -2528,7 +2528,7 @@ export default function BackupPlannerPanel({
             </section>
 
             <div className="content-grid backup-overview-grid">
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">1. Stockage local</h3>
                 <div className="item-title">
                   {localStorages.length > 0 ? `${localStorages.length} stockage(s) détecté(s)` : "Aucun stockage détecté"}
@@ -2545,7 +2545,7 @@ export default function BackupPlannerPanel({
                 </div>
               </section>
 
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">2. Extension cloud</h3>
                 <div className="item-title">
                   {cloudTargets.length > 0 ? `${cloudTargets.length} cible(s) cloud` : "Aucune cible cloud"}
@@ -2562,7 +2562,7 @@ export default function BackupPlannerPanel({
                 </div>
               </section>
 
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">3. Restore</h3>
                 <div className="item-title">
                   {restoreHistory.length > 0 ? `${restoreHistory.length} job(s) restore` : "Aucun restore lancé"}
@@ -2579,7 +2579,7 @@ export default function BackupPlannerPanel({
             </div>
 
             <div className="content-grid backup-overview-grid">
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">Exécution en cours</h3>
                 {runningExecution ? (
                   <div className="mini-list">
@@ -2620,7 +2620,7 @@ export default function BackupPlannerPanel({
                 )}
               </section>
 
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">Prochains runs</h3>
                 {upcomingRuns.length === 0 ? (
                   <div className="backup-empty-note">
@@ -2648,7 +2648,7 @@ export default function BackupPlannerPanel({
                 )}
               </section>
 
-              <section className="hint-box">
+              <section className="hint-box backup-overview-card">
                 <h3 className="subsection-title">Stockages backup locaux</h3>
                 {localStorages.length === 0 ? (
                   <div className="backup-empty-note">
@@ -2679,7 +2679,7 @@ export default function BackupPlannerPanel({
           </>
         ) : null}
 
-        <div className="quick-actions">
+        <div className="quick-actions backup-shell-actions">
           <button className="action-btn" type="button" onClick={() => void loadConfig()} disabled={busy || loading}>
             Recharger
           </button>

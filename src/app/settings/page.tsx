@@ -59,6 +59,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const session = token ? await verifySessionToken(token) : null;
   const canAdmin = session?.role === "admin";
   const assistantMemory = readAssistantMemory(session?.username ?? "default");
+  const configuredCloudProviders =
+    Number(cloudOauthProviders.onedrive.configured) + Number(cloudOauthProviders.gdrive.configured);
 
   return (
     <section className="content settings-page">
@@ -92,7 +94,32 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
 
       {activeTab === "proxmox" ? (
         <section className="settings-sections">
-          <details className="panel">
+          <section className="stats-grid settings-summary-grid">
+            <article className="stat-tile">
+              <div className="stat-label">Proxmox</div>
+              <div className="stat-value">{proxmoxConfigured ? "OK" : "Setup"}</div>
+              <div className="stat-subtle">{proxmoxConfigured ? "Connexion enregistrée" : "Connexion à configurer"}</div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">PBS</div>
+              <div className="stat-value">{pbsRuntime ? "Prêt" : "Off"}</div>
+              <div className="stat-subtle">
+                {pbsRuntime ? `${pbsRuntime.host} • client ${pbsTooling.available ? "OK" : "absent"}` : "Optionnel"}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Cloud OAuth</div>
+              <div className="stat-value">{configuredCloudProviders}/2</div>
+              <div className="stat-subtle">OneDrive et Google Drive</div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">GreenIT</div>
+              <div className="stat-value">{greenitRuntime ? "Calibré" : "Setup"}</div>
+              <div className="stat-subtle">{greenitRuntime?.outsideCity ?? "Ville extérieure non définie"}</div>
+            </article>
+          </section>
+
+          <details className="panel settings-detail-panel">
             <summary className="settings-collapsible-summary">
               <span>Proxmox</span>
               <span className="muted">{proxmoxConfigured ? "Configuré" : "À configurer"}</span>
@@ -102,7 +129,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </div>
           </details>
 
-          <details className="panel">
+          <details className="panel settings-detail-panel">
             <summary className="settings-collapsible-summary">
               <span>Connexion PBS</span>
               <span className="muted">{pbsRuntime ? "Configuré" : "Optionnel"}</span>
@@ -135,7 +162,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           </details>
 
           {canAdmin ? (
-            <details className="panel">
+            <details className="panel settings-detail-panel">
               <summary className="settings-collapsible-summary">
                 <span>Mise à jour</span>
                 <span className="muted">Update UI automatique</span>
@@ -147,7 +174,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           ) : null}
 
           {canAdmin ? (
-            <details className="panel">
+            <details className="panel settings-detail-panel">
               <summary className="settings-collapsible-summary">
                 <span>OAuth Cloud</span>
                 <span className="muted">Google Drive / OneDrive</span>

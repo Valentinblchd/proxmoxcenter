@@ -289,6 +289,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       : null;
 
   const topRecommendations = [...security.recommendations, ...greenit.recommendations].slice(0, 8);
+  const priorityRecommendations = topRecommendations.slice(0, 4);
 
   return (
     <section className="content">
@@ -343,7 +344,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
       {activeTab === "overview" ? (
         <>
-        <section className="content-grid">
+        <section className="content-grid observability-overview-grid">
           <section className="panel">
             <div className="panel-head">
               <h2>Résumé santé</h2>
@@ -400,6 +401,42 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="quick-actions">
               <Link href="/observability?tab=greenit" className="action-btn">
                 Ouvrir GreenIT
+              </Link>
+            </div>
+          </section>
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Priorités</h2>
+              <span className="muted">{priorityRecommendations.length}</span>
+            </div>
+            {priorityRecommendations.length === 0 ? (
+              <p className="muted">Aucune recommandation active.</p>
+            ) : (
+              <div className="mini-list">
+                {priorityRecommendations.map((rec) => (
+                  <Link key={rec.id} href={recommendationHref(rec)} className="mini-list-item mini-list-link">
+                    <div>
+                      <div className="item-title">{rec.title}</div>
+                      <div className="item-subtitle">{rec.action}</div>
+                    </div>
+                    <div className="item-metric">{rec.severity}</div>
+                  </Link>
+                ))}
+              </div>
+            )}
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>Score sécurité</span>
+                <strong>{security.score}/100</strong>
+              </div>
+              <div className="row-line">
+                <span>Score GreenIT</span>
+                <strong>{greenit.score}/100</strong>
+              </div>
+            </div>
+            <div className="quick-actions">
+              <Link href="/settings?tab=greenit" className="action-btn">
+                Ouvrir les réglages
               </Link>
             </div>
           </section>
@@ -657,33 +694,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         )
       ) : null}
 
-      {activeTab === "overview" ? (
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Recommandations</h2>
-            <span className="muted">{topRecommendations.length}</span>
-          </div>
-          <div className="mini-list">
-            {topRecommendations.map((rec) => (
-              <Link key={rec.id} href={recommendationHref(rec)} className="mini-list-item mini-list-link">
-                <div>
-                  <div className="item-title">{rec.title}</div>
-                  <div className="item-subtitle">{rec.action}</div>
-                </div>
-                <div className="item-metric">{rec.severity}</div>
-              </Link>
-            ))}
-          </div>
-          <div className="row-line">
-            <span>Score sécurité</span>
-            <strong>{security.score}/100</strong>
-          </div>
-          <div className="row-line">
-            <span>Score GreenIT</span>
-            <strong>{greenit.score}/100</strong>
-          </div>
-        </section>
-      ) : null}
     </section>
   );
 }

@@ -727,6 +727,29 @@ export default function ProvisioningStudio({
           </div>
         ) : null}
 
+        {options?.configured ? (
+          <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
+            <article className="provision-overview-chip">
+              <span>Nœuds</span>
+              <strong>{nodeOptions.length}</strong>
+            </article>
+            <article className="provision-overview-chip">
+              <span>Stockages</span>
+              <strong>{storageOptions.length}</strong>
+            </article>
+            <article className="provision-overview-chip">
+              <span>Bridges</span>
+              <strong>{bridgeOptions.length || "0"}</strong>
+            </article>
+            {isQemu ? (
+              <article className="provision-overview-chip">
+                <span>ISO</span>
+                <strong>{isoVolumeOptions.length}</strong>
+              </article>
+            ) : null}
+          </section>
+        ) : null}
+
         <div className="provision-grid">
           <FieldRow label="Nœud">
             <SelectInput
@@ -1131,9 +1154,6 @@ export default function ProvisioningStudio({
           >
             {isCreating ? "Création..." : `Créer ${isQemu ? "la VM" : "le LXC"}`}
           </button>
-          <Link href="/inventory" className="action-btn">
-            Retour inventaire
-          </Link>
           {vmidConflict ? (
             <span className="warning">VMID déjà utilisé.</span>
           ) : missingRequired ? (

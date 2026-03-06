@@ -1428,6 +1428,34 @@ code {
   gap: 0.45rem;
 }
 
+.backup-overview-card {
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.035), transparent 72%),
+    rgba(65, 199, 255, 0.04);
+}
+
+.backup-overview-card::after {
+  content: "";
+  position: absolute;
+  inset: auto 0 0 0;
+  height: 2px;
+  background: linear-gradient(90deg, rgba(255, 159, 28, 0.9), rgba(65, 199, 255, 0.4), transparent 80%);
+  opacity: 0.5;
+}
+
+.backup-shell-actions {
+  justify-content: flex-end;
+  align-items: center;
+  gap: 0.45rem;
+}
+
+.backup-shell-actions .action-btn {
+  min-height: 34px;
+  padding: 0.38rem 0.64rem;
+}
+
 .backup-empty-note {
   display: flex;
   align-items: center;
@@ -1787,6 +1815,32 @@ code {
   padding: 0.25rem;
   border: 1px solid rgba(255, 255, 255, 0.05);
   background: rgba(255, 255, 255, 0.02);
+}
+
+.provision-overview-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(140px, 1fr));
+  gap: 0.45rem;
+}
+
+.provision-overview-chip {
+  display: grid;
+  gap: 0.16rem;
+  padding: 0.62rem 0.72rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.028), transparent 72%),
+    rgba(7, 10, 26, 0.5);
+}
+
+.provision-overview-chip span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.provision-overview-chip strong {
+  font-size: 0.98rem;
 }
 
 .provision-seg-btn {
@@ -2676,6 +2730,24 @@ select.inventory-node-filter option {
   gap: 0.42rem;
 }
 
+.inventory-toolbar-filter {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.inventory-toolbar-cta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.42rem;
+}
+
+.inventory-kpi-grid .stat-tile {
+  min-height: 124px;
+}
+
 .inventory-toolbar-actions .action-btn {
   min-height: 32px;
   padding: 0.38rem 0.6rem;
@@ -2718,6 +2790,10 @@ select.inventory-node-filter option {
   grid-template-columns: 330px minmax(0, 1fr);
   align-items: start;
   min-width: 0;
+}
+
+.inventory-summary-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(300px, 0.8fr);
 }
 
 .inventory-explorer {
@@ -4548,6 +4624,68 @@ select.inventory-node-filter option {
   gap: 0.9rem;
 }
 
+.settings-summary-grid {
+  grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+}
+
+.settings-detail-panel {
+  overflow: hidden;
+}
+
+.settings-collapsible-summary {
+  list-style: none;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  flex-wrap: wrap;
+  cursor: pointer;
+  font-weight: 650;
+  padding: 0.1rem 0;
+}
+
+.settings-collapsible-summary::after {
+  content: "+";
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  min-height: 20px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  color: var(--muted);
+  font-size: 0.85rem;
+  line-height: 1;
+}
+
+.settings-collapsible-summary::-webkit-details-marker {
+  display: none;
+}
+
+.settings-detail-panel[open] .settings-collapsible-summary {
+  padding-bottom: 0.8rem;
+  border-bottom: 1px solid rgba(255, 255, 255, 0.07);
+}
+
+.settings-detail-panel[open] .settings-collapsible-summary::after {
+  content: "-";
+  color: #ffe1b6;
+  border-color: rgba(255, 159, 28, 0.24);
+  background: rgba(255, 159, 28, 0.08);
+}
+
+.settings-collapsible-content {
+  display: grid;
+  gap: 0.8rem;
+  padding-top: 0.85rem;
+}
+
+.observability-overview-grid,
+.security-overview-grid {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
 .settings-block {
   display: grid;
   gap: 0.7rem;
@@ -4630,6 +4768,10 @@ select.inventory-node-filter option {
 
   .inventory-page-header {
     grid-template-columns: 1fr auto;
+  }
+
+  .inventory-kpi-grid {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -4864,6 +5006,12 @@ select.inventory-node-filter option {
     grid-template-columns: 1fr;
   }
 
+  .inventory-summary-grid,
+  .observability-overview-grid,
+  .security-overview-grid {
+    grid-template-columns: 1fr;
+  }
+
   .inventory-explorer {
     position: static;
     max-height: none;
@@ -5039,7 +5187,7 @@ select.inventory-node-filter option {
   }
 }
 
-@media (max-width: 1360px) {
+@media (min-width: 1081px) and (max-width: 1360px) {
   .provision-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
@@ -5335,6 +5483,10 @@ select.inventory-node-filter option {
     flex: 1 1 0;
   }
 
+  .backup-shell-actions {
+    grid-template-columns: 1fr;
+  }
+
   .security-page,
   .settings-page {
     gap: 0.68rem;
@@ -5371,6 +5523,10 @@ select.inventory-node-filter option {
     display: grid;
     grid-template-columns: 1fr;
     gap: 0.4rem;
+  }
+
+  .settings-collapsible-summary {
+    align-items: flex-start;
   }
 }
 

@@ -380,6 +380,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
   const snapshotHints = hasLiveData && activeTab === "snapshots" ? await fetchSnapshotHints(filteredRows) : [];
   const workloadNotes = hasLiveData && activeTab === "notes" ? await fetchWorkloadNotes(filteredRows) : [];
   const storageViews = hasLiveData && activeTab === "storage" ? await fetchStorages(nodeNames) : [];
+  const runningWorkloads = filteredRows.filter((row) => row.status === "running").length;
+  const activeBackupJobs = backupJobs.filter((job) => job.enabled).length;
 
   function buildInventoryHref(overrides: { tab?: InventoryTabId; node?: string | null; q?: string | null }) {
     const next = new URLSearchParams();
@@ -421,8 +423,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
             />
           </form>
 
-          <div className="quick-actions inventory-toolbar-actions">
-            <form method="get" action="/inventory" className="quick-actions inventory-toolbar-actions">
+          <div className="inventory-toolbar-actions">
+            <form method="get" action="/inventory" className="inventory-toolbar-filter">
               {activeTab !== "summary" ? <input type="hidden" name="tab" value={activeTab} /> : null}
               {query ? <input type="hidden" name="q" value={query} /> : null}
               <select className="field-input inventory-node-filter" name="node" defaultValue={nodeFilter}>
@@ -440,14 +442,39 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
 
             <InventoryRefreshButton auto={hasLiveData} intervalMs={2000} />
 
-            <Link href="/provision?kind=qemu" className="action-btn primary">
-              Créer VM
-            </Link>
-            <Link href="/provision?kind=lxc" className="action-btn">
-              Créer LXC
-            </Link>
+            <div className="inventory-toolbar-cta">
+              <Link href="/provision?kind=qemu" className="action-btn primary">
+                Créer VM
+              </Link>
+              <Link href="/provision?kind=lxc" className="action-btn">
+                Créer LXC
+              </Link>
+            </div>
           </div>
         </div>
+      </section>
+
+      <section className="stats-grid inventory-kpi-grid">
+        <article className="stat-tile">
+          <div className="stat-label">Workloads</div>
+          <div className="stat-value">{filteredRows.length}</div>
+          <div className="stat-subtle">{query ? `Recherche: ${query}` : "VM et CT visibles"}</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">En ligne</div>
+          <div className="stat-value">{runningWorkloads}</div>
+          <div className="stat-subtle">{filteredRows.length - runningWorkloads} arrêtés</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Nœuds</div>
+          <div className="stat-value">{nodeRuntimeList.length}</div>
+          <div className="stat-subtle">{selectedNode || "Vue cluster"}</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Backups</div>
+          <div className="stat-value">{activeBackupJobs}</div>
+          <div className="stat-subtle">{backupJobs.length} job(s) Proxmox détecté(s)</div>
+        </article>
       </section>
 
       <section className="panel inventory-tabs-panel">

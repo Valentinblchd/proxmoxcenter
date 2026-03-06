@@ -31,7 +31,7 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
           <h1>Provisioning VM / LXC</h1>
         </div>
         <div className="topbar-meta">
-          <Link href="/inventory" className="action-btn primary">
+          <Link href="/inventory" className="action-btn">
             Retour inventaire
           </Link>
         </div>
