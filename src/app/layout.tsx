@@ -1,9 +1,10 @@
 import type { Metadata } from "next";
-import { cookies } from "next/headers";
+import { cookies, headers } from "next/headers";
 import AppFrame from "@/components/app-frame";
 import ThemeProvider from "@/components/theme-provider";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { ensureBackupEngineStarted } from "@/lib/backups/engine";
+import { CSP_NONCE_HEADER, readCspNonce } from "@/lib/security/csp";
 import { buildThemeBootstrapScript } from "@/lib/ui/themes";
 import "./globals.css";
 
@@ -19,13 +20,16 @@ export default async function RootLayout({
 }>) {
   ensureBackupEngineStarted();
   const cookieStore = await cookies();
+  const headerStore = await headers();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const nonce = readCspNonce(headerStore.get(CSP_NONCE_HEADER));
   const session = token ? await verifySessionToken(token) : null;
 
   return (
     <html lang="fr">
       <head>
         <script
+          nonce={nonce ?? undefined}
           dangerouslySetInnerHTML={{
             __html: buildThemeBootstrapScript(),
           }}

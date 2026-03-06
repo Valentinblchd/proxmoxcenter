@@ -40,7 +40,7 @@ Passe-les en préfixe de la commande d'installation :
 | `PROXMOXCENTER_PORT` | `3000` | Port d'écoute local |
 | `PROXMOXCENTER_INSTALL_DIR` | `/opt/proxmoxcenter` | Répertoire d'installation |
 | `PROXMOXCENTER_DATA_DIR` | `<INSTALL_DIR>/data` | Répertoire des données persistées |
-| `PROXMOXCENTER_PUBLIC_ORIGIN` | _(vide)_ | URL publique de l'instance, ex. `https://proxmox.exemple.fr` |
+| `PROXMOXCENTER_PUBLIC_ORIGIN` | _(vide)_ | URL canonique de l'instance. Laisse vide en accès direct local IP/FQDN, renseigne-la derrière un reverse proxy ou en HTTPS public |
 | `PROXMOXCENTER_CLOUD_OAUTH_MODE` | `local` | `local` ou `central` (broker OAuth) |
 | `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` | _(vide)_ | Obligatoire sur un broker OAuth public: liste d'origins autorisées à recevoir le refresh token |
 | `PROXMOXCENTER_IMAGE` | `ghcr.io/valentinblchd/proxmoxcenter:latest` | Image Docker à utiliser |
@@ -92,6 +92,7 @@ Notes sécurité :
 - les secrets sensibles stockés par l’application sont chiffrés au repos,
 - les flows OAuth cloud utilisent un `state` côté serveur et un retour popup contrôlé,
 - un broker OAuth central public doit déclarer `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`, sinon le flow est bloqué,
+- les en-têtes `X-Forwarded-*` ne servent plus d’origin canonique implicite ; en reverse proxy/HTTPS public, renseigne `PROXMOXCENTER_PUBLIC_ORIGIN`,
 - le mode TLS Proxmox `insecure` reste limité aux appels Proxmox et ne désactive plus la vérification TLS globale du process Node.js.
 
 ## Sauvegardes et permissions

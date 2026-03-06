@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { consumeBrokerOauthState } from "@/lib/backups/cloud-oauth-broker";
+import { CSP_NONCE_HEADER, createCspNonce, readCspNonce } from "@/lib/security/csp";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { getClientIp } from "@/lib/security/request-guards";
 
@@ -43,7 +44,7 @@ async function parseJsonSafe(response: Response) {
   }
 }
 
-function renderPopup(targetOrigin: string | null, payload: PopupPayload, status = 200) {
+function renderPopup(targetOrigin: string | null, payload: PopupPayload, nonce: string, status = 200) {
   const payloadLiteral = JSON.stringify(payload).replace(/</g, "\\u003c");
   const allowedOrigin = JSON.stringify(targetOrigin ?? "").replace(/</g, "\\u003c");
   const html = `<!doctype html>
@@ -79,7 +80,7 @@ function renderPopup(targetOrigin: string | null, payload: PopupPayload, status 
       <h1>${payload.ok ? "Connexion OneDrive réussie" : "Connexion OneDrive"}</h1>
       <p id="status">${payload.ok ? "Transmission du refresh token..." : "Le flow OAuth a renvoyé une erreur."}</p>
     </section>
-    <script>
+    <script nonce="${nonce}">
       (() => {
         const payload = ${payloadLiteral};
         const allowedOrigin = ${allowedOrigin};
@@ -112,6 +113,7 @@ function renderPopup(targetOrigin: string | null, payload: PopupPayload, status 
 }
 
 export async function GET(request: NextRequest) {
+  const nonce = readCspNonce(request.headers.get(CSP_NONCE_HEADER)) ?? createCspNonce();
   const gate = consumeRateLimit(`broker:onedrive:callback:${getClientIp(request)}`, OAUTH_CALLBACK_LIMIT);
   if (!gate.ok) {
     return renderPopup(
@@ -121,6 +123,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: "Trop de tentatives OAuth OneDrive. Réessaie plus tard.",
       },
+      nonce,
       429,
     );
   }
@@ -135,6 +138,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: description ?? `Erreur OAuth: ${error}`,
       },
+      nonce,
       400,
     );
   }
@@ -149,6 +153,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: "Paramètres OAuth incomplets (state/code).",
       },
+      nonce,
       400,
     );
   }
@@ -162,6 +167,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: "Session OAuth expirée. Relance “Connecter OneDrive”.",
       },
+      nonce,
       400,
     );
   }
@@ -198,6 +204,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: "Impossible de contacter Microsoft OAuth.",
       },
+      nonce,
       502,
     );
   }
@@ -215,6 +222,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: providerError ?? `Échange du code OAuth refusé (${tokenResponse.status}).`,
       },
+      nonce,
       502,
     );
   }
@@ -231,6 +239,7 @@ export async function GET(request: NextRequest) {
         ok: false,
         error: "Microsoft n'a pas renvoyé de refresh token.",
       },
+      nonce,
       502,
     );
   }
@@ -239,5 +248,5 @@ export async function GET(request: NextRequest) {
     type: "proxcenter:onedrive-oauth",
     ok: true,
     refreshToken,
-  });
+  }, nonce);
 }

@@ -76,14 +76,6 @@ export function getTrustedOriginForRequest(request: NextRequest) {
     return configured;
   }
 
-  const forwardedOrigin = buildOriginFromHost(
-    request.headers.get("x-forwarded-host"),
-    request.headers.get("x-forwarded-proto"),
-  );
-  if (forwardedOrigin) {
-    return forwardedOrigin;
-  }
-
   const hostOrigin = buildOriginFromHost(
     request.headers.get("host"),
     request.nextUrl.protocol.replace(":", ""),
@@ -100,12 +92,6 @@ function getAcceptedOriginsForRequest(request: NextRequest) {
 
   const configured = getConfiguredPublicOrigin();
   if (configured) accepted.add(configured);
-
-  const forwardedOrigin = buildOriginFromHost(
-    request.headers.get("x-forwarded-host"),
-    request.headers.get("x-forwarded-proto"),
-  );
-  if (forwardedOrigin) accepted.add(forwardedOrigin);
 
   const hostOrigin = buildOriginFromHost(
     request.headers.get("host"),

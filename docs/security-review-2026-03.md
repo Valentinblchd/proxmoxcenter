@@ -90,6 +90,30 @@ Effet :
 
 - le broker central ne peut plus être exposé publiquement comme open broker OAuth.
 
+### 6. CSP script inline retiré et origin canonique durcie
+
+Avant correction :
+
+- la CSP autorisait `script-src 'unsafe-inline'`
+- l’origin canonique pouvait être dérivée implicitement des headers `X-Forwarded-*`
+
+Corrigé :
+
+- `src/proxy.ts`
+- `src/lib/security/csp.ts`
+- `src/app/layout.tsx`
+- `src/app/api/backups/oauth/gdrive/callback/route.ts`
+- `src/app/api/backups/oauth/onedrive/callback/route.ts`
+- `src/app/api/cloud-broker/oauth/gdrive/callback/route.ts`
+- `src/app/api/cloud-broker/oauth/onedrive/callback/route.ts`
+- `src/lib/security/request-guards.ts`
+
+Effet :
+
+- les scripts inline passent désormais par un nonce CSP par requête,
+- les popups OAuth restent compatibles sans `unsafe-inline`,
+- l’application ne prend plus `X-Forwarded-*` comme origin canonique implicite ; en reverse proxy public, il faut fixer `PROXMOXCENTER_PUBLIC_ORIGIN`.
+
 ## Vérifications effectuées
 
 - `npm run typecheck` : OK
