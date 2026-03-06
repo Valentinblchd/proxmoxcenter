@@ -34,6 +34,7 @@ function isPublicRoute(pathname: string) {
   if (pathname === "/install" || pathname.startsWith("/install/")) return true;
   if (pathname === "/api/health") return true;
   if (pathname.startsWith("/api/auth/")) return true;
+  if (pathname.startsWith("/api/cloud-broker/")) return true;
   return false;
 }
 

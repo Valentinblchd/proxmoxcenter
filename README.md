@@ -42,6 +42,7 @@ Passe-les en préfixe de la commande d'installation :
 | `PROXMOXCENTER_DATA_DIR` | `<INSTALL_DIR>/data` | Répertoire des données persistées |
 | `PROXMOXCENTER_PUBLIC_ORIGIN` | _(vide)_ | URL publique de l'instance, ex. `https://proxmox.exemple.fr` |
 | `PROXMOXCENTER_CLOUD_OAUTH_MODE` | `local` | `local` ou `central` (broker OAuth) |
+| `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` | _(vide)_ | Obligatoire sur un broker OAuth public: liste d'origins autorisées à recevoir le refresh token |
 | `PROXMOXCENTER_IMAGE` | `ghcr.io/valentinblchd/proxmoxcenter:latest` | Image Docker à utiliser |
 
 Exemple :
@@ -90,6 +91,7 @@ Notes sécurité :
 - les cookies de session sont `HttpOnly` et `SameSite=Lax`,
 - les secrets sensibles stockés par l’application sont chiffrés au repos,
 - les flows OAuth cloud utilisent un `state` côté serveur et un retour popup contrôlé,
+- un broker OAuth central public doit déclarer `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`, sinon le flow est bloqué,
 - le mode TLS Proxmox `insecure` reste limité aux appels Proxmox et ne désactive plus la vérification TLS globale du process Node.js.
 
 ## Sauvegardes et permissions
@@ -132,6 +134,7 @@ Modes disponibles :
 - **`central`** — un broker OAuth ProxmoxCenter centralise le flow popup et renvoie le refresh token à l’instance appelante
 
 Le flow reste popup-based côté interface, avec état OAuth persisté localement pour supporter un redémarrage de l’application pendant l’échange.
+En mode `central`, le broker public doit être borné avec `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` pour ne pas servir de relais OAuth ouvert.
 
 ## Développement local
 

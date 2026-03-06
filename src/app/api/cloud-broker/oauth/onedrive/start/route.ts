@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   getBrokerClientConfig,
+  getCloudOauthBrokerAllowlistStatus,
+  isAllowedBrokerTargetOrigin,
   issueBrokerOneDriveOauthState,
   parseBrokerTargetOrigin,
 } from "@/lib/backups/cloud-oauth-broker";
@@ -32,6 +34,25 @@ export async function GET(request: NextRequest) {
     return NextResponse.json(
       { ok: false, error: "Origine cible invalide pour le broker OAuth." },
       { status: 400 },
+    );
+  }
+
+  const allowlist = getCloudOauthBrokerAllowlistStatus();
+  if (!allowlist.configured) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error:
+          "Broker OAuth non prêt: configure PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS avec les origins clientes autorisées.",
+      },
+      { status: 503 },
+    );
+  }
+
+  if (!isAllowedBrokerTargetOrigin(targetOrigin)) {
+    return NextResponse.json(
+      { ok: false, error: "Origine cible refusée par le broker OAuth." },
+      { status: 403 },
     );
   }
 

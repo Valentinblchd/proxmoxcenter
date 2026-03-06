@@ -18,6 +18,10 @@ Pour finir un test réel, il me faut ces éléments:
   - `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_CLIENT_ID`
   - `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_CLIENT_SECRET` si utilisé
   - `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_AUTHORITY=consumers`
+- Sécurité broker:
+  - `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`
+    - liste séparée par virgules, espaces ou retours ligne
+    - contient uniquement les origins des instances ProxmoxCenter autorisées à recevoir le refresh token
 
 Je ne peux pas créer ces credentials à ta place sans accès à tes comptes Google/Microsoft.
 
@@ -47,6 +51,7 @@ export PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_CLIENT_SECRET="..."
 export PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_AUTHORITY="consumers"
 export PROXMOXCENTER_CLOUD_OAUTH_BROKER_GDRIVE_CLIENT_ID="..."
 export PROXMOXCENTER_CLOUD_OAUTH_BROKER_GDRIVE_CLIENT_SECRET="..."
+export PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS="http://localhost:3000"
 
 docker compose -f docker-compose.yml -f docker-compose.oauth-broker.yml up -d --build
 ```
@@ -72,6 +77,7 @@ PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_CLIENT_SECRET=...
 PROXMOXCENTER_CLOUD_OAUTH_BROKER_ONEDRIVE_AUTHORITY=consumers
 PROXMOXCENTER_CLOUD_OAUTH_BROKER_GDRIVE_CLIENT_ID=...
 PROXMOXCENTER_CLOUD_OAUTH_BROKER_GDRIVE_CLIENT_SECRET=...
+PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS=https://proxmox-a.exemple.fr,https://proxmox-b.exemple.fr
 ```
 
 Puis, sur les instances self-hosted:
@@ -80,3 +86,14 @@ Puis, sur les instances self-hosted:
 PROXMOXCENTER_CLOUD_OAUTH_MODE=central
 PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN=https://ton-domaine-broker
 ```
+
+## 5. Point sécurité important
+
+Le broker central refuse maintenant toute origin cible non présente dans
+`PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`.
+
+Sans cette allowlist:
+
+- le broker ne démarre plus le flow OAuth,
+- la route répond `503`,
+- cela évite qu’un broker public serve de relais OAuth ouvert vers un domaine tiers.

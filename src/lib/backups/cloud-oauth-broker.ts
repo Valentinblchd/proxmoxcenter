@@ -68,6 +68,18 @@ function normalizeOrigin(value: string | null | undefined) {
   }
 }
 
+function parseOriginList(value: string | null | undefined) {
+  if (!value) return [];
+  const origins = new Set<string>();
+  for (const item of value.split(/[\s,;]+/)) {
+    const normalized = normalizeOrigin(item);
+    if (normalized) {
+      origins.add(normalized);
+    }
+  }
+  return [...origins];
+}
+
 function toBase64Url(value: Buffer) {
   return value
     .toString("base64")
@@ -90,6 +102,23 @@ export function getCloudOauthMode(): CloudOauthMode {
 
 export function getCentralCloudOauthBrokerOrigin() {
   return normalizeOrigin(process.env.PROXMOXCENTER_CLOUD_OAUTH_BROKER_ORIGIN);
+}
+
+export function getCloudOauthBrokerAllowedOrigins() {
+  return [
+    ...new Set([
+      ...parseOriginList(process.env.PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS),
+      ...parseOriginList(process.env.PROXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS),
+    ]),
+  ];
+}
+
+export function getCloudOauthBrokerAllowlistStatus() {
+  const allowedOrigins = getCloudOauthBrokerAllowedOrigins();
+  return {
+    configured: allowedOrigins.length > 0,
+    allowedOrigins,
+  };
 }
 
 export function getCloudOauthBrokerStatus() {
@@ -210,4 +239,10 @@ export function consumeBrokerOauthState(id: string) {
 
 export function parseBrokerTargetOrigin(value: string | null | undefined) {
   return normalizeOrigin(value);
+}
+
+export function isAllowedBrokerTargetOrigin(value: string | null | undefined) {
+  const origin = normalizeOrigin(value);
+  if (!origin) return false;
+  return getCloudOauthBrokerAllowedOrigins().includes(origin);
 }

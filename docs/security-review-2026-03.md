@@ -65,6 +65,31 @@ Effet :
 - formulaires backup désactivés,
 - boutons sensibles verrouillés côté UI en plus du serveur.
 
+### 5. Broker OAuth central utilisable comme relais ouvert
+
+Avant correction, les routes publiques suivantes acceptaient n’importe quelle `origin` bien formée comme cible de retour:
+
+- `src/app/api/cloud-broker/oauth/gdrive/start/route.ts`
+- `src/app/api/cloud-broker/oauth/onedrive/start/route.ts`
+
+Cause:
+
+- `src/lib/backups/cloud-oauth-broker.ts` normalisait l’origin mais ne l’autorisait pas contre une allowlist.
+
+Impact:
+
+- un broker OAuth public pouvait servir de relais pour renvoyer un refresh token vers un domaine tiers contrôlé par un attaquant.
+
+Corrigé :
+
+- ajout de `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS`
+- rejet `503` si l’allowlist n’est pas configurée
+- rejet `403` si l’origin cible n’est pas autorisée
+
+Effet :
+
+- le broker central ne peut plus être exposé publiquement comme open broker OAuth.
+
 ## Vérifications effectuées
 
 - `npm run typecheck` : OK
