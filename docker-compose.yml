@@ -9,6 +9,13 @@ services:
       - "3000:3000"
     environment:
       PROXMOXCENTER_CLOUD_OAUTH_MODE: local
+      PROXMOXCENTER_SELF_UPDATE_ENABLED: "${PROXMOXCENTER_SELF_UPDATE_ENABLED:-1}"
+      PROXMOXCENTER_SELF_UPDATE_INSTALL_DIR: "${PROXMOXCENTER_INSTALL_DIR:-/opt/proxmoxcenter}"
+      PROXMOXCENTER_SELF_UPDATE_DATA_DIR: "${PROXMOXCENTER_DATA_DIR:-/opt/proxmoxcenter/data}"
+      PROXMOXCENTER_SELF_UPDATE_BRANCH: "${PROXMOXCENTER_SELF_UPDATE_BRANCH:-main}"
+      PROXMOXCENTER_SELF_UPDATE_SERVICE: "${PROXMOXCENTER_SELF_UPDATE_SERVICE:-proxmoxcenter}"
+      PROXMOXCENTER_SELF_UPDATE_RUNNER_IMAGE: "${PROXMOXCENTER_SELF_UPDATE_RUNNER_IMAGE:-docker:27-cli}"
     volumes:
       - ./data:/app/data
+      - /var/run/docker.sock:/var/run/docker.sock
     restart: unless-stopped

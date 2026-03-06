@@ -1,30 +1,19 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { cookies } from "next/headers";
+import AuthUiSettingsPanel from "@/components/auth-ui-settings-panel";
+import LocalUsersSettings from "@/components/local-users-settings";
 import { buildSecurityAdvisor } from "@/lib/insights/advisor";
+import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
+import { readRuntimeAuthConfig } from "@/lib/auth/runtime-config";
+import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatRelativeTime } from "@/lib/ui/format";
 
-const severityOrder = {
-  critical: 0,
-  high: 1,
-  medium: 2,
-  low: 3,
-} as const;
-
-function severityLabel(severity: keyof typeof severityOrder) {
-  if (severity === "critical") return "Critique";
-  if (severity === "high") return "Élevée";
-  if (severity === "medium") return "Moyenne";
-  return "Faible";
-}
-
-function formatSignal(value: boolean, okLabel: string, badLabel: string) {
-  return value ? okLabel : badLabel;
-}
-
 export const metadata: Metadata = {
   title: "Sécurité | ProxCenter",
-  description: "Audit sécurité local de la configuration ProxCenter / Proxmox",
+  description: "Sécurité plateforme, accès utilisateurs, sessions et journal sécurité.",
 };
 
 export const dynamic = "force-dynamic";
@@ -35,7 +24,9 @@ type SecurityPageProps = {
 
 const TABS = [
   { id: "overview", label: "Vue globale" },
-  { id: "recommendations", label: "Recommandations" },
+  { id: "users", label: "Utilisateurs" },
+  { id: "sessions", label: "Sessions & accès" },
+  { id: "logs", label: "Journaux" },
 ] as const;
 
 async function readSearchParams(
@@ -49,6 +40,13 @@ function readString(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function severityLabel(severity: "critical" | "high" | "medium" | "low") {
+  if (severity === "critical") return "Critique";
+  if (severity === "high") return "Élevée";
+  if (severity === "medium") return "Moyenne";
+  return "Faible";
+}
+
 export default async function SecurityPage({ searchParams }: SecurityPageProps) {
   const params = await readSearchParams(searchParams);
   const activeTab = TABS.some((tab) => tab.id === readString(params.tab))
@@ -56,62 +54,65 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
     : "overview";
 
   const snapshot = await getDashboardSnapshot();
-  const hasLiveData = snapshot.mode === "live";
   const advisor = buildSecurityAdvisor(snapshot);
-  const recommendations = [...advisor.recommendations].sort(
-    (a, b) => severityOrder[a.severity] - severityOrder[b.severity],
-  );
-  const topSeverity = recommendations[0]?.severity ?? "low";
-  const postureTone =
-    topSeverity === "critical" || topSeverity === "high"
-      ? "bad"
-      : topSeverity === "medium"
-        ? "warn"
-        : "good";
-  const postureLabel =
-    topSeverity === "critical" || topSeverity === "high"
-      ? "À renforcer"
-      : topSeverity === "medium"
-        ? "Correcte"
-        : "Solide";
+  const proxmoxRuntime = readRuntimeProxmoxConfig();
+  const runtimeAuth = readRuntimeAuthConfig();
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const canOperate = hasRuntimeCapability(session?.role, "operate");
+  const canAdmin = session?.role === "admin";
+  const localUsers =
+    runtimeAuth?.users.map((user) => ({
+      id: user.id,
+      username: user.username,
+      email: user.email,
+      role: user.role,
+      enabled: user.enabled,
+      isPrimary: runtimeAuth.primaryUserId === user.id,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+      lastLoginAt: user.lastLoginAt,
+      sessionRevokedAt: user.sessionRevokedAt,
+    })) ?? [];
+  const recommendations = [...advisor.recommendations].sort((left, right) => {
+    const order = { critical: 0, high: 1, medium: 2, low: 3 } as const;
+    return order[left.severity] - order[right.severity];
+  });
 
-  const signalRows = [
-    {
-      label: "Authentification UI",
-      value: formatSignal(advisor.signals.authEnabled, "Activée", "Désactivée"),
-    },
-    {
-      label: "Configuration auth",
-      value: formatSignal(advisor.signals.authConfigured, "OK", "Incomplète"),
-    },
-    {
-      label: "Token API Proxmox",
-      value: formatSignal(advisor.signals.proxmoxConfigured, "Configuré", "Absent"),
-    },
-    {
-      label: "Validation TLS",
-      value: formatSignal(!advisor.signals.insecureTls, "Vérifiée", "Insecure"),
-    },
-  ] as const;
+  const securityLogs = [
+    ...localUsers
+      .filter((user) => user.lastLoginAt)
+      .map((user) => ({
+        id: `login-${user.id}`,
+        type: "Connexion",
+        when: user.lastLoginAt as string,
+        message: `${user.username} connecté`,
+      })),
+    ...localUsers
+      .filter((user) => user.sessionRevokedAt)
+      .map((user) => ({
+        id: `revoke-${user.id}`,
+        type: "Session",
+        when: user.sessionRevokedAt as string,
+        message: `Sessions révoquées pour ${user.username}`,
+      })),
+  ]
+    .sort((left, right) => Date.parse(right.when) - Date.parse(left.when))
+    .slice(0, 40);
 
   return (
     <section className="content security-page">
       <header className="topbar">
         <div>
           <p className="eyebrow">Sécurité</p>
-          <h1>Posture sécurité</h1>
+          <h1>Accès, posture et journaux</h1>
         </div>
         <div className="topbar-meta">
-          {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
+          {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
           <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
         </div>
       </header>
-
-      {snapshot.warnings.length > 0 ? (
-        <div className="warning">
-          {snapshot.warnings[0]}
-        </div>
-      ) : null}
 
       <section className="panel">
         <div className="hub-tabs">
@@ -131,24 +132,18 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
         <section className="content-grid">
           <section className="panel">
             <div className="panel-head">
-              <h2>État global</h2>
-              <span className={`advisor-severity severity-${topSeverity}`}>{postureLabel}</span>
+              <h2>Posture sécurité</h2>
+              <span className="muted">Score {advisor.score}/100</span>
             </div>
-
-            <article className={`advisor-signal-card state-${postureTone}`}>
-              <span className="advisor-signal-label">Analyse locale</span>
-              <strong>
-                {recommendations.length} recommandation{recommendations.length > 1 ? "s" : ""} prioritaire
-                {recommendations.length > 1 ? "s" : ""}
-              </strong>
-            </article>
-
-            <div className="stack-sm" style={{ marginTop: "0.7rem" }}>
-              {signalRows.map((item) => (
-                <div key={item.label} className="row-line">
-                  <span>{item.label}</span>
-                  <strong>{item.value}</strong>
-                </div>
+            <div className="mini-list">
+              {recommendations.slice(0, 5).map((rec) => (
+                <article key={rec.id} className="mini-list-item">
+                  <div>
+                    <div className="item-title">{rec.title}</div>
+                    <div className="item-subtitle">{rec.action}</div>
+                  </div>
+                  <div className="item-metric">{severityLabel(rec.severity)}</div>
+                </article>
               ))}
             </div>
           </section>
@@ -156,48 +151,108 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
           <section className="panel">
             <div className="panel-head">
               <h2>Actions immédiates</h2>
-              <span className="muted">Sans interruption</span>
+              <span className="muted">Sécurité compte</span>
             </div>
             <div className="quick-actions">
-              <Link href="/settings?tab=access" className="action-btn primary">
-                Session et accès
+              <Link href="/security?tab=users" className="action-btn primary">
+                Gérer les utilisateurs
               </Link>
-              <Link href="/settings?tab=connections" className="action-btn">
-                Vérifier Proxmox
+              <Link href="/security?tab=sessions" className="action-btn">
+                Gérer les sessions
               </Link>
-              <Link href="/operations?tab=logs" className="action-btn">
-                Contrôler les logs
+              <Link href="/security?tab=logs" className="action-btn">
+                Voir les journaux
               </Link>
+            </div>
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>Comptes locaux</span>
+                <strong>{localUsers.length}</strong>
+              </div>
+              <div className="row-line">
+                <span>Comptes actifs</span>
+                <strong>{localUsers.filter((user) => user.enabled).length}</strong>
+              </div>
+              <div className="row-line">
+                <span>LDAP secondaire</span>
+                <strong>{proxmoxRuntime?.ldap.enabled ? "Activé" : "Désactivé"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Rôle courant</span>
+                <strong>{session?.role ?? "reader"}</strong>
+              </div>
+              <div className="row-line">
+                <span>Capacité opérationnelle</span>
+                <strong>{canOperate ? "Oui" : "Lecture seule"}</strong>
+              </div>
             </div>
           </section>
         </section>
       ) : null}
 
-      {activeTab === "recommendations" || activeTab === "overview" ? (
+      {activeTab === "users" ? (
+        canAdmin ? (
+          <section className="panel">
+            <LocalUsersSettings initialUsers={localUsers} currentUsername={session?.username ?? null} />
+          </section>
+        ) : (
+          <section className="panel">
+            <p className="muted">Compte admin requis pour gérer les utilisateurs.</p>
+          </section>
+        )
+      ) : null}
+
+      {activeTab === "sessions" ? (
+        canAdmin ? (
+          <section className="panel">
+            <AuthUiSettingsPanel
+              initialSettings={
+                runtimeAuth
+                  ? {
+                      sessionTtlHours: Math.max(1, Math.round(runtimeAuth.sessionTtlSeconds / 3600)),
+                      secureCookie: runtimeAuth.secureCookie,
+                      primaryUsername: runtimeAuth.username,
+                      localUsersCount: runtimeAuth.users.length,
+                      enabledUsersCount: runtimeAuth.users.filter((user) => user.enabled).length,
+                    }
+                  : null
+              }
+              ldapSecondaryEnabled={Boolean(proxmoxRuntime?.ldap.enabled)}
+            />
+          </section>
+        ) : (
+          <section className="panel">
+            <p className="muted">Compte admin requis pour gérer les sessions UI.</p>
+          </section>
+        )
+      ) : null}
+
+      {activeTab === "logs" ? (
         <section className="panel">
           <div className="panel-head">
-            <h2>Recommandations priorisées</h2>
-            <span className="muted">Tri par sévérité</span>
+            <h2>Journaux sécurité</h2>
+            <span className="muted">{securityLogs.length}</span>
           </div>
-
-          <div className="advisor-recommendation-list">
-            {recommendations.map((rec) => (
-              <article key={rec.id} className="advisor-recommendation-item">
-                <div className="advisor-rec-top">
-                  <span className={`advisor-severity severity-${rec.severity}`}>
-                    {severityLabel(rec.severity)}
-                  </span>
-                  <span className="advisor-category">{rec.category}</span>
-                </div>
-                <h3>{rec.title}</h3>
-                <p className="muted">{rec.rationale}</p>
-                <div className="advisor-rec-action">
-                  <strong>Action conseillée</strong>
-                  <p>{rec.action}</p>
-                </div>
-              </article>
-            ))}
-          </div>
+          {securityLogs.length === 0 ? (
+            <p className="muted">Aucun événement sécurité local récent.</p>
+          ) : (
+            <div className="mini-list">
+              {securityLogs.map((entry) => (
+                <article key={entry.id} className="mini-list-item">
+                  <div>
+                    <div className="item-title">{entry.type}</div>
+                    <div className="item-subtitle">{entry.message}</div>
+                  </div>
+                  <div className="item-metric">{formatRelativeTime(entry.when)}</div>
+                </article>
+              ))}
+            </div>
+          )}
+          {snapshot.warnings.length > 0 ? (
+            <div className="warning">
+              {snapshot.warnings[0]}
+            </div>
+          ) : null}
         </section>
       ) : null}
     </section>

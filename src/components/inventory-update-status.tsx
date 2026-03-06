@@ -144,8 +144,8 @@ export default function InventoryUpdateStatus({
     const pending = typeof result.pendingCount === "number" ? result.pendingCount : null;
     if (result.scanMode === "manual-shell") {
       tone = "warn";
-      title = kind === "lxc" ? "MAJ CT via shell" : "MAJ Linux via shell";
-      message = asText(result.message) || "Ouvre le shell invité pour vérifier les mises à jour.";
+      title = kind === "lxc" ? "MAJ CT via console" : "MAJ Linux via console";
+      message = asText(result.message) || "Ouvre la console invitée pour vérifier les mises à jour.";
     } else if (result.supported === false) {
       title = "Scan indisponible";
       message = asText(result.message) || "Cette VM ne permet pas le scan automatique.";
@@ -179,7 +179,7 @@ export default function InventoryUpdateStatus({
         <div className="inventory-update-actions">
           {shellHref && result?.scanMode === "manual-shell" ? (
             <a href={shellHref} className="inventory-ghost-btn">
-              Ouvrir shell
+              Ouvrir console
             </a>
           ) : null}
           <button

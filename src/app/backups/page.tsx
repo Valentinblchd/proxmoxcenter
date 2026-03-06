@@ -46,7 +46,7 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
       <header className="topbar">
         <div>
           <p className="eyebrow">Sauvegardes</p>
-          <h1>Sauvegardes locales, cloud et planification</h1>
+          <h1>Backups locaux / cloud</h1>
         </div>
         <div className="topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}

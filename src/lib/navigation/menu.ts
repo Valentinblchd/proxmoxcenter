@@ -41,11 +41,9 @@ export const MAIN_MENU_SECTIONS: NavSection[] = [
     defaultOpen: true,
     items: [
       { id: "observability", label: "Observabilité", glyph: "OB", href: "/observability" },
-      { id: "operations", label: "Opérations", glyph: "OP", href: "/operations" },
       { id: "backups", label: "Sauvegardes", glyph: "BK", href: "/backups" },
       { id: "security", label: "Sécurité", glyph: "SC", href: "/security" },
-      { id: "resources", label: "Ressources", glyph: "RC", href: "/resources" },
-      { id: "console", label: "Shell nœuds", glyph: "SH", href: "/console" },
+      { id: "console", label: "Console", glyph: "SH", href: "/console" },
     ],
   },
 ];

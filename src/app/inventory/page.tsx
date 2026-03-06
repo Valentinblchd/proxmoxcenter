@@ -6,16 +6,35 @@ import InventoryWorkloadActions from "@/components/inventory-workload-actions";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { getProxmoxConfig } from "@/lib/proxmox/config";
-import { buildProxmoxWorkloadConsoleUrl } from "@/lib/proxmox/console-url";
+import { proxmoxRequest } from "@/lib/proxmox/client";
 import { formatBytes, formatPercent, formatRelativeTime, formatUptime } from "@/lib/ui/format";
+
+export const metadata: Metadata = {
+  title: "Inventaire | ProxCenter",
+  description: "Inventaire Proxmox (nœuds, VM/CT, HA, backups, snapshots, stockage).",
+};
+
+export const dynamic = "force-dynamic";
+
+type InventorySearchParams = Promise<Record<string, string | string[] | undefined>>;
+
+type InventoryPageProps = {
+  searchParams?: InventorySearchParams;
+};
+
+type InventoryTabId = "summary" | "nodes" | "workloads" | "ha" | "backups" | "snapshots" | "notes" | "storage";
+
+type InventoryTab = {
+  id: InventoryTabId;
+  label: string;
+};
 
 type InventoryRow = {
   id: string;
   vmid: number;
   name: string;
-  type: "vm" | "ct" | "template";
-  status: "running" | "stopped" | "template";
+  kind: "qemu" | "lxc";
+  status: "running" | "stopped";
   node: string;
   cpuLoad: number;
   memoryUsed: number;
@@ -23,37 +42,81 @@ type InventoryRow = {
   diskUsed: number;
   diskTotal: number;
   uptimeSeconds: number;
-  tags: string[];
-  actionable: boolean;
 };
 
-type InventorySearchParams =
-  Promise<Record<string, string | string[] | undefined>>;
-
-type InventoryPageProps = {
-  searchParams?: InventorySearchParams;
+type NodeRuntime = {
+  node: string;
+  cpuLoad: number;
+  memoryUsed: number;
+  memoryTotal: number;
+  rootfsUsed: number;
+  rootfsTotal: number;
+  netIn: number;
+  netOut: number;
+  uptimeSeconds: number;
 };
 
-type InventoryTab = {
+type HaResource = {
+  sid: string;
+  state: string;
+  group: string | null;
+  node: string | null;
+  serviceType: string | null;
+  service: string | null;
+  comment: string | null;
+};
+
+type BackupJob = {
   id: string;
-  label: string;
-  href?: string;
+  enabled: boolean;
+  node: string | null;
+  storage: string | null;
+  schedule: string | null;
+  mode: string | null;
+  vmid: string | null;
+  exclude: string | null;
+};
+
+type SnapshotHint = {
+  workloadId: string;
+  kind: "qemu" | "lxc";
+  vmid: number;
+  node: string;
+  name: string;
+  count: number;
+  lastAt: string | null;
+};
+
+type WorkloadNote = {
+  workloadId: string;
+  kind: "qemu" | "lxc";
+  vmid: number;
+  node: string;
+  name: string;
+  note: string;
+};
+
+type StorageView = {
+  id: string;
+  node: string;
+  storage: string;
+  type: string | null;
+  content: string | null;
+  used: number;
+  total: number;
+  shared: boolean;
+  active: boolean | null;
 };
 
 const INVENTORY_TABS: InventoryTab[] = [
-  { id: "summary", label: "Summary" },
-  { id: "nodes", label: "Nodes" },
-  { id: "virtual-machines", label: "Virtual machines" },
-  { id: "high-availability", label: "High Availability" },
-  { id: "backups", label: "Backups" },
+  { id: "summary", label: "Résumé" },
+  { id: "nodes", label: "Nœuds" },
+  { id: "workloads", label: "VM / CT" },
+  { id: "ha", label: "HA" },
+  { id: "backups", label: "Sauvegardes" },
   { id: "snapshots", label: "Snapshots" },
   { id: "notes", label: "Notes" },
-  { id: "ceph", label: "Ceph" },
-  { id: "storage", label: "Storage" },
-  { id: "firewall", label: "Firewall" },
-  { id: "rolling-update", label: "Rolling Update" },
-  { id: "cve", label: "CVE" },
-  { id: "cluster", label: "Cluster" },
+  { id: "storage", label: "Stockages" },
 ];
 
 function firstParam(value: string | string[] | undefined) {
@@ -66,103 +129,214 @@ async function readSearchParams(searchParams: InventorySearchParams | undefined)
   return await searchParams;
 }
 
+function asNumber(value: unknown) {
+  return typeof value === "number" && Number.isFinite(value) ? value : 0;
+}
+
+function asString(value: unknown) {
+  return typeof value === "string" ? value : null;
+}
+
+function asBoolean(value: unknown) {
+  if (typeof value === "boolean") return value;
+  if (value === 1 || value === "1") return true;
+  if (value === 0 || value === "0") return false;
+  return null;
+}
+
 function clamp01(value: number) {
   if (!Number.isFinite(value)) return 0;
   return Math.max(0, Math.min(value, 1));
 }
 
-function buildWorkloadPageHref(type: InventoryRow["type"], vmid: number) {
-  const kind = type === "vm" ? "qemu" : "lxc";
+function toInventoryRows(snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>): InventoryRow[] {
+  return snapshot.workloads
+    .map((item) => ({
+      id: item.id,
+      vmid: item.vmid,
+      name: item.name,
+      kind: item.kind,
+      status: (item.status === "running" ? "running" : "stopped") as "running" | "stopped",
+      node: item.node,
+      cpuLoad: clamp01(item.cpuLoad),
+      memoryUsed: item.memoryUsed,
+      memoryTotal: item.memoryTotal,
+      diskUsed: item.diskUsed,
+      diskTotal: item.diskTotal,
+      uptimeSeconds: item.uptimeSeconds,
+    }))
+    .sort((left, right) => {
+      if (left.status !== right.status) return left.status === "running" ? -1 : 1;
+      return left.vmid - right.vmid;
+    });
+}
+
+function buildWorkloadHref(kind: "qemu" | "lxc", vmid: number) {
   return `/inventory/${kind}/${vmid}`;
 }
 
-function buildNodePageHref(node: string) {
+function buildWorkloadConsoleHref(kind: "qemu" | "lxc", vmid: number) {
+  if (kind === "qemu") {
+    return `/console/workload/qemu/${vmid}?mode=novnc`;
+  }
+  return `/console/workload/lxc/${vmid}`;
+}
+
+function buildNodeHref(node: string) {
   return `/inventory/node/${encodeURIComponent(node)}`;
 }
 
-function buildInventoryRows(
-  snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>,
-): InventoryRow[] {
-  const baseRows = snapshot.workloads.map((workload) => {
-    const type = workload.kind === "qemu" ? "vm" : "ct";
-
+async function fetchNodeRuntime(node: string): Promise<NodeRuntime | null> {
+  try {
+    const payload = await proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/status`);
     return {
-      id: workload.id,
-      vmid: workload.vmid,
-      name: workload.name,
-      type,
-      status: workload.status === "running" ? "running" : "stopped",
-      node: workload.node,
-      cpuLoad: clamp01(workload.cpuLoad),
-      memoryUsed: workload.memoryUsed,
-      memoryTotal: workload.memoryTotal,
-      diskUsed: workload.diskUsed,
-      diskTotal: workload.diskTotal,
-      uptimeSeconds: workload.uptimeSeconds,
-      tags: [workload.kind === "qemu" ? "qemu" : "lxc"],
-      actionable: snapshot.mode === "live",
-    } satisfies InventoryRow;
-  });
-
-  return baseRows
-    .sort((a, b) => {
-      const rank = (row: InventoryRow) =>
-        row.status === "running" ? 0 : row.status === "stopped" ? 1 : 2;
-      const delta = rank(a) - rank(b);
-      if (delta !== 0) return delta;
-      return a.vmid - b.vmid;
-    })
-    .slice(0, 300);
-}
-
-function getClusterLabel(node: string) {
-  const parts = node.split(/[-_]/).filter(Boolean);
-  if (parts.length >= 2) {
-    return `${parts[0]}-${parts[1]}`.toUpperCase();
+      node,
+      cpuLoad: clamp01(asNumber(payload.cpu)),
+      memoryUsed: asNumber(payload.mem),
+      memoryTotal: asNumber(payload.maxmem),
+      rootfsUsed: asNumber(payload.disk),
+      rootfsTotal: asNumber(payload.maxdisk),
+      netIn: asNumber(payload.netin),
+      netOut: asNumber(payload.netout),
+      uptimeSeconds: asNumber(payload.uptime),
+    };
+  } catch {
+    return null;
   }
-  return node.toUpperCase();
 }
 
-function UsageBar({
-  label,
-  used,
-  total,
-  tone = "orange",
-}: {
-  label: string;
-  used: number;
-  total: number;
-  tone?: "orange" | "green";
-}) {
-  const ratio = total > 0 ? clamp01(used / total) : 0;
+async function fetchHaResources() {
+  try {
+    const payload = await proxmoxRequest<Array<Record<string, unknown>>>("cluster/ha/resources");
+    return payload.map((entry) => ({
+      sid: asString(entry.sid) ?? "unknown",
+      state: asString(entry.state) ?? "unknown",
+      group: asString(entry.group),
+      node: asString(entry.node),
+      serviceType: asString(entry.type),
+      service: asString(entry.service),
+      comment: asString(entry.comment),
+    })) as HaResource[];
+  } catch {
+    return [] as HaResource[];
+  }
+}
 
+async function fetchBackupJobs() {
+  try {
+    const payload = await proxmoxRequest<Array<Record<string, unknown>>>("cluster/backup");
+    return payload.map((entry, index) => ({
+      id: asString(entry.id) ?? `job-${index + 1}`,
+      enabled: asBoolean(entry.enabled) ?? true,
+      node: asString(entry.node),
+      storage: asString(entry.storage),
+      schedule: asString(entry.schedule),
+      mode: asString(entry.mode),
+      vmid: asString(entry.vmid),
+      exclude: asString(entry.exclude),
+    })) as BackupJob[];
+  } catch {
+    return [] as BackupJob[];
+  }
+}
+
+async function fetchSnapshotHints(rows: InventoryRow[]) {
+  const subset = rows.slice(0, 14);
+  const snapshots = await Promise.all(
+    subset.map(async (row) => {
+      try {
+        const payload = await proxmoxRequest<Array<Record<string, unknown>>>(
+          `nodes/${encodeURIComponent(row.node)}/${row.kind}/${row.vmid}/snapshot`,
+        );
+        const valid = payload.filter((item) => asString(item.name) !== "current");
+        const lastEpoch = valid.reduce((max, item) => {
+          const raw = asNumber(item.snaptime);
+          return raw > max ? raw : max;
+        }, 0);
+        return {
+          workloadId: row.id,
+          kind: row.kind,
+          vmid: row.vmid,
+          node: row.node,
+          name: row.name,
+          count: valid.length,
+          lastAt: lastEpoch > 0 ? new Date(lastEpoch * 1000).toISOString() : null,
+        } satisfies SnapshotHint;
+      } catch {
+        return {
+          workloadId: row.id,
+          kind: row.kind,
+          vmid: row.vmid,
+          node: row.node,
+          name: row.name,
+          count: 0,
+          lastAt: null,
+        } satisfies SnapshotHint;
+      }
+    }),
+  );
+
+  return snapshots.sort((left, right) => right.count - left.count);
+}
+
+async function fetchWorkloadNotes(rows: InventoryRow[]) {
+  const subset = rows.slice(0, 20);
+  const notes = await Promise.all(
+    subset.map(async (row) => {
+      try {
+        const payload = await proxmoxRequest<Record<string, unknown>>(
+          `nodes/${encodeURIComponent(row.node)}/${row.kind}/${row.vmid}/config`,
+        );
+        const text = asString(payload.description) ?? asString(payload.notes) ?? asString(payload.comment) ?? "";
+        return {
+          workloadId: row.id,
+          kind: row.kind,
+          vmid: row.vmid,
+          node: row.node,
+          name: row.name,
+          note: text.trim(),
+        } satisfies WorkloadNote;
+      } catch {
+        return null;
+      }
+    }),
+  );
+  return notes.filter((item): item is WorkloadNote => Boolean(item && item.note.length > 0));
+}
+
+async function fetchStorages(nodes: string[]) {
+  const perNode = await Promise.all(
+    nodes.map(async (node) => {
+      try {
+        const payload = await proxmoxRequest<Array<Record<string, unknown>>>(
+          `nodes/${encodeURIComponent(node)}/storage`,
+        );
+        return payload.map((entry) => ({
+          id: `${node}:${asString(entry.storage) ?? "unknown"}`,
+          node,
+          storage: asString(entry.storage) ?? "unknown",
+          type: asString(entry.type),
+          content: asString(entry.content),
+          used: asNumber(entry.used),
+          total: asNumber(entry.total),
+          shared: asBoolean(entry.shared) ?? false,
+          active: asBoolean(entry.active),
+        })) as StorageView[];
+      } catch {
+        return [] as StorageView[];
+      }
+    }),
+  );
+  return perNode.flat().sort((left, right) => left.storage.localeCompare(right.storage));
+}
+
+function UsageBar({ value, tone }: { value: number; tone: "orange" | "green" }) {
   return (
-    <div className="inventory-capacity-row">
-      <div className="inventory-capacity-row-head">
-        <span>{label}</span>
-        <span className="muted">
-          Used: {formatBytes(used)} • Capacity: {formatBytes(total)}
-        </span>
-      </div>
-      <div className="inventory-progress inventory-progress-wide">
-        <span className={`tone-${tone}`} style={{ width: `${Math.round(ratio * 100)}%` }} />
-      </div>
-      <div className="inventory-capacity-row-foot">
-        <span className="muted">
-          Free: {formatBytes(Math.max(0, total - used))}
-        </span>
-        <strong>{Math.round(ratio * 100)}%</strong>
-      </div>
+    <div className="inventory-progress inventory-progress-wide">
+      <span className={tone === "orange" ? "tone-orange" : "tone-green"} style={{ width: `${Math.round(value * 100)}%` }} />
     </div>
   );
 }
-
-export const metadata: Metadata = {
-  title: "Inventaire | ProxCenter",
-  description: "Inventaire VM/CT, nœuds et ressources Proxmox",
-};
-
-export const dynamic = "force-dynamic";
 
 export default async function InventoryPage({ searchParams }: InventoryPageProps) {
   const params = await readSearchParams(searchParams);
@@ -171,311 +345,288 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
   const canOperate = hasRuntimeCapability(session?.role, "operate");
-  const proxmox = getProxmoxConfig();
   const hasLiveData = snapshot.mode === "live";
-  const allRows = buildInventoryRows(snapshot);
 
+  const requestedTab = firstParam(params.tab).trim().toLowerCase() as InventoryTabId;
+  const activeTab = INVENTORY_TABS.some((tab) => tab.id === requestedTab) ? requestedTab : "summary";
   const query = firstParam(params.q).trim();
   const nodeFilter = firstParam(params.node).trim();
-  const requestedView = firstParam(params.view).trim().toLowerCase();
-  const viewMode = requestedView === "compact" ? "compact" : "table";
-  const requestedTab = firstParam(params.tab).trim().toLowerCase();
-  const activeTab = INVENTORY_TABS.some((tab) => tab.id === requestedTab)
-    ? requestedTab
-    : "virtual-machines";
 
-  const rows = allRows.filter((row) => {
+  const allRows = toInventoryRows(snapshot);
+  const filteredRows = allRows.filter((row) => {
     if (nodeFilter && row.node !== nodeFilter) return false;
     if (!query) return true;
-    const haystack = `${row.name} ${row.node} ${row.vmid} ${row.tags.join(" ")}`.toLowerCase();
+    const haystack = `${row.name} ${row.node} ${row.vmid} ${row.kind}`.toLowerCase();
     return haystack.includes(query.toLowerCase());
   });
 
-  const clusters = snapshot.nodes.reduce<Record<string, string[]>>((acc, node) => {
-    const cluster = getClusterLabel(node.name);
-    acc[cluster] ??= [];
-    acc[cluster].push(node.name);
-    return acc;
-  }, {});
+  const nodeNames = Array.from(new Set(snapshot.nodes.map((item) => item.name))).sort((a, b) =>
+    a.localeCompare(b),
+  );
+  const selectedNode = nodeFilter || nodeNames[0] || "";
 
-  const totalMemory = rows.reduce((sum, row) => sum + row.memoryTotal, 0);
-  const usedMemory = rows.reduce((sum, row) => sum + row.memoryUsed, 0);
-  const totalStorage = rows.reduce((sum, row) => sum + row.diskTotal, 0);
-  const usedStorage = rows.reduce((sum, row) => sum + row.diskUsed, 0);
+  const shouldLoadNodeRuntime = hasLiveData && (activeTab === "summary" || activeTab === "nodes");
+  const nodeRuntimeList = shouldLoadNodeRuntime
+    ? (
+        await Promise.all(
+          nodeNames.map((node) => fetchNodeRuntime(node)),
+        )
+      ).filter((item): item is NodeRuntime => Boolean(item))
+    : [];
+  const selectedNodeRuntime = nodeRuntimeList.find((item) => item.node === selectedNode) ?? null;
 
-  function buildInventoryHref(overrides: {
-    tab?: string;
-    view?: "table" | "compact";
-    node?: string | null;
-    q?: string | null;
-  }) {
+  const haResources = hasLiveData && activeTab === "ha" ? await fetchHaResources() : [];
+  const backupJobs = hasLiveData && activeTab === "backups" ? await fetchBackupJobs() : [];
+  const snapshotHints = hasLiveData && activeTab === "snapshots" ? await fetchSnapshotHints(filteredRows) : [];
+  const workloadNotes = hasLiveData && activeTab === "notes" ? await fetchWorkloadNotes(filteredRows) : [];
+  const storageViews = hasLiveData && activeTab === "storage" ? await fetchStorages(nodeNames) : [];
+
+  function buildInventoryHref(overrides: { tab?: InventoryTabId; node?: string | null; q?: string | null }) {
     const next = new URLSearchParams();
-    const nextTab = overrides.tab ?? activeTab;
-    const nextView = overrides.view ?? viewMode;
-    const nextNode = overrides.node === undefined ? nodeFilter : overrides.node ?? "";
-    const nextQuery = overrides.q === undefined ? query : overrides.q ?? "";
+    const tab = overrides.tab ?? activeTab;
+    const node = overrides.node === undefined ? nodeFilter : overrides.node ?? "";
+    const q = overrides.q === undefined ? query : overrides.q ?? "";
 
-    if (nextTab && nextTab !== "virtual-machines") next.set("tab", nextTab);
-    if (nextView === "compact") next.set("view", "compact");
-    if (nextNode) next.set("node", nextNode);
-    if (nextQuery) next.set("q", nextQuery);
-
+    if (tab !== "summary") next.set("tab", tab);
+    if (node) next.set("node", node);
+    if (q) next.set("q", q);
     const search = next.toString();
     return search ? `/inventory?${search}` : "/inventory";
   }
 
   return (
-    <section className="content content-wide inventory-page">
-      <header className="inventory-page-header">
-        <div className="inventory-title-wrap">
+    <section className="content content-wide inventory-page inventory-page-clean">
+      <header className="topbar">
+        <div>
           <p className="eyebrow">Inventaire</p>
-          <h1>Machines virtuelles & conteneurs</h1>
+          <h1>Nœuds, VM et CT</h1>
         </div>
+        <div className="topbar-meta">
+          {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
+          <span className="muted">Sync {formatRelativeTime(snapshot.lastUpdatedAt)}</span>
+        </div>
+      </header>
 
-        <div className="inventory-header-actions">
-          <form method="get" action="/inventory" className="inventory-search-shell">
-            <input type="hidden" name="tab" value={activeTab} />
-            <input type="hidden" name="view" value={viewMode} />
+      <section className="panel inventory-toolbar-panel">
+        <div className="inventory-toolbar">
+          <form method="get" action="/inventory" className="inventory-search-shell compact">
+            {activeTab !== "summary" ? <input type="hidden" name="tab" value={activeTab} /> : null}
             {nodeFilter ? <input type="hidden" name="node" value={nodeFilter} /> : null}
             <input
               type="search"
               className="inventory-search"
               name="q"
               defaultValue={query}
-              placeholder="Search VM, CT, node..."
-              aria-label="Recherche"
+              placeholder="Rechercher VM/CT, VMID, nœud"
+              aria-label="Recherche inventaire"
             />
           </form>
-          {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
-          {nodeFilter ? (
-            <Link href={buildInventoryHref({ node: null })} className="pill">
-              Filtre nœud: {nodeFilter} ✕
-            </Link>
-          ) : null}
-          {query ? (
-            <Link href={buildInventoryHref({ q: null })} className="pill">
-              Recherche: {query} ✕
-            </Link>
-          ) : null}
-          <span className="muted inventory-time">
-            Sync {formatRelativeTime(snapshot.lastUpdatedAt)}
-          </span>
-        </div>
-      </header>
 
-      <section className="inventory-workspace">
-        <aside className="panel inventory-explorer">
-          <div className="inventory-explorer-toolbar">
-            <form method="get" action="/inventory" className="inventory-explorer-search-form">
-              <input type="hidden" name="tab" value={activeTab} />
-              <input type="hidden" name="view" value={viewMode} />
-              {nodeFilter ? <input type="hidden" name="node" value={nodeFilter} /> : null}
-              <input
-                type="search"
-                className="inventory-explorer-search"
-                name="q"
-                defaultValue={query}
-                placeholder="Search"
-                aria-label="Search inventory"
-              />
-            </form>
-            <div className="inventory-icon-row" aria-label="Explorer tools">
-              {["RG", "VM", "CT", "FD", "TG", "ST", "CP"].map((icon) => (
-                <button key={icon} type="button" className="inventory-icon-btn" title={icon}>
-                  {icon}
-                </button>
+          <div className="quick-actions">
+            <select
+              className="field-input inventory-node-filter"
+              value={nodeFilter}
+              onChange={(event) => {
+                const value = event.target.value;
+                window.location.assign(buildInventoryHref({ node: value || null }));
+              }}
+            >
+              <option value="">Tous les nœuds</option>
+              {nodeNames.map((node) => (
+                <option key={node} value={node}>
+                  {node}
+                </option>
+              ))}
+            </select>
+
+            <InventoryRefreshButton auto={hasLiveData} intervalMs={5000} />
+
+            <Link href="/provision?kind=qemu" className="action-btn primary">
+              Créer VM
+            </Link>
+            <Link href="/provision?kind=lxc" className="action-btn">
+              Créer LXC
+            </Link>
+          </div>
+        </div>
+      </section>
+
+      <section className="panel inventory-tabs-panel">
+        <div className="inventory-tabs">
+          {INVENTORY_TABS.map((tab) => (
+            <Link
+              key={tab.id}
+              href={buildInventoryHref({ tab: tab.id })}
+              className={`inventory-tab${activeTab === tab.id ? " is-active" : ""}`}
+            >
+              {tab.label}
+              {tab.id === "nodes" ? <span className="inventory-tab-count">{snapshot.summary.nodes}</span> : null}
+              {tab.id === "workloads" ? <span className="inventory-tab-count">{filteredRows.length}</span> : null}
+            </Link>
+          ))}
+        </div>
+      </section>
+
+      {activeTab === "summary" ? (
+        <section className="content-grid inventory-summary-grid">
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Résumé nœud Proxmox</h2>
+              <span className="muted">{selectedNode || "—"}</span>
+            </div>
+            {selectedNodeRuntime ? (
+              <div className="stack-sm">
+                <div className="mini-summary">
+                  <span className="mini-label">CPU</span>
+                  <strong>{formatPercent(selectedNodeRuntime.cpuLoad)}</strong>
+                </div>
+                <UsageBar value={selectedNodeRuntime.cpuLoad} tone="green" />
+                <div className="mini-summary">
+                  <span className="mini-label">RAM</span>
+                  <strong>
+                    {formatBytes(selectedNodeRuntime.memoryUsed)} / {formatBytes(Math.max(1, selectedNodeRuntime.memoryTotal))}
+                  </strong>
+                </div>
+                <UsageBar
+                  value={selectedNodeRuntime.memoryTotal > 0 ? selectedNodeRuntime.memoryUsed / selectedNodeRuntime.memoryTotal : 0}
+                  tone="orange"
+                />
+                <div className="mini-summary">
+                  <span className="mini-label">Stockage nœud</span>
+                  <strong>
+                    {formatBytes(selectedNodeRuntime.rootfsUsed)} / {formatBytes(Math.max(1, selectedNodeRuntime.rootfsTotal))}
+                  </strong>
+                </div>
+                <UsageBar
+                  value={selectedNodeRuntime.rootfsTotal > 0 ? selectedNodeRuntime.rootfsUsed / selectedNodeRuntime.rootfsTotal : 0}
+                  tone="orange"
+                />
+                <div className="mini-summary">
+                  <span className="mini-label">Réseau (cumul)</span>
+                  <strong>
+                    In {formatBytes(selectedNodeRuntime.netIn)} • Out {formatBytes(selectedNodeRuntime.netOut)}
+                  </strong>
+                </div>
+                <div className="mini-summary">
+                  <span className="mini-label">Uptime</span>
+                  <strong>{selectedNodeRuntime.uptimeSeconds > 0 ? formatUptime(selectedNodeRuntime.uptimeSeconds) : "—"}</strong>
+                </div>
+              </div>
+            ) : (
+              <p className="muted">Aucune donnée nœud détaillée disponible.</p>
+            )}
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Nœuds du cluster</h2>
+              <span className="muted">{nodeRuntimeList.length}</span>
+            </div>
+            {nodeRuntimeList.length === 0 ? (
+              <p className="muted">Aucune donnée nœud disponible.</p>
+            ) : (
+              <div className="mini-list">
+                {nodeRuntimeList.map((node) => {
+                  const memRatio = node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0;
+                  return (
+                    <Link
+                      key={`summary-node-${node.node}`}
+                      href={buildNodeHref(node.node)}
+                      className="mini-list-item mini-list-link"
+                    >
+                      <div>
+                        <div className="item-title">{node.node}</div>
+                        <div className="item-subtitle">
+                          CPU {formatPercent(node.cpuLoad)} • RAM {formatBytes(node.memoryUsed)} / {formatBytes(node.memoryTotal)}
+                        </div>
+                      </div>
+                      <div className="item-metric">
+                        <div className="inventory-progress inventory-progress-wide">
+                          <span className="tone-green" style={{ width: `${Math.round(node.cpuLoad * 100)}%` }} />
+                        </div>
+                        <div className="inventory-progress inventory-progress-wide">
+                          <span className="tone-orange" style={{ width: `${Math.round(clamp01(memRatio) * 100)}%` }} />
+                        </div>
+                      </div>
+                    </Link>
+                  );
+                })}
+              </div>
+            )}
+          </section>
+        </section>
+      ) : null}
+
+      {activeTab === "nodes" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Nœuds</h2>
+            <span className="muted">{nodeRuntimeList.length}</span>
+          </div>
+          {nodeRuntimeList.length === 0 ? (
+            <p className="muted">Aucune métrique nœud disponible.</p>
+          ) : (
+            <div className="mini-list">
+              {nodeRuntimeList.map((node) => (
+                <Link key={node.node} href={buildNodeHref(node.node)} className="mini-list-item mini-list-link">
+                  <div>
+                    <div className="item-title">{node.node}</div>
+                    <div className="item-subtitle">
+                      CPU {formatPercent(node.cpuLoad)} • RAM {formatBytes(node.memoryUsed)} / {formatBytes(node.memoryTotal)}
+                    </div>
+                  </div>
+                  <div className="item-metric">{node.uptimeSeconds > 0 ? formatUptime(node.uptimeSeconds) : "—"}</div>
+                </Link>
               ))}
             </div>
-          </div>
+          )}
+        </section>
+      ) : null}
 
-          <div className="inventory-explorer-scroll">
-            <div className="inventory-tree-section">
-              <div className="inventory-tree-root">
-                <Link href="/inventory" className="tree-node-label tree-root-link">
-                  Inventory
-                </Link>
-                <span className="tree-node-meta">
-                  {Object.keys(clusters).length} clusters, {rows.length} items
-                </span>
-              </div>
-              <div className="tree-node-children">
-                {Object.keys(clusters).length === 0 ? (
-                  <p className="muted">Aucune donnée nœud.</p>
-                ) : (
-                  Object.entries(clusters).map(([cluster, nodes]) => (
-                    <div key={cluster} className="tree-branch">
-                      <div className="tree-node cluster">
-                        <span className="tree-bullet" />
-                        <span className="tree-node-name">{cluster}</span>
-                        <span className="tree-count">{nodes.length}</span>
-                      </div>
-                      <div className="tree-node-children">
-                        {nodes.map((nodeName) => {
-                          const nodeRows = rows.filter((row) => row.node === nodeName);
-
-                          return (
-                            <div key={nodeName} className="tree-branch">
-                              <Link
-                                href={buildNodePageHref(nodeName)}
-                                className="tree-node node"
-                                title={`Ouvrir ${nodeName}`}
-                              >
-                                <span className="tree-bullet" />
-                                <span className="tree-node-name">{nodeName}</span>
-                                <span className="tree-count">{nodeRows.length}</span>
-                              </Link>
-                              <div className="tree-node-children">
-                                {nodeRows.slice(0, 6).map((row, index) => (
-                                  <Link
-                                    key={`${nodeName}-${row.id}-${index}`}
-                                    href={buildWorkloadPageHref(row.type, row.vmid)}
-                                    className="tree-node leaf"
-                                    title={`${row.name} #${row.vmid}`}
-                                  >
-                                    <span className="tree-status-dot" data-status={row.status} />
-                                    <span className="tree-node-name">
-                                      {row.name}
-                                      <span className="tree-node-inline-meta">#{row.vmid}</span>
-                                    </span>
-                                    <span className="tree-kind-badge">
-                                      {row.type === "template" ? "TPL" : row.type.toUpperCase()}
-                                    </span>
-                                  </Link>
-                                ))}
-                              </div>
-                            </div>
-                          );
-                        })}
-                      </div>
-                    </div>
-                  ))
-                )}
-              </div>
+      {activeTab === "workloads" ? (
+        <section className="panel inventory-table-panel">
+          <div className="inventory-table-header">
+            <div>
+              <h2>Workloads ({filteredRows.length})</h2>
             </div>
           </div>
-        </aside>
-
-        <div className="inventory-main">
-          <section className="panel inventory-capacity">
-            <UsageBar label="Memory" used={usedMemory} total={Math.max(totalMemory, 1)} />
-            <UsageBar
-              label="Storage"
-              used={usedStorage}
-              total={Math.max(totalStorage, 1)}
-              tone="green"
-            />
-          </section>
-
-          <section className="panel inventory-tabs-panel">
-            <div className="inventory-tabs">
-              {INVENTORY_TABS.map((tab) => {
-                const isActive = activeTab === tab.id;
-                const href = tab.href ?? buildInventoryHref({ tab: tab.id });
-
-                return (
-                  <Link key={tab.id} href={href} className={`inventory-tab${isActive ? " is-active" : ""}`}>
-                    {tab.label}
-                    {tab.label === "Nodes" ? (
-                    <span className="inventory-tab-count">{snapshot.summary.nodes}</span>
-                  ) : null}
-                    {tab.label === "Virtual machines" ? (
-                    <span className="inventory-tab-count">{rows.filter((r) => r.type === "vm").length}</span>
-                  ) : null}
-                  </Link>
-                );
-              })}
-            </div>
-
-            <div className="inventory-tabs-right">
-              <Link
-                href={buildInventoryHref({ view: "table" })}
-                className={`inventory-mini-toggle${viewMode === "table" ? " is-active" : ""}`}
-              >
-                table
-              </Link>
-              <Link
-                href={buildInventoryHref({ view: "compact" })}
-                className={`inventory-mini-toggle${viewMode === "compact" ? " is-active" : ""}`}
-              >
-                compact
-              </Link>
-            </div>
-          </section>
-
-          <section className="panel inventory-table-panel">
-            <div className="inventory-table-header">
-              <div>
-                <h2>
-                  {activeTab === "virtual-machines" ? "Workloads" : INVENTORY_TABS.find((t) => t.id === activeTab)?.label ?? "Inventory"}{" "}
-                  ({rows.length})
-                </h2>
-              </div>
-              <div className="inventory-table-actions">
-                <InventoryRefreshButton auto={hasLiveData} intervalMs={5000} />
-                <Link href="/provision?kind=qemu" className="inventory-primary-btn">
-                  + Create VM
-                </Link>
-                <Link href="/provision?kind=lxc" className="inventory-primary-btn alt">
-                  + Create LXC
-                </Link>
-              </div>
-            </div>
-
-            <div className="inventory-table-wrap">
-              <table className={`inventory-table${viewMode === "compact" ? " is-compact" : ""}`}>
-                <thead>
+          <div className="inventory-table-wrap">
+            <table className="inventory-table">
+              <thead>
+                <tr>
+                  <th>Nom</th>
+                  <th>Type</th>
+                  <th>Statut</th>
+                  <th>Nœud</th>
+                  <th>CPU</th>
+                  <th>RAM</th>
+                  <th>Disque</th>
+                  <th>Uptime</th>
+                  <th>Actions</th>
+                </tr>
+              </thead>
+              <tbody>
+                {filteredRows.length === 0 ? (
                   <tr>
-                    <th>Fav</th>
-                    <th>Name</th>
-                    <th>Type</th>
-                    <th>Status</th>
-                    <th>Node</th>
-                    <th>CPU</th>
-                    <th>RAM</th>
-                    <th>Disk</th>
-                    <th>Tags</th>
-                    <th>Uptime</th>
-                    <th>Actions</th>
+                    <td colSpan={9}>
+                      <div className="hint-box">
+                        <p className="muted">Aucun workload avec ces filtres.</p>
+                      </div>
+                    </td>
                   </tr>
-                </thead>
-                <tbody>
-                  {rows.length === 0 ? (
-                    <tr>
-                      <td colSpan={11}>
-                        <div className="hint-box">
-                          <p className="muted">
-                            Aucun résultat pour ce filtre. Essaie un autre nœud ou vide la recherche.
-                          </p>
-                        </div>
-                      </td>
-                    </tr>
-                  ) : rows.map((row) => {
-                    const ramRatio = row.memoryTotal > 0 ? row.memoryUsed / row.memoryTotal : 0;
-
+                ) : (
+                  filteredRows.map((row) => {
+                    const rowHref = buildWorkloadHref(row.kind, row.vmid);
+                    const memoryRatio = row.memoryTotal > 0 ? row.memoryUsed / row.memoryTotal : 0;
+                    const diskRatio = row.diskTotal > 0 ? row.diskUsed / row.diskTotal : 0;
                     return (
-                      <tr id={`inv-row-${row.id.replaceAll("/", "-")}`} key={row.id} className="inventory-row-clickable">
-                        <td>
-                          <Link
-                            href={buildWorkloadPageHref(row.type, row.vmid)}
-                            className="inventory-row-overlay-link"
-                            tabIndex={-1}
-                            aria-hidden="true"
-                          />
-                          <button type="button" className="inventory-inline-icon" aria-label="Favorite">
-                            ☆
-                          </button>
-                        </td>
-                        <td>
+                      <tr key={row.id} className="inventory-row-clickable inventory-row-full-click">
+                        <td className="inventory-cell-main">
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
                           <div className="inventory-name-cell">
-                            <span className="inventory-instance-icon">
-                              {row.type === "vm" ? "VM" : row.type === "ct" ? "CT" : "TP"}
-                            </span>
+                            <span className="inventory-instance-icon">{row.kind === "qemu" ? "VM" : "CT"}</span>
                             <div>
-                              <Link
-                                href={buildWorkloadPageHref(row.type, row.vmid)}
-                                className="inventory-name-line inventory-row-link"
-                                title={`Ouvrir ${row.name} #${row.vmid}`}
-                              >
+                              <Link href={rowHref} prefetch={false} className="inventory-name-line inventory-row-link">
                                 {row.name} <span className="muted">#{row.vmid}</span>
                               </Link>
                               <div className="inventory-subline muted">{row.node}</div>
@@ -483,25 +634,25 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                           </div>
                         </td>
                         <td>
-                          <span className={`inventory-badge type-${row.type}`}>
-                            {row.type === "template" ? "template" : row.type}
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
+                          <span className={`inventory-badge ${row.kind === "qemu" ? "type-vm" : "type-ct"}`}>
+                            {row.kind === "qemu" ? "VM" : "CT"}
                           </span>
                         </td>
                         <td>
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
                           <span className={`inventory-badge status-${row.status}`}>
-                            {row.status === "running"
-                              ? "Run"
-                              : row.status === "stopped"
-                                ? "Stop"
-                                : "Tpl"}
+                            {row.status === "running" ? "RUN" : "STOP"}
                           </span>
                         </td>
                         <td>
-                          <Link href={buildNodePageHref(row.node)} className="inventory-cell-link">
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
+                          <Link href={buildNodeHref(row.node)} className="inventory-cell-link">
                             {row.node}
                           </Link>
                         </td>
                         <td>
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
                           <div className="inventory-meter-cell">
                             <div className="inventory-progress">
                               <span className="tone-green" style={{ width: `${Math.round(row.cpuLoad * 100)}%` }} />
@@ -510,76 +661,213 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                           </div>
                         </td>
                         <td>
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
                           <div className="inventory-meter-cell">
                             <div className="inventory-progress">
-                              <span className="tone-orange" style={{ width: `${Math.round(clamp01(ramRatio) * 100)}%` }} />
+                              <span className="tone-orange" style={{ width: `${Math.round(clamp01(memoryRatio) * 100)}%` }} />
                             </div>
-                            <strong>{formatPercent(ramRatio)}</strong>
+                            <strong>
+                              {formatBytes(row.memoryUsed)} / {formatBytes(Math.max(1, row.memoryTotal))}
+                            </strong>
                           </div>
                         </td>
                         <td>
-                          {row.diskTotal > 0
-                            ? `${formatBytes(row.diskUsed)} / ${formatBytes(row.diskTotal)}`
-                            : "—"}
-                        </td>
-                        <td>
-                          <div className="inventory-tag-list">
-                            {row.tags.slice(0, 2).map((tag) => (
-                              <span key={`${row.id}-${tag}`} className="inventory-tag">
-                                {tag}
-                              </span>
-                            ))}
+                          <Link href={rowHref} prefetch={false} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
+                          <div className="inventory-meter-cell">
+                            <div className="inventory-progress">
+                              <span className="tone-orange" style={{ width: `${Math.round(clamp01(diskRatio) * 100)}%` }} />
+                            </div>
+                            <strong>
+                              {formatBytes(row.diskUsed)} / {formatBytes(Math.max(1, row.diskTotal))}
+                            </strong>
                           </div>
                         </td>
                         <td>
-                          {row.uptimeSeconds > 0 ? formatUptime(row.uptimeSeconds) : "-"}
+                          <Link href={rowHref} className="inventory-row-overlay-link" tabIndex={-1} aria-hidden="true" />
+                          {row.uptimeSeconds > 0 ? formatUptime(row.uptimeSeconds) : "—"}
                         </td>
-                        <td>
-                          {row.type === "template" ? (
-                            <div className="inventory-action-cluster">
-                              <button
-                                type="button"
-                                className="inventory-inline-icon"
-                                title="Template (actions désactivées)"
-                                disabled
-                              >
-                                TP
-                              </button>
-                            </div>
-                          ) : (
-                            <InventoryWorkloadActions
-                              node={row.node}
-                              vmid={row.vmid}
-                              kind={row.type === "vm" ? "qemu" : "lxc"}
-                              status={row.status}
-                              actionable={row.actionable && canOperate}
-                              consoleHref={proxmox
-                                ? buildProxmoxWorkloadConsoleUrl({
-                                    baseUrl: proxmox.baseUrl,
-                                    node: row.node,
-                                    vmid: row.vmid,
-                                    kind: row.type === "vm" ? "qemu" : "lxc",
-                                  })
-                                : null}
-                            />
-                          )}
+                        <td className="inventory-row-actions">
+                          <InventoryWorkloadActions
+                            node={row.node}
+                            vmid={row.vmid}
+                            kind={row.kind}
+                            status={row.status}
+                            actionable={canOperate && hasLiveData}
+                            consoleHref={buildWorkloadConsoleHref(row.kind, row.vmid)}
+                          />
                         </td>
                       </tr>
                     );
-                  })}
-                </tbody>
-              </table>
-            </div>
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      ) : null}
 
-            <div className="inventory-table-footer">
-              <span className="muted">
-                {rows.filter((row) => row.status === "running").length} running / {rows.length} total
-              </span>
-              <span className="muted">{rows.length} workloads listés</span>
+      {activeTab === "ha" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>High Availability</h2>
+            <span className="muted">{haResources.length}</span>
+          </div>
+          {haResources.length === 0 ? (
+            <p className="muted">Aucune ressource HA remontée.</p>
+          ) : (
+            <div className="mini-list">
+              {haResources.map((item) => (
+                <article key={item.sid} className="mini-list-item">
+                  <div>
+                    <div className="item-title">
+                      {item.sid}
+                      <span className={`inventory-badge status-${item.state === "started" ? "running" : "pending"}`}>
+                        {item.state}
+                      </span>
+                    </div>
+                    <div className="item-subtitle">
+                      {[item.node, item.group, item.serviceType, item.service].filter(Boolean).join(" • ") || "—"}
+                    </div>
+                    {item.comment ? <div className="item-subtitle">{item.comment}</div> : null}
+                  </div>
+                </article>
+              ))}
             </div>
-          </section>
-        </div>
-      </section>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "backups" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Backups Proxmox</h2>
+            <span className="muted">{backupJobs.length}</span>
+          </div>
+          {backupJobs.length === 0 ? (
+            <div className="hint-box">
+              <p className="muted">Aucun job backup Proxmox détecté.</p>
+              <Link href="/backups" className="action-btn primary">
+                Ouvrir la page Sauvegardes
+              </Link>
+            </div>
+          ) : (
+            <div className="mini-list">
+              {backupJobs.map((job) => (
+                <article key={job.id} className="mini-list-item">
+                  <div>
+                    <div className="item-title">
+                      {job.id}
+                      <span className={`inventory-badge ${job.enabled ? "status-running" : "status-stopped"}`}>
+                        {job.enabled ? "actif" : "désactivé"}
+                      </span>
+                    </div>
+                    <div className="item-subtitle">
+                      {[job.node, job.storage, job.schedule].filter(Boolean).join(" • ") || "—"}
+                    </div>
+                    <div className="item-subtitle">
+                      {[job.mode, job.vmid ? `vmid ${job.vmid}` : null, job.exclude].filter(Boolean).join(" • ") || "—"}
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "snapshots" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Snapshots</h2>
+            <span className="muted">{snapshotHints.length}</span>
+          </div>
+          {snapshotHints.length === 0 ? (
+            <p className="muted">Aucun snapshot détecté sur la sélection courante.</p>
+          ) : (
+            <div className="mini-list">
+              {snapshotHints.map((item) => (
+                <Link key={item.workloadId} href={buildWorkloadHref(item.kind, item.vmid)} className="mini-list-item mini-list-link">
+                  <div>
+                    <div className="item-title">
+                      {item.name} <span className="muted">#{item.vmid}</span>
+                    </div>
+                    <div className="item-subtitle">
+                      {item.node} • {item.kind.toUpperCase()}
+                    </div>
+                  </div>
+                  <div className="item-metric">
+                    {item.count} {item.count > 1 ? "snapshots" : "snapshot"}
+                    <div className="item-subtitle">{item.lastAt ? formatRelativeTime(item.lastAt) : "—"}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "notes" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Notes workloads</h2>
+            <span className="muted">{workloadNotes.length}</span>
+          </div>
+          {workloadNotes.length === 0 ? (
+            <p className="muted">Aucune note/description détectée.</p>
+          ) : (
+            <div className="mini-list">
+              {workloadNotes.map((item) => (
+                <Link key={item.workloadId} href={buildWorkloadHref(item.kind, item.vmid)} className="mini-list-item mini-list-link">
+                  <div>
+                    <div className="item-title">
+                      {item.name} <span className="muted">#{item.vmid}</span>
+                    </div>
+                    <div className="item-subtitle">{item.node}</div>
+                    <div className="item-subtitle">{item.note}</div>
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
+
+      {activeTab === "storage" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Stockages</h2>
+            <span className="muted">{storageViews.length}</span>
+          </div>
+          {storageViews.length === 0 ? (
+            <p className="muted">Aucun stockage remonté.</p>
+          ) : (
+            <div className="mini-list">
+              {storageViews.map((storage) => (
+                <Link
+                  key={storage.id}
+                  href={`/inventory/storage/${encodeURIComponent(storage.node)}/${encodeURIComponent(storage.storage)}`}
+                  className="mini-list-item mini-list-link"
+                >
+                  <div>
+                    <div className="item-title">
+                      {storage.storage}
+                      <span className={`inventory-badge ${storage.active === false ? "status-stopped" : "status-running"}`}>
+                        {storage.active === false ? "down" : "up"}
+                      </span>
+                    </div>
+                    <div className="item-subtitle">
+                      {[storage.node, storage.type, storage.content].filter(Boolean).join(" • ")}
+                    </div>
+                  </div>
+                  <div className="item-metric">
+                    {formatBytes(storage.used)} / {formatBytes(Math.max(1, storage.total))}
+                  </div>
+                </Link>
+              ))}
+            </div>
+          )}
+        </section>
+      ) : null}
     </section>
   );
 }

@@ -7,7 +7,6 @@ import {
   applyPresetToDraft,
   coerceProvisionKind,
   getDefaultDraft,
-  PROVISION_PRESETS,
   type AssistantIntentResponse,
   type ProvisionDraft,
   type ProvisionKind,
@@ -21,6 +20,7 @@ type ProvisionOptionsResponse = {
   options: {
     nodes: string[];
     nextVmid: number | null;
+    usedVmids: number[];
     storages: Array<{
       name: string;
       type: string;
@@ -29,6 +29,14 @@ type ProvisionOptionsResponse = {
       active: boolean;
     }>;
     bridges: string[];
+    isoVolumes: Array<{
+      value: string;
+      label: string;
+      storage: string;
+      node: string;
+      sizeBytes: number | null;
+      createdAt: string | null;
+    }>;
     vmOstypes: Array<{ value: string; label: string }>;
   };
 };
@@ -193,6 +201,7 @@ export default function ProvisioningStudio({
   const [isAskingAssistant, setIsAskingAssistant] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
+  const [showAdvanced, setShowAdvanced] = useState(false);
   const [createResult, setCreateResult] = useState<ProvisionCreateResponse | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
   const [taskPollError, setTaskPollError] = useState<string | null>(null);
@@ -200,47 +209,71 @@ export default function ProvisioningStudio({
 
   const canCreate = Boolean(options?.configured) && !isCreating;
   const isQemu = draft.kind === "qemu";
-  const firmwareForcesQ35 = isQemu && draft.bios === "ovmf";
   const tpmUnsupported = isQemu && draft.bios !== "ovmf";
-  const firmwarePreset = getFirmwarePresetForOstype(draft.ostype);
+  const parsedVmid = Number.parseInt(draft.vmid, 10);
+  const vmidInvalid = draft.vmid.trim().length > 0 && (!Number.isInteger(parsedVmid) || parsedVmid < 1);
 
-  const storageOptions = useMemo(
-    () =>
-      (options?.options.storages ?? []).map((storage) => ({
+  const storageOptions = useMemo(() => {
+    const names = new Set<string>();
+    return (options?.options.storages ?? [])
+      .filter((storage) => {
+        if (names.has(storage.name)) return false;
+        names.add(storage.name);
+        return true;
+      })
+      .map((storage) => ({
         value: storage.name,
         label: `${storage.name} (${storage.type})`,
-      })),
-    [options],
-  );
+      }));
+  }, [options]);
 
-  const isoStorageOptions = useMemo(
-    () =>
-      (options?.options.storages ?? [])
-        .filter((storage) => storageHasContent(storage.content, "iso"))
-        .map((storage) => ({
-          value: storage.name,
-          label: `${storage.name} (${storage.type})`,
-        })),
-    [options],
-  );
+  const isoStorageOptions = useMemo(() => {
+    const names = new Set<string>();
+    return (options?.options.storages ?? [])
+      .filter((storage) => storageHasContent(storage.content, "iso"))
+      .filter((storage) => {
+        if (names.has(storage.name)) return false;
+        names.add(storage.name);
+        return true;
+      })
+      .map((storage) => ({
+        value: storage.name,
+        label: `${storage.name} (${storage.type})`,
+      }));
+  }, [options]);
+
+  const isoVolumeOptions = useMemo(() => {
+    const selectedNode = draft.node.trim();
+    const entries = options?.options.isoVolumes ?? [];
+    const filtered = selectedNode
+      ? entries.filter((entry) => entry.node === selectedNode)
+      : entries;
+    return filtered.map((entry) => ({
+      value: entry.value,
+      label: `${entry.label} • ${entry.node}`,
+    }));
+  }, [draft.node, options]);
 
   const nodeOptions = useMemo(
     () => (options?.options.nodes ?? []).map((node) => ({ value: node, label: node })),
     [options],
   );
 
-  const bridgeOptions = useMemo(
-    () =>
-      (options?.options.bridges ?? ["vmbr0"]).map((bridge) => ({
-        value: bridge,
-        label: bridge,
-      })),
-    [options],
-  );
+  const bridgeOptions = useMemo(() => {
+    const entries = (options?.options.bridges ?? [])
+      .map((bridge) => bridge.trim())
+      .filter((bridge) => bridge.length > 0);
+    const deduped = Array.from(new Set(entries));
+    return deduped.map((bridge) => ({
+      value: bridge,
+      label: bridge,
+    }));
+  }, [options]);
 
-  const presetOptions = PROVISION_PRESETS.filter(
-    (preset) => preset.kind === "any" || preset.kind === draft.kind,
-  );
+  const vmidConflict = useMemo(() => {
+    if (!Number.isInteger(parsedVmid) || parsedVmid < 1) return false;
+    return (options?.options.usedVmids ?? []).includes(parsedVmid);
+  }, [parsedVmid, options]);
 
   useEffect(() => {
     let cancelled = false;
@@ -255,18 +288,7 @@ export default function ProvisioningStudio({
           throw new Error(data.error || "Impossible de charger les options de création.");
         }
         if (!cancelled) {
-          const defaultIsoStorage =
-            data.options.storages.find((storage) => storageHasContent(storage.content, "iso"))?.name ?? "";
           setOptions(data);
-          setDraft((current) => {
-            const next = { ...current };
-            if (!next.node && data.options.nodes[0]) next.node = data.options.nodes[0];
-            if (!next.vmid && data.options.nextVmid) next.vmid = String(data.options.nextVmid);
-            if (!next.storage && data.options.storages[0]) next.storage = data.options.storages[0].name;
-            if (!next.bridge && data.options.bridges[0]) next.bridge = data.options.bridges[0];
-            if (!next.isoStorage && defaultIsoStorage) next.isoStorage = defaultIsoStorage;
-            return next;
-          });
         }
       } catch (error) {
         if (!cancelled) {
@@ -355,10 +377,6 @@ export default function ProvisioningStudio({
     setAssistantResponse(null);
     setCreateResult(null);
     setTaskStatus(null);
-  }
-
-  function applyPreset(presetId: ProvisionPresetId) {
-    setDraft((current) => applyPresetToDraft(current, presetId));
   }
 
   async function askAssistant() {
@@ -533,9 +551,12 @@ export default function ProvisioningStudio({
     !draft.diskGb ||
     !draft.storage ||
     !draft.bridge ||
+    vmidConflict ||
+    vmidInvalid ||
     (isQemu &&
       draft.isoSourceMode === "url" &&
       (!draft.isoUrl || !draft.isoStorage || !isIsoUrlCandidate(draft.isoUrl))) ||
+    (isQemu && draft.isoSourceMode === "existing" && !draft.isoVolume.trim()) ||
     (isQemu ? false : !draft.lxcTemplate);
 
   return (
@@ -596,7 +617,7 @@ export default function ProvisioningStudio({
         </section>
       ) : null}
 
-      <section className="panel provision-panel">
+      <section className="panel provision-panel provision-panel-compact">
         <div className="panel-head">
           <h2>Création VM / LXC</h2>
           <span className="muted">
@@ -623,21 +644,12 @@ export default function ProvisioningStudio({
           </div>
 
           <div className="provision-toolbar-right">
-            <SelectInput
-              value={draft.presetId}
-              onChange={(value) => applyPreset((value || "generic") as ProvisionPresetId)}
-              options={presetOptions.map((preset) => ({
-                value: preset.id,
-                label: preset.label,
-              }))}
-              placeholder="Preset"
-            />
             <button
               type="button"
               className="inventory-mini-toggle"
               onClick={() => window.location.reload()}
             >
-              Refresh options
+              Recharger options
             </button>
           </div>
         </div>
@@ -652,7 +664,7 @@ export default function ProvisioningStudio({
           <div className="hint-box">
             <p className="muted">
               Connexion Proxmox requise pour créer. Ouvre{" "}
-              <Link href="/settings?tab=connections">Paramètres → Connexions</Link>.
+              <Link href="/settings?tab=proxmox">Paramètres → Proxmox</Link>.
             </p>
           </div>
         ) : null}
@@ -667,14 +679,39 @@ export default function ProvisioningStudio({
             />
           </FieldRow>
 
-          <FieldRow label="VMID" hint={options?.options.nextVmid ? `Prochain suggéré: ${options.options.nextVmid}` : undefined}>
-            <input
-              className="provision-input"
-              value={draft.vmid}
-              onChange={(event) => patchDraft({ vmid: event.target.value })}
-              inputMode="numeric"
-              placeholder="100"
-            />
+          <FieldRow
+            label="VMID"
+            hint={
+              vmidInvalid
+                ? "VMID invalide."
+                : vmidConflict
+                ? "VMID déjà utilisé, choisis un autre identifiant."
+                : options?.options.nextVmid
+                  ? `Prochain suggéré: ${options.options.nextVmid}`
+                  : undefined
+            }
+          >
+            <div className="provision-inline-split provision-inline-vmid">
+              <input
+                className={`provision-input${vmidConflict || vmidInvalid ? " is-invalid" : ""}`}
+                value={draft.vmid}
+                onChange={(event) => patchDraft({ vmid: event.target.value })}
+                inputMode="numeric"
+                placeholder="100"
+                aria-invalid={vmidConflict || vmidInvalid}
+              />
+              <button
+                type="button"
+                className="inventory-mini-toggle"
+                onClick={() => {
+                  if (!options?.options.nextVmid) return;
+                  patchDraft({ vmid: String(options.options.nextVmid) });
+                }}
+                disabled={!options?.options.nextVmid}
+              >
+                Auto VMID
+              </button>
+            </div>
           </FieldRow>
 
           <FieldRow label={isQemu ? "Nom VM" : "Hostname LXC"}>
@@ -700,7 +737,7 @@ export default function ProvisioningStudio({
               value={draft.bridge}
               onChange={(value) => patchDraft({ bridge: value })}
               options={bridgeOptions}
-              placeholder="vmbr0"
+              placeholder="Choisir un bridge"
             />
           </FieldRow>
 
@@ -795,7 +832,7 @@ export default function ProvisioningStudio({
                     className={`provision-seg-btn${draft.isoSourceMode === "existing" ? " is-active" : ""}`}
                     onClick={() => patchDraft({ isoSourceMode: "existing" })}
                   >
-                    Volume existant
+                    ISO local
                   </button>
                   <button
                     type="button"
@@ -808,13 +845,30 @@ export default function ProvisioningStudio({
               </FieldRow>
 
               {draft.isoSourceMode === "existing" ? (
-                <FieldRow label="ISO volume" hint="Ex: local:iso/Win2022.iso">
-                  <input
-                    className="provision-input"
+                <FieldRow
+                  label="ISO local"
+                  hint={
+                    isoVolumeOptions.length > 0
+                      ? `${isoVolumeOptions.length} ISO détecté(s)${draft.node ? ` sur ${draft.node}` : ""}`
+                      : draft.node
+                        ? `Aucun ISO détecté sur ${draft.node}.`
+                        : "Aucun ISO détecté, saisis un volume manuellement."
+                  }
+                >
+                  <SelectInput
                     value={draft.isoVolume}
-                    onChange={(event) => patchDraft({ isoVolume: event.target.value })}
-                    placeholder="local:iso/WinServer2022.iso"
+                    onChange={(value) => patchDraft({ isoVolume: value })}
+                    options={isoVolumeOptions}
+                    placeholder={isoVolumeOptions.length > 0 ? "Sélectionner un ISO local" : "Aucun ISO détecté"}
                   />
+                  {isoVolumeOptions.length === 0 ? (
+                    <input
+                      className="provision-input"
+                      value={draft.isoVolume}
+                      onChange={(event) => patchDraft({ isoVolume: event.target.value })}
+                      placeholder="local:iso/WinServer2022.iso"
+                    />
+                  ) : null}
                 </FieldRow>
               ) : (
                 <>
@@ -870,42 +924,43 @@ export default function ProvisioningStudio({
           )}
 
           {isQemu ? (
-            <>
-              <FieldRow label="CPU type">
-                <input
-                  className="provision-input"
-                  value={draft.cpuType}
-                  onChange={(event) => patchDraft({ cpuType: event.target.value })}
-                  placeholder="host ou x86-64-v2-AES"
-                />
-              </FieldRow>
-              <FieldRow label="BIOS / Machine">
-                <div className="provision-inline-split">
-                  <select
+            showAdvanced ? (
+              <>
+                <FieldRow label="CPU type">
+                  <input
                     className="provision-input"
-                    value={draft.bios}
-                    onChange={(event) =>
-                      patchDraft({ bios: event.target.value as ProvisionDraft["bios"] })
-                    }
-                  >
-                    <option value="ovmf">OVMF (UEFI)</option>
-                    <option value="seabios">SeaBIOS</option>
-                  </select>
-                  <select
-                    className="provision-input"
-                    value={draft.machine}
-                    onChange={(event) =>
-                      patchDraft({ machine: event.target.value as ProvisionDraft["machine"] })
-                    }
-                    disabled={firmwareForcesQ35}
-                  >
-                    <option value="q35">Q35</option>
-                    <option value="i440fx">i440fx</option>
-                  </select>
-                </div>
-                <small className="item-subtitle">Preset auto: {firmwarePreset.label}</small>
-              </FieldRow>
-            </>
+                    value={draft.cpuType}
+                    onChange={(event) => patchDraft({ cpuType: event.target.value })}
+                    placeholder="host ou x86-64-v2-AES"
+                  />
+                </FieldRow>
+                <FieldRow label="Firmware VM">
+                  <div className="provision-inline-split">
+                    <select
+                      className="provision-input"
+                      value={draft.bios}
+                      onChange={(event) =>
+                        patchDraft({ bios: event.target.value as ProvisionDraft["bios"] })
+                      }
+                    >
+                      <option value="ovmf">OVMF (UEFI)</option>
+                      <option value="seabios">SeaBIOS</option>
+                    </select>
+                    <select
+                      className="provision-input"
+                      value={draft.machine}
+                      disabled={draft.bios === "ovmf"}
+                      onChange={(event) =>
+                        patchDraft({ machine: event.target.value as ProvisionDraft["machine"] })
+                      }
+                    >
+                      <option value="q35">Q35</option>
+                      <option value="i440fx">i440fx</option>
+                    </select>
+                  </div>
+                </FieldRow>
+              </>
+            ) : null
           ) : (
             <FieldRow label="Mode LXC">
               <div className="provision-check-row">
@@ -929,12 +984,6 @@ export default function ProvisioningStudio({
           </p>
         ) : null}
 
-        {isQemu && firmwareForcesQ35 ? (
-          <p className="muted">
-            OVMF force `Q35` pour éviter les incompatibilités firmware/chipset.
-          </p>
-        ) : null}
-
         {isQemu && tpmUnsupported ? (
           <p className="muted">
             TPM n’est disponible qu’en mode OVMF (UEFI). Il est désactivé automatiquement avec
@@ -942,29 +991,61 @@ export default function ProvisioningStudio({
           </p>
         ) : null}
 
-        <div className="provision-check-row">
-          {isQemu ? (
-            <>
-              <label className="provision-check">
-                <input
-                  type="checkbox"
-                  checked={draft.enableAgent}
-                  onChange={(event) => patchDraft({ enableAgent: event.target.checked })}
-                />
-                <span>QEMU guest agent</span>
-              </label>
-              <label className="provision-check">
-                <input
-                  type="checkbox"
-                  checked={draft.enableTpm}
+        {isQemu ? (
+          <div className="quick-actions">
+            <button
+              type="button"
+              className="action-btn"
+              onClick={() => setShowAdvanced((current) => !current)}
+            >
+              {showAdvanced ? "Masquer options avancées" : "Afficher options avancées"}
+            </button>
+          </div>
+        ) : null}
+
+        {isQemu ? (
+          <div className="provision-check-row">
+            <div className="provision-field">
+              <span className="provision-field-label">QEMU guest agent</span>
+              <div className="provision-segment">
+                <button
+                  type="button"
+                  className={`provision-seg-btn${draft.enableAgent ? " is-active" : ""}`}
+                  onClick={() => patchDraft({ enableAgent: true })}
+                >
+                  Activé
+                </button>
+                <button
+                  type="button"
+                  className={`provision-seg-btn${!draft.enableAgent ? " is-active" : ""}`}
+                  onClick={() => patchDraft({ enableAgent: false })}
+                >
+                  Désactivé
+                </button>
+              </div>
+            </div>
+            <div className="provision-field">
+              <span className="provision-field-label">TPM</span>
+              <div className="provision-segment">
+                <button
+                  type="button"
+                  className={`provision-seg-btn${draft.enableTpm ? " is-active" : ""}`}
+                  onClick={() => patchDraft({ enableTpm: true })}
                   disabled={tpmUnsupported}
-                  onChange={(event) => patchDraft({ enableTpm: event.target.checked })}
-                />
-                <span>TPM (Windows/UEFI)</span>
-              </label>
-            </>
-          ) : null}
-        </div>
+                >
+                  Activé
+                </button>
+                <button
+                  type="button"
+                  className={`provision-seg-btn${!draft.enableTpm ? " is-active" : ""}`}
+                  onClick={() => patchDraft({ enableTpm: false })}
+                >
+                  Désactivé
+                </button>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         <div className="provision-actions">
           <button
@@ -986,7 +1067,9 @@ export default function ProvisioningStudio({
           <Link href="/inventory" className="action-btn">
             Retour inventaire
           </Link>
-          {missingRequired ? (
+          {vmidConflict ? (
+            <span className="warning">VMID déjà utilisé.</span>
+          ) : missingRequired ? (
             <span className="muted">Complète les champs requis pour activer la création.</span>
           ) : null}
         </div>

@@ -15,6 +15,7 @@ type WorkloadActionButtonsProps = {
   status: WorkloadStatus;
   actionable: boolean;
   consoleHref?: string | null;
+  compact?: boolean;
 };
 
 type ActionResponse = {
@@ -46,6 +47,7 @@ export default function InventoryWorkloadActions({
   status,
   actionable,
   consoleHref = null,
+  compact = false,
 }: WorkloadActionButtonsProps) {
   const router = useRouter();
   const [busyAction, setBusyAction] = useState<WorkloadAction | null>(null);
@@ -159,56 +161,56 @@ export default function InventoryWorkloadActions({
 
   return (
     <>
-      <div className="inventory-action-cluster">
+      <div className={`inventory-action-cluster${compact ? " is-compact" : ""}`}>
         {consoleHref ? (
           <a
             href={consoleHref}
-            className="inventory-inline-icon"
+            className={`inventory-inline-icon inventory-inline-power inventory-inline-console${compact ? "" : " inventory-inline-power-large"}`}
             title="Ouvrir console intégrée"
             aria-label="Console intégrée"
           >
-            ⌨
+            {compact ? "⌨" : "Console"}
           </a>
         ) : null}
         <button
           type="button"
-          className="inventory-inline-icon"
+          className={`inventory-inline-icon inventory-inline-power${compact ? "" : " inventory-inline-power-large"}`}
           title="Start"
           aria-label="Start"
           disabled={disableStart}
           onClick={() => requestAction("start")}
         >
-          {busyAction === "start" ? "…" : "▶"}
+          {busyAction === "start" ? "…" : compact ? "▶" : "▶ Start"}
         </button>
         <button
           type="button"
-          className="inventory-inline-icon"
+          className={`inventory-inline-icon inventory-inline-power${compact ? "" : " inventory-inline-power-large"}`}
           title="Stop"
           aria-label="Stop"
           disabled={disableStop}
           onClick={() => requestAction("stop")}
         >
-          {busyAction === "stop" ? "…" : "■"}
+          {busyAction === "stop" ? "…" : compact ? "■" : "■ Stop"}
         </button>
         <button
           type="button"
-          className="inventory-inline-icon"
+          className={`inventory-inline-icon inventory-inline-power${compact ? "" : " inventory-inline-power-large"}`}
           title="Reboot"
           aria-label="Reboot"
           disabled={disableReboot}
           onClick={() => requestAction("reboot")}
         >
-          {busyAction === "reboot" ? "…" : "↻"}
+          {busyAction === "reboot" ? "…" : compact ? "↻" : "↻ Reboot"}
         </button>
         <button
           type="button"
-          className="inventory-inline-icon"
+          className={`inventory-inline-icon inventory-inline-power${compact ? "" : " inventory-inline-power-large"}`}
           title="Shutdown propre"
           aria-label="Shutdown"
           disabled={disableStop}
           onClick={() => requestAction("shutdown")}
         >
-          {busyAction === "shutdown" ? "…" : "⏻"}
+          {busyAction === "shutdown" ? "…" : compact ? "⏻" : "⏻ Off"}
         </button>
         {hint ? (
           <span className="inventory-action-hint" title={hint}>

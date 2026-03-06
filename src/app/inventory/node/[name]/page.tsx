@@ -2,11 +2,11 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import NodeUpdateStatus from "@/components/node-update-status";
 import NodeRollingUpdatePanel from "@/components/node-rolling-update-panel";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
-import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
 import { getNodeDetailByName } from "@/lib/proxmox/nodes";
 import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 
@@ -77,13 +77,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
     );
   }
 
-  const shellHref =
-    detail
-    ? buildProxmoxNodeShellUrl({
-        baseUrl: "",
-        node: detail.name,
-      })
-    : null;
+  const shellHref = detail ? `/console/node/${encodeURIComponent(detail.name)}` : null;
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
@@ -106,15 +100,24 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           <h1>{detail.name}</h1>
         </div>
         <div className="topbar-meta">
+          <InventoryRefreshButton auto intervalMs={5000} />
           {detail.navigation.previous ? (
-            <Link href={`/inventory/node/${encodeURIComponent(detail.navigation.previous.name)}`} className="action-btn">
+            <Link
+              href={`/inventory/node/${encodeURIComponent(detail.navigation.previous.name)}`}
+              className="action-btn"
+              prefetch
+            >
               ← {detail.navigation.previous.name}
             </Link>
           ) : (
             <span className="pill">Début</span>
           )}
           {detail.navigation.next ? (
-            <Link href={`/inventory/node/${encodeURIComponent(detail.navigation.next.name)}`} className="action-btn">
+            <Link
+              href={`/inventory/node/${encodeURIComponent(detail.navigation.next.name)}`}
+              className="action-btn"
+              prefetch
+            >
               {detail.navigation.next.name} →
             </Link>
           ) : (
@@ -173,7 +176,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           </Link>
           {shellHref ? (
             <Link href={shellHref} className="action-btn primary">
-              Shell intégré
+              Console intégrée
             </Link>
           ) : (
             <span className="pill">Connexion requise</span>

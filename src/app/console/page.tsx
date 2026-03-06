@@ -1,6 +1,5 @@
 import Link from "next/link";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
-import { buildProxmoxNodeShellUrl } from "@/lib/proxmox/console-url";
 
 export const dynamic = "force-dynamic";
 
@@ -10,7 +9,7 @@ type ConsolePageProps = {
 
 const TABS = [
   { id: "overview", label: "Vue globale" },
-  { id: "nodes", label: "Shell nœuds" },
+  { id: "nodes", label: "Consoles nœuds" },
 ] as const;
 
 async function readSearchParams(
@@ -39,7 +38,7 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
       <header className="topbar">
         <div>
           <p className="eyebrow">Console</p>
-          <h1>Shell nœuds</h1>
+          <h1>Console nœuds</h1>
         </div>
         <div className="topbar-meta">
           <Link href="/inventory" className="action-btn primary">
@@ -103,7 +102,7 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
       {activeTab === "nodes" ? (
         <section className="panel">
           <div className="panel-head">
-            <h2>Shell nœuds</h2>
+            <h2>Consoles nœuds</h2>
             <span className="muted">{snapshot.summary.nodes} nœud(x)</span>
           </div>
           {snapshot.nodes.length === 0 ? (
@@ -118,18 +117,15 @@ export default async function ConsolePage({ searchParams }: ConsolePageProps) {
                         {node.name}
                       </Link>
                     </div>
-                    <div className="item-subtitle">Shell xtermjs Proxmox</div>
+                    <div className="item-subtitle">Console nœud intégrée (xtermjs)</div>
                   </div>
                   <div className="quick-actions">
                     <Link href={`/inventory/node/${encodeURIComponent(node.name)}`} className="action-btn">
                       Détails
                     </Link>
                     {hasLiveData ? (
-                      <Link
-                        className="action-btn"
-                        href={buildProxmoxNodeShellUrl({ baseUrl: "", node: node.name })}
-                      >
-                        Ouvrir shell
+                      <Link className="action-btn" href={`/console/node/${encodeURIComponent(node.name)}`}>
+                        Ouvrir console
                       </Link>
                     ) : (
                       <span className="muted">Connexion requise</span>

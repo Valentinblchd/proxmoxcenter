@@ -3,6 +3,7 @@ import { requireRequestCapability } from "@/lib/auth/authz";
 import { getProxmoxConfig } from "@/lib/proxmox/config";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { ensureSameOriginRequest } from "@/lib/security/request-guards";
+import { createConsoleWsTunnelSession } from "@/lib/console/ws-tunnel-session";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -10,15 +11,18 @@ export const dynamic = "force-dynamic";
 type ConsoleSessionRequest =
   | {
       target?: "node-shell";
+      type?: "node-shell";
       node?: unknown;
     }
   | {
       target?: "lxc-shell";
+      type?: "lxc-shell";
       node?: unknown;
       vmid?: unknown;
     }
   | {
       target?: "qemu-vnc";
+      type?: "qemu-vnc";
       node?: unknown;
       vmid?: unknown;
       mode?: unknown;
@@ -55,7 +59,10 @@ function toWsBase(baseUrl: string) {
 function buildTlsWarning(config: NonNullable<ReturnType<typeof getProxmoxConfig>>) {
   if (config.protocol !== "https") return null;
   if (config.tlsMode === "insecure" || config.allowInsecureTls) {
-    return "Le navigateur doit accepter le certificat HTTPS Proxmox pour ouvrir la console intégrée.";
+    return "Console via tunnel interne: TLS Proxmox est en mode permissif côté serveur.";
+  }
+  if (config.tlsMode === "custom-ca") {
+    return "Console via tunnel interne: CA personnalisée utilisée côté serveur.";
   }
   return null;
 }
@@ -86,7 +93,7 @@ export async function POST(request: NextRequest) {
   }
 
   const body = (await request.json().catch(() => ({}))) as ConsoleSessionRequest;
-  const target = asText(body.target, 24);
+  const target = asText(body.target ?? body.type, 24);
   const node = asText(body.node, 120);
   const vmid = "vmid" in body ? asPositiveInt(body.vmid) : null;
 
@@ -105,13 +112,21 @@ export async function POST(request: NextRequest) {
       });
       const { ticket, port } = ticketPayloadToResponse(ticketData);
       const wsUrl = `${toWsBase(proxmox.baseUrl)}/api2/json/nodes/${encodeURIComponent(node)}/vncwebsocket?port=${encodeURIComponent(String(port))}&vncticket=${encodeURIComponent(ticket)}`;
+      const session = createConsoleWsTunnelSession({
+        upstreamWsUrl: wsUrl,
+        ticket,
+        proxmoxOrigin: proxmox.baseUrl,
+        tlsMode: proxmox.tlsMode,
+        allowInsecureTls: proxmox.allowInsecureTls,
+        customCaCertPem: proxmox.customCaCertPem,
+      });
       return NextResponse.json({
         ok: true,
         backend: "terminal",
-        wsUrl,
+        wsPath: session.wsPath,
         ticket,
         port,
-        title: `Shell ${node}`,
+        title: `Console ${node}`,
         warning: buildTlsWarning(proxmox),
       });
     }
@@ -122,10 +137,18 @@ export async function POST(request: NextRequest) {
       });
       const { ticket, port } = ticketPayloadToResponse(ticketData);
       const wsUrl = `${toWsBase(proxmox.baseUrl)}/api2/json/nodes/${encodeURIComponent(node)}/lxc/${vmid}/vncwebsocket?port=${encodeURIComponent(String(port))}&vncticket=${encodeURIComponent(ticket)}`;
+      const session = createConsoleWsTunnelSession({
+        upstreamWsUrl: wsUrl,
+        ticket,
+        proxmoxOrigin: proxmox.baseUrl,
+        tlsMode: proxmox.tlsMode,
+        allowInsecureTls: proxmox.allowInsecureTls,
+        customCaCertPem: proxmox.customCaCertPem,
+      });
       return NextResponse.json({
         ok: true,
         backend: "terminal",
-        wsUrl,
+        wsPath: session.wsPath,
         ticket,
         port,
         title: `Console CT #${vmid}`,
@@ -135,15 +158,55 @@ export async function POST(request: NextRequest) {
 
     if (target === "qemu-vnc" && vmid) {
       const mode = asText("mode" in body ? body.mode : null, 24) ?? "novnc";
+      if (mode === "console") {
+        const ticketData = await proxmoxRequest<ProxmoxConsoleTicket>(
+          `nodes/${encodeURIComponent(node)}/qemu/${vmid}/termproxy`,
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8",
+            },
+            body: new URLSearchParams({ serial: "0" }).toString(),
+          },
+        );
+        const { ticket, port } = ticketPayloadToResponse(ticketData);
+        const wsUrl = `${toWsBase(proxmox.baseUrl)}/api2/json/nodes/${encodeURIComponent(node)}/qemu/${vmid}/vncwebsocket?port=${encodeURIComponent(String(port))}&vncticket=${encodeURIComponent(ticket)}`;
+        const session = createConsoleWsTunnelSession({
+          upstreamWsUrl: wsUrl,
+          ticket,
+          proxmoxOrigin: proxmox.baseUrl,
+          tlsMode: proxmox.tlsMode,
+          allowInsecureTls: proxmox.allowInsecureTls,
+          customCaCertPem: proxmox.customCaCertPem,
+        });
+        return NextResponse.json({
+          ok: true,
+          backend: "terminal",
+          wsPath: session.wsPath,
+          ticket,
+          port,
+          title: `Console série VM #${vmid}`,
+          warning: buildTlsWarning(proxmox),
+        });
+      }
+
       const ticketData = await proxmoxRequest<ProxmoxConsoleTicket>(`nodes/${encodeURIComponent(node)}/qemu/${vmid}/vncproxy`, {
         method: "POST",
       });
       const { ticket, port } = ticketPayloadToResponse(ticketData);
       const wsUrl = `${toWsBase(proxmox.baseUrl)}/api2/json/nodes/${encodeURIComponent(node)}/qemu/${vmid}/vncwebsocket?port=${encodeURIComponent(String(port))}&vncticket=${encodeURIComponent(ticket)}`;
+      const session = createConsoleWsTunnelSession({
+        upstreamWsUrl: wsUrl,
+        ticket,
+        proxmoxOrigin: proxmox.baseUrl,
+        tlsMode: proxmox.tlsMode,
+        allowInsecureTls: proxmox.allowInsecureTls,
+        customCaCertPem: proxmox.customCaCertPem,
+      });
       return NextResponse.json({
         ok: true,
         backend: "novnc",
-        wsUrl,
+        wsPath: session.wsPath,
         ticket,
         port,
         title: mode === "spice" ? `SPICE #${vmid}` : `Console VM #${vmid}`,

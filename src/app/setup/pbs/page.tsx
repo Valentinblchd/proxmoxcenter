@@ -56,8 +56,8 @@ export default function SetupPbsPage() {
             <Link href="/backups?tab=restore" className="action-btn primary">
               Ouvrir restauration cloud
             </Link>
-            <Link href="/settings?tab=connections" className="action-btn">
-              Voir les connexions
+            <Link href="/settings?tab=proxmox" className="action-btn">
+              Voir Proxmox
             </Link>
           </div>
         </section>

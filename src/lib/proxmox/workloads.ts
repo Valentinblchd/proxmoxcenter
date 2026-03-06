@@ -22,6 +22,23 @@ type ProxmoxClusterResource = {
   template?: number;
 };
 
+const WORKLOAD_DETAIL_TIMEOUT_MS = 2200;
+const WORKLOAD_GUEST_TIMEOUT_MS = 1600;
+
+async function withTimeout<T>(promise: Promise<T>, timeoutMs: number): Promise<T | null> {
+  let timer: ReturnType<typeof setTimeout> | null = null;
+  try {
+    return (await Promise.race([
+      promise,
+      new Promise<null>((resolve) => {
+        timer = setTimeout(() => resolve(null), timeoutMs);
+      }),
+    ])) as T | null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
 export type WorkloadRemoteAccessDetails = {
   running: boolean;
   osFamily: WorkloadOsFamily;
@@ -420,15 +437,33 @@ export async function getWorkloadDetailById(options: {
   if (!resource || !resource.node) return null;
 
   const node = resource.node;
-  const [configResult, snapshotsResult, remoteAccess] = await Promise.all([
-    proxmoxRequest<Record<string, unknown>>(
-      `nodes/${encodeURIComponent(node)}/${options.kind}/${options.vmid}/config`,
+  const [configResult, currentResult, snapshotsResult] = await Promise.all([
+    withTimeout(
+      proxmoxRequest<Record<string, unknown>>(
+        `nodes/${encodeURIComponent(node)}/${options.kind}/${options.vmid}/config`,
+      ),
+      WORKLOAD_DETAIL_TIMEOUT_MS,
     ).catch(() => null),
-    proxmoxRequest<unknown[]>(
-      `nodes/${encodeURIComponent(node)}/${options.kind}/${options.vmid}/snapshot`,
-    ).catch(() => []),
-    getWorkloadRemoteAccessDetails({ node, vmid: options.vmid, kind: options.kind }),
+    withTimeout(
+      proxmoxRequest<Record<string, unknown>>(
+        `nodes/${encodeURIComponent(node)}/${options.kind}/${options.vmid}/status/current`,
+      ),
+      WORKLOAD_DETAIL_TIMEOUT_MS,
+    ).catch(() => null),
+    withTimeout(
+      proxmoxRequest<unknown[]>(
+        `nodes/${encodeURIComponent(node)}/${options.kind}/${options.vmid}/snapshot`,
+      ),
+      WORKLOAD_DETAIL_TIMEOUT_MS,
+    ).then((value) => value ?? []),
   ]);
+  const remoteAccess = await getWorkloadRemoteAccessDetails({
+    node,
+    vmid: options.vmid,
+    kind: options.kind,
+    prefetchedConfig: configResult,
+    prefetchedCurrent: currentResult,
+  });
 
   const config = configResult;
   const navigationIndex = navigationItems.findIndex(
@@ -478,16 +513,36 @@ export async function getWorkloadRemoteAccessDetails(options: {
   node: string;
   vmid: number;
   kind: WorkloadKind;
+  prefetchedCurrent?: Record<string, unknown> | null;
+  prefetchedConfig?: Record<string, unknown> | null;
 }): Promise<WorkloadRemoteAccessDetails> {
-  const { node, vmid, kind } = options;
+  const { node, vmid, kind, prefetchedConfig, prefetchedCurrent } = options;
 
-  const [currentResult, configResult] = await Promise.allSettled([
-    proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/${kind}/${vmid}/status/current`),
-    proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/${kind}/${vmid}/config`),
-  ]);
+  let current = prefetchedCurrent ?? null;
+  let config = prefetchedConfig ?? null;
 
-  const current = currentResult.status === "fulfilled" ? currentResult.value : null;
-  const config = configResult.status === "fulfilled" ? configResult.value : null;
+  if (!current || !config) {
+    const [currentResult, configResult] = await Promise.allSettled([
+      current
+        ? Promise.resolve(current)
+        : proxmoxRequest<Record<string, unknown>>(
+            `nodes/${encodeURIComponent(node)}/${kind}/${vmid}/status/current`,
+          ),
+      config
+        ? Promise.resolve(config)
+        : proxmoxRequest<Record<string, unknown>>(
+            `nodes/${encodeURIComponent(node)}/${kind}/${vmid}/config`,
+          ),
+    ]);
+
+    if (!current) {
+      current = currentResult.status === "fulfilled" ? currentResult.value : null;
+    }
+    if (!config) {
+      config = configResult.status === "fulfilled" ? configResult.value : null;
+    }
+  }
+
   const running = asString(current?.status) === "running";
 
   let osInfo: Record<string, unknown> | null = null;
@@ -495,16 +550,25 @@ export async function getWorkloadRemoteAccessDetails(options: {
 
   if (kind === "qemu" && running) {
     const [osInfoResult, interfacesResult] = await Promise.allSettled([
-      proxmoxRequest<Record<string, unknown>>(
-        `nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/get-osinfo`,
+      withTimeout(
+        proxmoxRequest<Record<string, unknown>>(
+          `nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/get-osinfo`,
+        ),
+        WORKLOAD_GUEST_TIMEOUT_MS,
       ),
-      proxmoxRequest<unknown[]>(
-        `nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/network-get-interfaces`,
+      withTimeout(
+        proxmoxRequest<unknown[]>(
+          `nodes/${encodeURIComponent(node)}/qemu/${vmid}/agent/network-get-interfaces`,
+        ),
+        WORKLOAD_GUEST_TIMEOUT_MS,
       ),
     ]);
 
     osInfo = osInfoResult.status === "fulfilled" ? osInfoResult.value : null;
-    guestIps = interfacesResult.status === "fulfilled" ? parseGuestIps(interfacesResult.value) : [];
+    guestIps =
+      interfacesResult.status === "fulfilled" && interfacesResult.value
+        ? parseGuestIps(interfacesResult.value)
+        : [];
   }
 
   const { bridge, vlanTag, staticIps, qemuAgentEnabled } = parseNetworkHints(kind, config);

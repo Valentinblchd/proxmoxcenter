@@ -13,10 +13,7 @@ export default function AssistantMemorySettings({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string>("");
   const hasMemory =
-    Boolean(memory.firstName) ||
-    memory.lastQuestions.length > 0 ||
-    Boolean(memory.lastProvisionDraft) ||
-    Boolean(memory.lastWorkloadAction);
+    memory.lastQuestions.length > 0 || Boolean(memory.lastProvisionDraft);
 
   async function handleReset() {
     if (busy) return;
@@ -54,19 +51,13 @@ export default function AssistantMemorySettings({
   return (
     <div className="stack-sm">
       <div className="row-line">
-        <span>Prénom mémorisé</span>
-        <strong>{memory.firstName ?? "—"}</strong>
-      </div>
-      <div className="row-line">
         <span>Questions mémorisées</span>
         <strong>{memory.lastQuestions.length}</strong>
       </div>
       <div className="row-line">
-        <span>Dernière action</span>
+        <span>Dernier brouillon VM/LXC</span>
         <strong>
-          {memory.lastWorkloadAction
-            ? `${memory.lastWorkloadAction.action} ${memory.lastWorkloadAction.kind.toUpperCase()} #${memory.lastWorkloadAction.vmid}`
-            : "—"}
+          {memory.lastProvisionDraft ? "Disponible" : "—"}
         </strong>
       </div>
       <div className="quick-actions">

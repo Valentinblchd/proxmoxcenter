@@ -1,6 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
-  rememberAssistantFirstName,
   rememberAssistantProvisionDraft,
   rememberAssistantQuestion,
   rememberAssistantWorkloadAction,
@@ -75,6 +74,9 @@ function normalizeText(value: string) {
     { pattern: /\b(?:srv|svr)\b/g, value: " serveur " },
     { pattern: /\bserver\b/g, value: " serveur " },
     { pattern: /\bwebserver\b/g, value: " serveur web " },
+    { pattern: /\b(?:dinwows|windwos|winodws|wndows|windo?s)\b/g, value: " windows " },
+    { pattern: /\b(?:debien|debain)\b/g, value: " debian " },
+    { pattern: /\b(?:coerus|coeur|cœurs|coeurs)\b/g, value: " cores " },
     { pattern: /\bfw\b/g, value: " firewall " },
     { pattern: /\bpare\s*feu\b/g, value: " firewall " },
     { pattern: /\b(?:regls|rgls)\b/g, value: " regles " },
@@ -85,34 +87,6 @@ function normalizeText(value: string) {
   }
 
   return rewritten.replace(/\s+/g, " ").trim();
-}
-
-function personalizeMessage(message: string, firstName: string | null) {
-  if (!firstName) return message;
-  return `${firstName}, ${message}`;
-}
-
-function extractDeclaredFirstName(promptRaw: string) {
-  const patterns = [
-    /(?:je\s*m['’]?\s*appelle|mon\s+prenom\s+est|prenom\s*[:=])\s+([A-Za-zÀ-ÿ' -]{2,40})/i,
-    /(?:my\s+name\s+is|i\s+am)\s+([A-Za-zÀ-ÿ' -]{2,40})/i,
-  ];
-
-  for (const pattern of patterns) {
-    const match = promptRaw.match(pattern);
-    if (!match?.[1]) continue;
-    const token = match[1].trim().split(/\s+/)[0];
-    if (!token) continue;
-    return token;
-  }
-
-  return null;
-}
-
-function wantsNameMemoryRecall(normalizedPrompt: string) {
-  return /\b(quel est mon prenom|comment je m appelle|tu connais mon prenom|mon prenom)\b/i.test(
-    normalizedPrompt,
-  );
 }
 
 function wantsQuestionHistoryRecall(normalizedPrompt: string) {
@@ -147,16 +121,6 @@ function summarizeLastParams(memory: AssistantMemory) {
 }
 
 function buildMemoryRecallResponse(normalizedPrompt: string, memory: AssistantMemory): AssistantIntentResponse | null {
-  if (wantsNameMemoryRecall(normalizedPrompt)) {
-    return {
-      ok: true,
-      intent: "unknown",
-      message: memory.firstName
-        ? `Ton prénom mémorisé est: ${memory.firstName}.`
-        : "Je n’ai pas encore ton prénom en mémoire. Tu peux dire: `Je m'appelle ...`.",
-    };
-  }
-
   if (wantsQuestionHistoryRecall(normalizedPrompt)) {
     const history = memory.lastQuestions.slice(-5);
     return {
@@ -673,7 +637,7 @@ function buildTechnicalHelpResponse(
       ok: true,
       intent: "unknown",
       message:
-        "Pour connecter Proxmox: URL `https://IP:8006`, Token ID (`user@realm!token`) et Token Secret dans Paramètres -> Connexions.",
+        "Pour connecter Proxmox: URL `https://IP:8006`, Token ID (`user@realm!token`) et Token Secret dans Paramètres -> Proxmox.",
       followUps: [
         "Tu peux coller URL + Token ID + Secret, je te dis si le format est valide.",
       ],
@@ -695,7 +659,7 @@ function buildTechnicalHelpResponse(
       ok: true,
       intent: "unknown",
       message:
-        "Tu peux configurer les backups dans Opérations -> Planification: scope (toutes VM/CT ou sélection), fréquence hebdo, rétention (années/mois) et cible cloud.",
+        "Tu peux configurer les backups dans Sauvegardes: scope (toutes VM/CT ou sélection), fréquence, rétention et cible cloud.",
       followUps: [
         "Exemple: 2 backups/semaine, rétention 1 an 3 mois.",
         "Cibles cloud supportées: OneDrive, Google Drive, AWS S3, Azure Blob.",
@@ -712,6 +676,16 @@ function buildTechnicalHelpResponse(
   };
 }
 
+function isGreetingPrompt(normalizedPrompt: string) {
+  return /\b(salut|bonjour|bonsoir|hello|hey|yo|coucou)\b/i.test(normalizedPrompt);
+}
+
+function isPoliteSmallTalkPrompt(normalizedPrompt: string) {
+  return /\b(merci|thank you|ca va|comment vas tu|tu vas bien|bonne journee|bonne soiree)\b/i.test(
+    normalizedPrompt,
+  );
+}
+
 function wantsCreateWorkload(normalizedPrompt: string) {
   const hasCreateVerb =
     /\b(cree|creer|creation|create|provision|deploy|deploie|lance|installe|ajoute|nouveau|nouvelle|new)\b/i.test(
@@ -725,7 +699,15 @@ function wantsCreateWorkload(normalizedPrompt: string) {
     /\b(vcpu|cpu|core|coeur|ram|memoire|memory|disk|disque|stockage|storage|vmid|node|noeud|vmbr)\b/i.test(
       normalizedPrompt,
     );
-  return hasWorkloadNoun && (hasCreateVerb || hasSizingHints);
+  const startsWithWorkloadShortcut =
+    /^(?:vm|lxc|ct|conteneur|container)\b/i.test(normalizedPrompt);
+  const hasOsHint =
+    /\b(windows|linux|debian|ubuntu|rocky|alma|fedora|opensuse|win11|win10|w2k22|w2k19|w2k16)\b/i.test(
+      normalizedPrompt,
+    );
+  const shorthandCreate = startsWithWorkloadShortcut || (hasOsHint && /\b(vm|lxc|ct|conteneur)\b/i.test(normalizedPrompt));
+
+  return hasWorkloadNoun && (hasCreateVerb || hasSizingHints || shorthandCreate);
 }
 
 function buildSummaryMessage(kind: ProvisionKind, draft: Partial<ProvisionDraft>) {
@@ -927,11 +909,7 @@ export async function POST(request: NextRequest) {
   const session = token ? await verifySessionToken(token) : null;
   const memoryScope = session?.username ?? "default";
 
-  let memory = rememberAssistantQuestion(safety.prompt, memoryScope);
-  const declaredFirstName = extractDeclaredFirstName(safety.prompt);
-  if (declaredFirstName) {
-    memory = rememberAssistantFirstName(declaredFirstName, memoryScope);
-  }
+  const memory = rememberAssistantQuestion(safety.prompt, memoryScope);
   const normalizedPrompt = normalizeText(safety.prompt);
   const requiresOperateRole = wantsCreateWorkload(normalizedPrompt) || Boolean(parsePowerAction(normalizedPrompt));
 
@@ -946,32 +924,34 @@ export async function POST(request: NextRequest) {
 
   const memoryRecall = buildMemoryRecallResponse(normalizedPrompt, memory);
   if (memoryRecall) {
-    return NextResponse.json({
-      ...memoryRecall,
-      message: personalizeMessage(memoryRecall.message, memory.firstName),
-    });
-  }
-
-  if (
-    declaredFirstName &&
-    /^.*(?:je\s*m['’]?\s*appelle|mon\s+prenom\s+est|my\s+name\s+is|i\s+am).*$/.test(prompt) &&
-    !wantsCreateWorkload(normalizedPrompt) &&
-    !parsePowerAction(normalizedPrompt)
-  ) {
-    return NextResponse.json({
-      ok: true,
-      intent: "unknown",
-      message: personalizeMessage("Parfait, je m’en souviendrai pour les prochaines réponses.", memory.firstName),
-    } satisfies AssistantIntentResponse);
+    return NextResponse.json(memoryRecall);
   }
 
   if (!wantsCreateWorkload(normalizedPrompt) && !parsePowerAction(normalizedPrompt)) {
+    if (isGreetingPrompt(normalizedPrompt)) {
+      return NextResponse.json({
+        ok: true,
+        intent: "unknown",
+        message:
+          "Salut. Je peux aider sur ProxmoxCenter: création VM/LXC, actions power, backup, sécurité, VLAN/firewall.",
+        followUps: [
+          "Exemple: `Crée une VM Windows 2022 2 vCPU 12 Go 60 Go sur pve1`.",
+          "Exemple: `Quelle segmentation VLAN pour un serveur web ?`.",
+        ],
+      } satisfies AssistantIntentResponse);
+    }
+
+    if (isPoliteSmallTalkPrompt(normalizedPrompt)) {
+      return NextResponse.json({
+        ok: true,
+        intent: "unknown",
+        message: "Reçu. Si tu veux, donne directement ta demande technique ProxmoxCenter et je te guide.",
+      } satisfies AssistantIntentResponse);
+    }
+
     const securityAdvice = buildTechnicalSecurityResponse(normalizedPrompt, memory);
     if (securityAdvice) {
-      return NextResponse.json({
-        ...securityAdvice,
-        message: personalizeMessage(securityAdvice.message, memory.firstName),
-      });
+      return NextResponse.json(securityAdvice);
     }
   }
 
@@ -1001,8 +981,5 @@ export async function POST(request: NextRequest) {
     }, memoryScope);
   }
 
-  return NextResponse.json({
-    ...response,
-    message: personalizeMessage(response.message, memory.firstName),
-  });
+  return NextResponse.json(response);
 }

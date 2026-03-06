@@ -66,8 +66,8 @@ export default async function WorkloadConsolePage({ params, searchParams }: Page
       </section>
 
       <ProxmoxConsoleSession
-        title={kind === "qemu" ? `${detail.name} • console VM` : `${detail.name} • shell CT`}
-        subtitle={kind === "qemu" ? "Session graphique intégrée" : "Session shell intégrée"}
+        title={kind === "qemu" ? `${detail.name} • console VM` : `${detail.name} • console CT`}
+        subtitle={kind === "qemu" ? "Session graphique intégrée" : "Session console intégrée"}
         target={
           kind === "qemu"
             ? {

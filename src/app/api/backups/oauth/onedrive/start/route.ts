@@ -72,7 +72,7 @@ export async function GET(request: NextRequest) {
     null;
   if (!clientId) {
     return NextResponse.json(
-      { ok: false, error: "OneDrive OAuth n'est pas encore configuré dans Paramètres -> Connexions." },
+      { ok: false, error: "OneDrive OAuth n'est pas encore configuré dans Paramètres -> Proxmox." },
       { status: 400 },
     );
   }

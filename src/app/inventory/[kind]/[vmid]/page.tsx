@@ -2,17 +2,12 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import InventoryRemoteAccess from "@/components/inventory-remote-access";
 import InventoryUpdateStatus from "@/components/inventory-update-status";
 import InventoryWorkloadActions from "@/components/inventory-workload-actions";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
-import {
-  buildProxmoxWorkloadConsoleUrl,
-  buildProxmoxWorkloadNoVncUrl,
-  buildProxmoxWorkloadSpiceUrl,
-  buildProxmoxWorkloadXtermUrl,
-} from "@/lib/proxmox/console-url";
 import { getWorkloadDetailById, type WorkloadKind } from "@/lib/proxmox/workloads";
 import { formatBytes, formatPercent, formatUptime } from "@/lib/ui/format";
 
@@ -33,6 +28,14 @@ function asKind(value: string): WorkloadKind | null {
 function parseVmid(value: string) {
   const parsed = Number.parseInt(value, 10);
   return Number.isInteger(parsed) && parsed > 0 ? parsed : null;
+}
+
+function buildWorkloadConsoleHref(kind: WorkloadKind, vmid: number, mode?: "console" | "novnc" | "spice") {
+  if (kind === "qemu") {
+    const query = mode ? `?mode=${encodeURIComponent(mode)}` : "";
+    return `/console/workload/qemu/${vmid}${query}`;
+  }
+  return `/console/workload/lxc/${vmid}`;
 }
 
 export async function generateMetadata({ params }: WorkloadPageProps): Promise<Metadata> {
@@ -89,63 +92,37 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
   const canOperate = hasRuntimeCapability(session?.role, "operate");
-  const consoleHref = buildProxmoxWorkloadConsoleUrl({
-    baseUrl: "",
-    node: detail.node,
-    vmid: detail.vmid,
-    kind: detail.kind,
-  });
+  const consoleHref = buildWorkloadConsoleHref(detail.kind, detail.vmid, detail.kind === "qemu" ? "novnc" : undefined);
   const consoleOptions =
     detail.kind === "qemu"
       ? [
           {
-            id: "vnc",
-            label: "VNC",
-            href: buildProxmoxWorkloadConsoleUrl({
-              baseUrl: "",
-              node: detail.node,
-              vmid: detail.vmid,
-              kind: detail.kind,
-            }),
+            id: "console",
+            label: "Console série",
+            href: buildWorkloadConsoleHref(detail.kind, detail.vmid, "console"),
           },
           {
             id: "novnc",
             label: "noVNC",
-            href: buildProxmoxWorkloadNoVncUrl({
-              baseUrl: "",
-              node: detail.node,
-              vmid: detail.vmid,
-            }),
+            href: buildWorkloadConsoleHref(detail.kind, detail.vmid, "novnc"),
           },
           {
             id: "spice",
             label: "SPICE",
-            href: buildProxmoxWorkloadSpiceUrl({
-              baseUrl: "",
-              node: detail.node,
-              vmid: detail.vmid,
-            }),
+            href: buildWorkloadConsoleHref(detail.kind, detail.vmid, "spice"),
           },
         ]
       : [
           {
             id: "xtermjs",
             label: "xtermjs",
-            href: buildProxmoxWorkloadXtermUrl({
-              baseUrl: "",
-              node: detail.node,
-              vmid: detail.vmid,
-            }),
+            href: buildWorkloadConsoleHref(detail.kind, detail.vmid),
           },
         ];
   const updateShellHref =
     detail.kind === "lxc"
-      ? buildProxmoxWorkloadXtermUrl({
-          baseUrl: "",
-          node: detail.node,
-          vmid: detail.vmid,
-        })
-      : consoleHref;
+      ? buildWorkloadConsoleHref(detail.kind, detail.vmid)
+      : buildWorkloadConsoleHref(detail.kind, detail.vmid, "console");
 
   return (
     <section className="content content-wide workload-page">
@@ -166,10 +143,12 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
           </h1>
         </div>
         <div className="topbar-meta">
+          <InventoryRefreshButton auto intervalMs={5000} />
           {detail.navigation.previous ? (
             <Link
               href={`/inventory/${detail.navigation.previous.kind}/${detail.navigation.previous.vmid}`}
               className="action-btn"
+              prefetch
             >
               ← {detail.navigation.previous.vmid}
             </Link>
@@ -180,6 +159,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             <Link
               href={`/inventory/${detail.navigation.next.kind}/${detail.navigation.next.vmid}`}
               className="action-btn"
+              prefetch
             >
               {detail.navigation.next.vmid} →
             </Link>
@@ -216,12 +196,39 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
 
         <div className="workload-hero-stats">
           <div className="inventory-metric-card">
+            <span className="muted">CPU</span>
+            <strong>{formatPercent(detail.cpuLoad)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span className="tone-green" style={{ width: `${Math.round(detail.cpuLoad * 100)}%` }} />
+            </div>
+          </div>
+          <div className="inventory-metric-card">
             <span className="muted">RAM</span>
             <strong>{formatBytes(detail.memoryUsed)} / {formatBytes(detail.memoryTotal)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span
+                className="tone-orange"
+                style={{
+                  width: `${Math.round(
+                    detail.memoryTotal > 0 ? (detail.memoryUsed / detail.memoryTotal) * 100 : 0,
+                  )}%`,
+                }}
+              />
+            </div>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Disque</span>
             <strong>{formatBytes(detail.diskUsed)} / {formatBytes(detail.diskTotal)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span
+                className="tone-orange"
+                style={{
+                  width: `${Math.round(
+                    detail.diskTotal > 0 ? (detail.diskUsed / detail.diskTotal) * 100 : 0,
+                  )}%`,
+                }}
+              />
+            </div>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Uptime</span>
@@ -250,7 +257,6 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
       <section className="panel">
         <InventoryRemoteAccess
           key={detail.id}
-          name={detail.name}
           kind={detail.kind}
           osFamily={detail.remoteAccess.osFamily}
           osLabel={detail.remoteAccess.osLabel}
@@ -301,12 +307,6 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
                 <div className="item-title">Boot</div>
               </div>
               <div className="item-metric">{detail.bootOrder ?? "—"}</div>
-            </article>
-            <article className="mini-list-item">
-              <div>
-                <div className="item-title">IP principale</div>
-              </div>
-              <div className="item-metric">{detail.remoteAccess.primaryIp ?? "—"}</div>
             </article>
           </div>
         </section>

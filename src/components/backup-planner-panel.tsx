@@ -10,8 +10,10 @@ type BackupTargetMode = "local" | "cloud";
 type BackupCloudProvider = "onedrive" | "gdrive" | "aws-s3" | "azure-blob";
 type BackupCloudProviderChoice = "" | BackupCloudProvider;
 type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
-type BackupWorkspaceMode = "simple" | "advanced";
 type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
+type PlanDeliveryMode = "local" | "cloud" | "local-cloud";
+type PlanRecurrencePreset = "q12h" | "daily" | "twice-weekly" | "weekly";
+type PlanRetentionPreset = "custom" | "auto-short" | "auto-balanced" | "auto-long";
 
 type BackupPlan = {
   id: string;
@@ -470,12 +472,71 @@ function defaultRestoreForm(): RestoreFormState {
   };
 }
 
+function inferPlanDeliveryMode(form: PlanFormState): PlanDeliveryMode {
+  if (form.targetMode === "local") return "local";
+  return form.backupStorage.trim() ? "local-cloud" : "cloud";
+}
+
+function applyPlanDeliveryMode(form: PlanFormState, mode: PlanDeliveryMode): PlanFormState {
+  if (mode === "local") {
+    return {
+      ...form,
+      targetMode: "local",
+      cloudTargetId: "",
+      backupStorage: form.backupStorage.trim() || "local",
+    };
+  }
+  if (mode === "cloud") {
+    return {
+      ...form,
+      targetMode: "cloud",
+      backupStorage: "",
+    };
+  }
+  return {
+    ...form,
+    targetMode: "cloud",
+    backupStorage: form.backupStorage.trim() || "local",
+  };
+}
+
 function formatRetentionLabel(years: number, months: number) {
   const chunks: string[] = [];
   if (years > 0) chunks.push(`${years} an${years > 1 ? "s" : ""}`);
   if (months > 0) chunks.push(`${months} mois`);
   if (chunks.length === 0) return "0 mois";
   return chunks.join(" ");
+}
+
+function recurrencePresetFromRunsPerWeek(runsPerWeek: number): PlanRecurrencePreset {
+  if (runsPerWeek >= 14) return "q12h";
+  if (runsPerWeek >= 7) return "daily";
+  if (runsPerWeek >= 2) return "twice-weekly";
+  return "weekly";
+}
+
+function runsPerWeekFromRecurrencePreset(preset: PlanRecurrencePreset) {
+  if (preset === "q12h") return 14;
+  if (preset === "daily") return 7;
+  if (preset === "twice-weekly") return 2;
+  return 1;
+}
+
+function retentionPresetFromValues(years: number, months: number): PlanRetentionPreset {
+  if (years === 0 && months === 1) return "auto-short";
+  if (years === 1 && months === 3) return "auto-balanced";
+  if (years === 1 && months === 0) return "auto-long";
+  return "custom";
+}
+
+function retentionValuesFromPreset(preset: Exclude<PlanRetentionPreset, "custom">) {
+  if (preset === "auto-short") {
+    return { retentionYears: 0, retentionMonths: 1 };
+  }
+  if (preset === "auto-balanced") {
+    return { retentionYears: 1, retentionMonths: 3 };
+  }
+  return { retentionYears: 1, retentionMonths: 0 };
 }
 
 function formatBytes(value: number | null) {
@@ -868,9 +929,6 @@ export default function BackupPlannerPanel({
   const [notice, setNotice] = useState<string | null>(null);
   const [config, setConfig] = useState<BackupConfigResponse | null>(null);
   const [activeTab, setActiveTab] = useState<BackupWorkspaceTab>(initialTab);
-  const [backupMode, setBackupMode] = useState<BackupWorkspaceMode>(
-    initialTab === "plans" || initialTab === "pbs" ? "advanced" : "simple",
-  );
   const [historyFilter, setHistoryFilter] = useState<BackupHistoryFilter>("all");
   const [planForm, setPlanForm] = useState<PlanFormState>(defaultPlanForm);
   const [targetForm, setTargetForm] = useState<TargetFormState>(defaultTargetForm);
@@ -1047,37 +1105,25 @@ export default function BackupPlannerPanel({
   }, [initialTab]);
 
   useEffect(() => {
-    if (initialTab === "plans" || initialTab === "pbs") {
-      setBackupMode("advanced");
-    }
-  }, [initialTab]);
-
-  useEffect(() => {
     if (pbsStatus?.runtimeSaved?.namespace && !pbsNamespace) {
       setPbsNamespace(pbsStatus.runtimeSaved.namespace);
     }
   }, [pbsNamespace, pbsStatus]);
 
   useEffect(() => {
-    if (backupMode === "simple" && activeTab === "plans") {
-      setActiveTab("targets");
-    }
-    if (backupMode === "simple" && activeTab === "pbs") {
-      setActiveTab("overview");
-    }
     if (activeTab === "pbs" && pbsStatus && !pbsStatus.configured) {
       setActiveTab("overview");
     }
-  }, [activeTab, backupMode, pbsStatus]);
+  }, [activeTab, pbsStatus]);
 
   useEffect(() => {
-    if (backupMode === "simple" && restoreForm.destination === "pbs") {
+    if (restoreForm.destination === "pbs" && !pbsStatus?.configured) {
       setRestoreForm((current) => ({
         ...current,
         destination: "proxmox",
       }));
     }
-  }, [backupMode, restoreForm.destination]);
+  }, [pbsStatus?.configured, restoreForm.destination]);
 
   useEffect(() => {
     setPbsLoaded(false);
@@ -1370,6 +1416,29 @@ export default function BackupPlannerPanel({
     setCloudFolderTrail([]);
     setNewCloudFolderName("");
     setCloudFolderModalOpen(false);
+  }
+
+  function chooseLocalStorageForPlan(storageName: string) {
+    setPlanForm((current) => ({
+      ...current,
+      backupStorage: storageName,
+      targetMode: "local",
+      cloudTargetId: "",
+    }));
+    setActiveTab("plans");
+    setNotice(`Stockage local ${storageName} sélectionné pour le prochain plan.`);
+    setError(null);
+  }
+
+  function chooseCloudTargetForPlan(targetId: string) {
+    setPlanForm((current) => ({
+      ...current,
+      targetMode: "cloud",
+      cloudTargetId: targetId,
+    }));
+    setActiveTab("plans");
+    setNotice("Cible cloud liée au prochain plan.");
+    setError(null);
   }
 
   function populatePlanForm(plan: BackupPlan) {
@@ -2259,6 +2328,9 @@ export default function BackupPlannerPanel({
   const selectedPbsGroup = pbsGroups.find((item) => item.path === pbsSelectedGroup) ?? null;
   const selectedPbsSnapshot = pbsSnapshots.find((item) => item.path === pbsSelectedSnapshot) ?? null;
   const selectedPbsFile = pbsFiles.find((item) => item.archiveName === pbsSelectedArchive) ?? null;
+  const planDeliveryMode = inferPlanDeliveryMode(planForm);
+  const recurrencePreset = recurrencePresetFromRunsPerWeek(planForm.runsPerWeek);
+  const retentionPreset = retentionPresetFromValues(planForm.retentionYears, planForm.retentionMonths);
   const filteredExecutions = executions.filter((execution) => {
     if (historyFilter === "all") return true;
     if (historyFilter === "failed") {
@@ -2266,23 +2338,14 @@ export default function BackupPlannerPanel({
     }
     return execution.status === historyFilter;
   });
-  const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> =
-    backupMode === "simple"
-      ? [
-          { id: "overview", label: "Vue" },
-          { id: "targets", label: "Configurer" },
-          { id: "history", label: "Historique" },
-          { id: "restore", label: "Restaurer" },
-        ]
-      : [
-          { id: "overview", label: "Vue" },
-          { id: "plans", label: "Plans" },
-          { id: "targets", label: "Cibles" },
-          { id: "history", label: "Historique" },
-          { id: "restore", label: "Restaurer" },
-          ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
-        ];
-  const showCombinedSetup = backupMode === "simple" && activeTab === "targets";
+  const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> = [
+    { id: "overview", label: "Accueil" },
+    { id: "targets", label: "Local / Cloud" },
+    { id: "plans", label: "Plans" },
+    { id: "history", label: "Runs / erreurs" },
+    { id: "restore", label: "Restore + run actif" },
+    ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
+  ];
   const showTargetsPanel = activeTab === "targets";
   const showPlansPanel = activeTab === "plans";
 
@@ -2294,23 +2357,6 @@ export default function BackupPlannerPanel({
           <span className="muted">
             {config?.mode === "live" ? "Proxmox live" : "Mode offline"}
           </span>
-        </div>
-
-        <div className="provision-segment">
-          <button
-            type="button"
-            className={`provision-seg-btn${backupMode === "simple" ? " is-active" : ""}`}
-            onClick={() => setBackupMode("simple")}
-          >
-            Simple
-          </button>
-          <button
-            type="button"
-            className={`provision-seg-btn${backupMode === "advanced" ? " is-active" : ""}`}
-            onClick={() => setBackupMode("advanced")}
-          >
-            Avancé
-          </button>
         </div>
 
         <div className="hub-tabs">
@@ -2531,7 +2577,7 @@ export default function BackupPlannerPanel({
                   <div className="backup-empty-note">
                     <p className="muted">Aucun stockage backup local détecté.</p>
                     <button type="button" className="action-btn" onClick={() => setActiveTab("targets")}>
-                      Configurer les cibles
+                      Configurer local/cloud
                     </button>
                   </div>
                 ) : (
@@ -2580,6 +2626,46 @@ export default function BackupPlannerPanel({
           <div className="panel-head">
             <h2>{planForm.id ? "Modifier un plan" : "Nouveau plan backup"}</h2>
             <span className="muted">Exécution {planForm.runsPerWeek}x / semaine</span>
+          </div>
+
+          <div className="hint-box">
+            <div className="item-title">Créer un plan</div>
+            <div className="item-subtitle">1) Type  2) Horaire  3) VM/CT  4) Rétention</div>
+            <div className="provision-segment" role="group" aria-label="Type de plan rapide">
+              <button
+                type="button"
+                className={`provision-seg-btn${planDeliveryMode === "local" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) =>
+                    applyPlanDeliveryMode(current, "local"),
+                  )
+                }
+              >
+                Local
+              </button>
+              <button
+                type="button"
+                className={`provision-seg-btn${planDeliveryMode === "cloud" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) =>
+                    applyPlanDeliveryMode(current, "cloud"),
+                  )
+                }
+              >
+                Cloud
+              </button>
+              <button
+                type="button"
+                className={`provision-seg-btn${planDeliveryMode === "local-cloud" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) =>
+                    applyPlanDeliveryMode(current, "local-cloud"),
+                  )
+                }
+              >
+                Local + Cloud
+              </button>
+            </div>
           </div>
 
           <form className="provision-panel" onSubmit={onSavePlan}>
@@ -2686,27 +2772,38 @@ export default function BackupPlannerPanel({
 
             <div className="provision-grid">
               <label className="provision-field">
-                <span className="provision-field-label">Fréquence / semaine</span>
-                <input
+                <span className="provision-field-label">Récurrence</span>
+                <select
                   className="provision-input"
-                  type="number"
-                  min={1}
-                  max={14}
-                  value={planForm.runsPerWeek}
+                  value={recurrencePreset}
                   onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "1", 10);
+                    const preset = event.target.value as PlanRecurrencePreset;
                     setPlanForm((current) => ({
                       ...current,
-                      runsPerWeek: Number.isInteger(next) ? next : current.runsPerWeek,
+                      runsPerWeek: runsPerWeekFromRecurrencePreset(preset),
                     }));
                   }}
                   required
-                />
+                >
+                  <option value="q12h">Toutes les 12 heures</option>
+                  <option value="daily">Tous les jours</option>
+                  <option value="twice-weekly">Deux fois par semaine</option>
+                  <option value="weekly">Chaque semaine</option>
+                </select>
               </label>
 
+              <div className="hint-box">
+                <div className="row-line">
+                  <span>Passages / semaine</span>
+                  <strong>{planForm.runsPerWeek}</strong>
+                </div>
+              </div>
+            </div>
+
+            {planDeliveryMode !== "cloud" ? (
               <label className="provision-field">
                 <span className="provision-field-label">
-                  Stockage backup Proxmox
+                  Stockage backup local
                   <small>Ex: local, pbs, ceph-backup</small>
                 </span>
                 <input
@@ -2719,32 +2816,14 @@ export default function BackupPlannerPanel({
                     }))
                   }
                   placeholder="local"
+                  required
                 />
               </label>
-            </div>
+            ) : null}
 
-            <div className="provision-grid">
+            {planDeliveryMode !== "local" ? (
               <label className="provision-field">
-                <span className="provision-field-label">Cible</span>
-                <select
-                  className="provision-input"
-                  value={planForm.targetMode}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({
-                      ...current,
-                      targetMode: event.target.value === "cloud" ? "cloud" : "local",
-                    }))
-                  }
-                >
-                  <option value="local">Stockage Proxmox/PBS</option>
-                  <option value="cloud">Extension cloud</option>
-                </select>
-              </label>
-            </div>
-
-            {planForm.targetMode === "cloud" ? (
-              <label className="provision-field">
-                <span className="provision-field-label">Cible cloud liée</span>
+                <span className="provision-field-label">Cible cloud</span>
                 <select
                   className="provision-input"
                   value={planForm.cloudTargetId}
@@ -2800,21 +2879,59 @@ export default function BackupPlannerPanel({
               </label>
             </div>
 
+            <div className="provision-segment" role="group" aria-label="Presets de rétention">
+              <button
+                type="button"
+                className={`provision-seg-btn${retentionPreset === "auto-short" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) => ({
+                    ...current,
+                    ...retentionValuesFromPreset("auto-short"),
+                  }))
+                }
+              >
+                Auto court
+              </button>
+              <button
+                type="button"
+                className={`provision-seg-btn${retentionPreset === "auto-balanced" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) => ({
+                    ...current,
+                    ...retentionValuesFromPreset("auto-balanced"),
+                  }))
+                }
+              >
+                Auto équilibré
+              </button>
+              <button
+                type="button"
+                className={`provision-seg-btn${retentionPreset === "auto-long" ? " is-active" : ""}`}
+                onClick={() =>
+                  setPlanForm((current) => ({
+                    ...current,
+                    ...retentionValuesFromPreset("auto-long"),
+                  }))
+                }
+              >
+                Auto long
+              </button>
+              <button
+                type="button"
+                className={`provision-seg-btn${retentionPreset === "custom" ? " is-active" : ""}`}
+                onClick={() => {
+                  /* Mode manuel: conserve les valeurs courantes */
+                }}
+              >
+                Manuel
+              </button>
+            </div>
+
             <div className="hint-box">
               <p className="muted">
                 Rétention demandée: <strong>{formatRetentionLabel(planForm.retentionYears, planForm.retentionMonths)}</strong>
               </p>
             </div>
-
-            <label className="provision-field">
-              <span className="provision-field-label">Notes</span>
-              <textarea
-                className="provision-textarea"
-                value={planForm.notes}
-                onChange={(event) => setPlanForm((current) => ({ ...current, notes: event.target.value }))}
-                placeholder="Ex: plan critique, fenêtre samedi/dimanche"
-              />
-            </label>
 
             <div className="provision-actions">
               <button className="action-btn primary" type="submit" disabled={busy}>
@@ -2880,6 +2997,18 @@ export default function BackupPlannerPanel({
             </span>
           </div>
 
+          <div className="hint-box">
+            <div className="item-title">Parcours local recommandé</div>
+            <div className="item-subtitle">
+              1) Choisis un stockage local ci-dessous • 2) Crée le plan • 3) Vérifie l’historique des runs.
+            </div>
+            <div className="quick-actions">
+              <button type="button" className="action-btn" onClick={() => setActiveTab("plans")}>
+                Créer un plan local
+              </button>
+            </div>
+          </div>
+
           <div className="mini-list">
             {localStorages.length === 0 ? (
               <div className="backup-empty-note">
@@ -2900,14 +3029,7 @@ export default function BackupPlannerPanel({
                   <button
                     type="button"
                     className="action-btn"
-                    onClick={() => {
-                      setPlanForm((current) => ({
-                        ...current,
-                        backupStorage: storage.storage,
-                        targetMode: "local",
-                      }));
-                      setActiveTab("plans");
-                    }}
+                    onClick={() => chooseLocalStorageForPlan(storage.storage)}
                   >
                     Utiliser pour un plan local
                   </button>
@@ -2926,30 +3048,30 @@ export default function BackupPlannerPanel({
           <form className="provision-panel" onSubmit={onSaveCloudTarget}>
             <div className="provision-field">
               <span className="provision-field-label">Provider cloud</span>
-              <div className="provision-segment backup-provider-choice">
+              <select
+                className="provision-input"
+                value={targetProviderSelection}
+                onChange={(event) => {
+                  const provider = event.target.value as BackupCloudProviderChoice;
+                  setTargetProviderSelection(provider);
+                  setTargetForm((current) => ({
+                    ...current,
+                    provider: provider || current.provider,
+                    settings: current.settings.encryptupload
+                      ? { encryptupload: current.settings.encryptupload }
+                      : ({} as Record<string, string>),
+                    secrets: current.secrets.encryptionpassphrase
+                      ? { encryptionpassphrase: current.secrets.encryptionpassphrase }
+                      : ({} as Record<string, string>),
+                  }));
+                }}
+              >
                 {CLOUD_PROVIDER_OPTIONS.map((option) => (
-                  <button
-                    key={option.id || "none"}
-                    type="button"
-                    className={`provision-seg-btn${targetProviderSelection === option.id ? " is-active" : ""}`}
-                    onClick={() => {
-                      setTargetProviderSelection(option.id);
-                      setTargetForm((current) => ({
-                        ...current,
-                        provider: option.id || current.provider,
-                        settings: current.settings.encryptupload
-                          ? { encryptupload: current.settings.encryptupload }
-                          : ({} as Record<string, string>),
-                        secrets: current.secrets.encryptionpassphrase
-                          ? { encryptionpassphrase: current.secrets.encryptionpassphrase }
-                          : ({} as Record<string, string>),
-                      }));
-                    }}
-                  >
+                  <option key={option.id || "none"} value={option.id}>
                     {option.label}
-                  </button>
+                  </option>
                 ))}
-              </div>
+              </select>
             </div>
 
             {!selectedTargetProvider ? (
@@ -3006,7 +3128,7 @@ export default function BackupPlannerPanel({
                     </p>
                     {cloudOauthMode === "local" ? (
                       <div className="setup-actions">
-                        <Link className="action-btn" href="/settings?tab=connections">
+                        <Link className="action-btn" href="/settings?tab=proxmox">
                           Configurer OneDrive / Google Drive
                         </Link>
                       </div>
@@ -3260,6 +3382,9 @@ export default function BackupPlannerPanel({
                   })()}
                 </div>
                 <div className="backup-plan-actions">
+                  <button type="button" className="action-btn" onClick={() => chooseCloudTargetForPlan(target.id)}>
+                    Utiliser dans un plan
+                  </button>
                   <button type="button" className="action-btn" onClick={() => populateTargetForm(target)}>
                     Modifier
                   </button>
@@ -3272,282 +3397,6 @@ export default function BackupPlannerPanel({
             {cloudTargets.length === 0 ? (
               <div className="hint-box">
                 <p className="muted">Aucune cible cloud configurée.</p>
-              </div>
-            ) : null}
-          </div>
-        </section>
-      </section>
-      ) : null}
-
-      {showCombinedSetup ? (
-      <section className="content-grid">
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Planification</h2>
-            <span className="muted">{config?.plans.length ?? 0} plan(s)</span>
-          </div>
-
-          <form className="provision-panel" onSubmit={onSavePlan}>
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Nom du plan</span>
-                <input
-                  className="provision-input"
-                  value={planForm.name}
-                  onChange={(event) => setPlanForm((current) => ({ ...current, name: event.target.value }))}
-                  placeholder="Backup production hebdo"
-                  required
-                />
-              </label>
-
-              <label className="provision-field">
-                <span className="provision-field-label">Heure préférée</span>
-                <input
-                  className="provision-input"
-                  type="time"
-                  value={planForm.preferredTime}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({ ...current, preferredTime: event.target.value || "01:00" }))
-                  }
-                  required
-                />
-              </label>
-            </div>
-
-            <div className="provision-check-row">
-              <label className="provision-check">
-                <input
-                  type="checkbox"
-                  checked={planForm.enabled}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({ ...current, enabled: event.target.checked }))
-                  }
-                />
-                Plan actif
-              </label>
-              <label className="provision-check">
-                <input
-                  type="checkbox"
-                  checked={planForm.includeKinds.includes("qemu")}
-                  onChange={() => toggleKind("qemu")}
-                />
-                Inclure VM
-              </label>
-              <label className="provision-check">
-                <input
-                  type="checkbox"
-                  checked={planForm.includeKinds.includes("lxc")}
-                  onChange={() => toggleKind("lxc")}
-                />
-                Inclure CT
-              </label>
-            </div>
-
-            <div className="provision-segment">
-              <button
-                type="button"
-                className={`provision-seg-btn${planForm.scope === "all" ? " is-active" : ""}`}
-                onClick={() => setPlanForm((current) => ({ ...current, scope: "all" }))}
-              >
-                Toutes les VM/CT
-              </button>
-              <button
-                type="button"
-                className={`provision-seg-btn${planForm.scope === "selected" ? " is-active" : ""}`}
-                onClick={() => setPlanForm((current) => ({ ...current, scope: "selected" }))}
-              >
-                Sélection manuelle
-              </button>
-            </div>
-
-            {planForm.scope === "selected" ? (
-              <div className="backup-workload-picker">
-                <input
-                  className="provision-input"
-                  value={workloadFilter}
-                  onChange={(event) => setWorkloadFilter(event.target.value)}
-                  placeholder="Filtrer (nom, node, vmid)"
-                />
-                <div className="backup-workload-list">
-                  {filteredWorkloads.map((workload) => (
-                    <label key={`simple-${workload.id}`} className="backup-workload-item">
-                      <input
-                        type="checkbox"
-                        checked={planForm.workloadIds.includes(workload.id)}
-                        onChange={() => toggleWorkloadSelection(workload.id)}
-                      />
-                      <span>
-                        {workload.name} ({workload.kind.toUpperCase()} #{workload.vmid}) • {workload.node}
-                      </span>
-                    </label>
-                  ))}
-                  {filteredWorkloads.length === 0 ? (
-                    <p className="muted">Aucune VM/CT trouvée pour ce filtre.</p>
-                  ) : null}
-                </div>
-              </div>
-            ) : null}
-
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Fréquence / semaine</span>
-                <input
-                  className="provision-input"
-                  type="number"
-                  min={1}
-                  max={14}
-                  value={planForm.runsPerWeek}
-                  onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "1", 10);
-                    setPlanForm((current) => ({
-                      ...current,
-                      runsPerWeek: Number.isInteger(next) ? next : current.runsPerWeek,
-                    }));
-                  }}
-                  required
-                />
-              </label>
-
-              <label className="provision-field">
-                <span className="provision-field-label">Stockage backup Proxmox</span>
-                <input
-                  className="provision-input"
-                  value={planForm.backupStorage}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({
-                      ...current,
-                      backupStorage: event.target.value,
-                    }))
-                  }
-                  placeholder="local"
-                />
-              </label>
-            </div>
-
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Cible</span>
-                <select
-                  className="provision-input"
-                  value={planForm.targetMode}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({
-                      ...current,
-                      targetMode: event.target.value === "cloud" ? "cloud" : "local",
-                    }))
-                  }
-                >
-                  <option value="local">Stockage Proxmox</option>
-                  <option value="cloud">Extension cloud</option>
-                </select>
-              </label>
-
-              {planForm.targetMode === "cloud" ? (
-                <label className="provision-field">
-                  <span className="provision-field-label">Cible cloud liée</span>
-                  <select
-                    className="provision-input"
-                    value={planForm.cloudTargetId}
-                    onChange={(event) =>
-                      setPlanForm((current) => ({ ...current, cloudTargetId: event.target.value }))
-                    }
-                    required
-                  >
-                    <option value="">Sélectionner une cible cloud</option>
-                    {selectableCloudTargets.map((target) => (
-                      <option key={`simple-target-${target.id}`} value={target.id}>
-                        {target.name} ({PROVIDER_LABEL[target.provider]})
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ) : <div />}
-            </div>
-
-            <div className="provision-grid">
-              <label className="provision-field">
-                <span className="provision-field-label">Rétention (années)</span>
-                <input
-                  className="provision-input"
-                  type="number"
-                  min={0}
-                  max={10}
-                  value={planForm.retentionYears}
-                  onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "0", 10);
-                    setPlanForm((current) => ({
-                      ...current,
-                      retentionYears: Number.isInteger(next) ? next : current.retentionYears,
-                    }));
-                  }}
-                />
-              </label>
-              <label className="provision-field">
-                <span className="provision-field-label">Rétention (mois)</span>
-                <input
-                  className="provision-input"
-                  type="number"
-                  min={0}
-                  max={11}
-                  value={planForm.retentionMonths}
-                  onChange={(event) => {
-                    const next = Number.parseInt(event.target.value || "0", 10);
-                    setPlanForm((current) => ({
-                      ...current,
-                      retentionMonths: Number.isInteger(next) ? next : current.retentionMonths,
-                    }));
-                  }}
-                />
-              </label>
-            </div>
-
-            <div className="provision-actions">
-              <button className="action-btn primary" type="submit" disabled={busy}>
-                {busy ? "Enregistrement..." : planForm.id ? "Mettre à jour le plan" : "Créer le plan"}
-              </button>
-              <button className="action-btn" type="button" onClick={resetPlanForm} disabled={busy}>
-                Réinitialiser
-              </button>
-            </div>
-          </form>
-        </section>
-
-        <section className="panel">
-          <div className="panel-head">
-            <h2>Plans existants</h2>
-            <span className="muted">{config?.plans.length ?? 0} plan(s)</span>
-          </div>
-          <div className="mini-list">
-            {(config?.plans ?? []).map((plan) => (
-              <article key={`simple-plan-${plan.id}`} className="mini-list-item">
-                <div>
-                  <div className="item-title">
-                    {plan.name}
-                    <span className={`inventory-badge ${plan.enabled ? "status-running" : "status-stopped"}`}>
-                      {plan.enabled ? "Actif" : "Pause"}
-                    </span>
-                  </div>
-                  <div className="item-subtitle">
-                    {plan.scope === "all"
-                      ? "Toutes VM/CT"
-                      : `${plan.workloadIds.length} workload(s) sélectionnée(s)`}{" "}
-                    • {plan.runsPerWeek}x/semaine • {formatRetentionLabel(plan.retentionYears, plan.retentionMonths)}
-                    {plan.backupStorage ? ` • storage ${plan.backupStorage}` : ""}
-                  </div>
-                </div>
-                <div className="backup-plan-actions">
-                  <button type="button" className="action-btn" onClick={() => populatePlanForm(plan)}>
-                    Modifier
-                  </button>
-                  <button type="button" className="action-btn" onClick={() => void onDeletePlan(plan.id)}>
-                    Supprimer
-                  </button>
-                </div>
-              </article>
-            ))}
-            {(config?.plans ?? []).length === 0 ? (
-              <div className="hint-box">
-                <p className="muted">Aucun plan configuré.</p>
               </div>
             ) : null}
           </div>
@@ -3652,6 +3501,47 @@ export default function BackupPlannerPanel({
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
+            <h2>Run backup actif</h2>
+            <span className="muted">Exécution en cours</span>
+          </div>
+          {runningExecution ? (
+            <div className="mini-list">
+              <article className="mini-list-item">
+                <div>
+                  <div className="item-title">
+                    {runningExecution.planName}
+                    <span className={`inventory-badge ${getExecutionBadgeClass(runningExecution.status)}`}>
+                      {formatExecutionState(runningExecution.status)}
+                    </span>
+                    {runningExecution.cancelRequested ? (
+                      <span className="inventory-badge status-template">Annulation demandée</span>
+                    ) : null}
+                  </div>
+                  <div className="item-subtitle">
+                    Démarré {formatScheduleDate(runningExecution.startedAt)} • {runningExecution.steps.length} étape(s)
+                  </div>
+                </div>
+                <div className="backup-plan-actions">
+                  <button
+                    type="button"
+                    className="action-btn"
+                    onClick={() => void onCancelExecution(runningExecution.id)}
+                    disabled={busy || runningExecution.cancelRequested}
+                  >
+                    {runningExecution.cancelRequested ? "Annulation..." : "Annuler"}
+                  </button>
+                </div>
+              </article>
+            </div>
+          ) : (
+            <div className="backup-empty-note">
+              <p className="muted">Aucun run backup en cours.</p>
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
             <h2>Restauration depuis le cloud</h2>
             <span className="muted">Téléchargement, restore Proxmox ou import direct PBS</span>
           </div>
@@ -3670,7 +3560,7 @@ export default function BackupPlannerPanel({
           ) : null}
 
           <div className="provision-grid">
-            {backupMode === "advanced" && pbsStatus?.configured ? (
+            {pbsStatus?.configured ? (
               <label className="provision-field">
                 <span className="provision-field-label">Destination</span>
                 <select

@@ -18,7 +18,7 @@ ENV HOSTNAME=0.0.0.0
 RUN set -eux; \
   export DEBIAN_FRONTEND=noninteractive; \
   apt-get update; \
-  apt-get install -y --no-install-recommends ca-certificates curl gpg; \
+  apt-get install -y --no-install-recommends ca-certificates curl gpg docker.io; \
   mkdir -p /usr/share/keyrings; \
   if curl -fsSL https://download.proxmox.com/debian/proxmox-release-bookworm.gpg -o /tmp/proxmox-release-bookworm.gpg; then \
     if gpg --batch --yes --dearmor -o /usr/share/keyrings/proxmox-release-bookworm.gpg /tmp/proxmox-release-bookworm.gpg; then \
@@ -32,7 +32,8 @@ RUN set -eux; \
 COPY --from=builder /app/public ./public
 COPY --from=builder /app/.next/standalone ./
 COPY --from=builder /app/.next/static ./.next/static
+COPY --from=builder /app/server ./server
 
 EXPOSE 3000
 
-CMD ["node", "server.js"]
+CMD ["node", "server/custom-server.mjs"]

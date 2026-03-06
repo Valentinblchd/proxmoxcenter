@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
     asNonEmptyString(body.clientSecret, 600) ?? runtimeConfig.gdrive?.clientSecret ?? null;
   if (!clientId || !clientSecret) {
     return NextResponse.json(
-      { ok: false, error: "Google Drive OAuth n'est pas encore configuré dans Paramètres -> Connexions." },
+      { ok: false, error: "Google Drive OAuth n'est pas encore configuré dans Paramètres -> Proxmox." },
       { status: 400 },
     );
   }

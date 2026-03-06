@@ -3,7 +3,6 @@
 import { useMemo, useState } from "react";
 
 type InventoryRemoteAccessProps = {
-  name: string;
   kind: "qemu" | "lxc";
   osFamily: "windows" | "linux" | "unknown";
   osLabel: string | null;
@@ -30,7 +29,6 @@ function buildRdpHref(target: string) {
 }
 
 export default function InventoryRemoteAccess({
-  name,
   kind,
   osFamily,
   osLabel,
@@ -49,7 +47,11 @@ export default function InventoryRemoteAccess({
   const canLaunchRemote = running && target.trim().length > 0;
   const supportsRdp = kind === "qemu" && (osFamily === "windows" || osFamily === "unknown");
   const supportsSsh = kind === "lxc" || osFamily === "linux" || osFamily === "unknown";
-  const detectedIps = useMemo(() => [...new Set(guestIps)], [guestIps]);
+  const detectedIps = useMemo(
+    () => [...new Set(guestIps.filter((ip) => ip && ip !== primaryIp))],
+    [guestIps, primaryIp],
+  );
+  const hasConsoleVariants = consoleOptions.length > 0;
 
   async function copyTarget(value: string) {
     try {
@@ -78,11 +80,10 @@ export default function InventoryRemoteAccess({
         <div className="inventory-tag-list">
           {bridge ? <span className="inventory-tag">{bridge}</span> : null}
           {vlanTag ? <span className="inventory-tag">VLAN {vlanTag}</span> : null}
-          {primaryIp ? <span className="inventory-tag">{primaryIp}</span> : null}
         </div>
       </div>
 
-      <div className="inventory-remote-grid">
+      <div className="inventory-remote-grid inventory-remote-grid-compact">
         <div className="inventory-remote-card">
           <label className="inventory-remote-label" htmlFor="remote-target">
             Adresse / IP
@@ -96,43 +97,55 @@ export default function InventoryRemoteAccess({
             placeholder={primaryIp ?? "192.168.1.20"}
             autoComplete="off"
           />
-          {detectedIps.length > 0 ? (
-            <>
-              <datalist id="remote-target-options">
-                {detectedIps.map((ip) => (
-                  <option key={ip} value={ip} />
-                ))}
-              </datalist>
-              <div className="inventory-remote-chip-row">
-                {detectedIps.map((ip) => (
-                  <button
-                    key={ip}
-                    type="button"
-                    className={`inventory-tag-button${target === ip ? " is-active" : ""}`}
-                    onClick={() => setTarget(ip)}
-                  >
-                    {ip}
-                  </button>
-                ))}
-              </div>
-            </>
-          ) : null}
+          <datalist id="remote-target-options">
+            {primaryIp ? <option value={primaryIp} /> : null}
+            {detectedIps.map((ip) => (
+              <option key={ip} value={ip} />
+            ))}
+          </datalist>
+          <div className="inventory-remote-chip-row">
+            {primaryIp ? (
+              <button
+                type="button"
+                className={`inventory-remote-chip${target === primaryIp ? " is-active" : ""}`}
+                onClick={() => setTarget(primaryIp)}
+              >
+                IP principale: {primaryIp}
+              </button>
+            ) : null}
+            {detectedIps.map((ip) => (
+              <button
+                key={ip}
+                type="button"
+                className={`inventory-remote-chip${target === ip ? " is-active" : ""}`}
+                onClick={() => setTarget(ip)}
+              >
+                {ip}
+              </button>
+            ))}
+          </div>
         </div>
 
         <div className="inventory-remote-card">
           <div className="inventory-remote-actions">
-            {consoleHref ? (
+            {consoleHref && !hasConsoleVariants ? (
               <a href={consoleHref} className="inventory-primary-btn">
                 Console
               </a>
             ) : (
-              <button type="button" className="inventory-primary-btn" disabled>
-                Console indisponible
-              </button>
+              !hasConsoleVariants ? (
+                <button type="button" className="inventory-primary-btn" disabled>
+                  Console indisponible
+                </button>
+              ) : null
             )}
 
             {consoleOptions.map((option) => (
-              <a key={option.id} href={option.href} className="inventory-ghost-btn">
+              <a
+                key={option.id}
+                href={option.href}
+                className={option.id === "novnc" ? "inventory-primary-btn" : "inventory-ghost-btn"}
+              >
                 {option.label}
               </a>
             ))}
@@ -171,32 +184,11 @@ export default function InventoryRemoteAccess({
 
           {feedback ? <div className="inventory-action-hint">{feedback}</div> : null}
         </div>
+      </div>
 
-        <div className="inventory-remote-card">
-          <div className="mini-list compact">
-            <article className="mini-list-item">
-              <div>
-                <div className="item-title">Mode conseillé</div>
-                <div className="item-subtitle">Selon OS détecté</div>
-              </div>
-              <div className="item-metric">{osFamily === "windows" ? "RDP" : "SSH"}</div>
-            </article>
-            <article className="mini-list-item">
-              <div>
-                <div className="item-title">Nom</div>
-                <div className="item-subtitle">Workload ciblée</div>
-              </div>
-              <div className="item-metric">{name}</div>
-            </article>
-            <article className="mini-list-item">
-              <div>
-                <div className="item-title">État</div>
-                <div className="item-subtitle">Disponibilité accès direct</div>
-              </div>
-              <div className="item-metric">{running ? "En marche" : "Arrêtée"}</div>
-            </article>
-          </div>
-        </div>
+      <div className="inventory-remote-inline-meta">
+        <span className="muted">Mode conseillé: {osFamily === "windows" ? "RDP" : "SSH"}</span>
+        <span className="muted">État: {running ? "En marche" : "Arrêtée"}</span>
       </div>
     </section>
   );

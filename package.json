@@ -3,9 +3,9 @@
   "private": true,
   "version": "1.0.0",
   "scripts": {
-    "dev": "next dev",
+    "dev": "NODE_ENV=development node server/custom-server.mjs",
     "build": "next build --webpack",
-    "start": "next start",
+    "start": "NODE_ENV=production node server/custom-server.mjs",
     "lint": "eslint . --max-warnings=0",
     "typecheck": "tsc --noEmit"
   },
@@ -25,7 +25,8 @@
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
-    "undici": "^7.22.0"
+    "undici": "^7.22.0",
+    "ws": "^8.19.0"
   },
   "devDependencies": {
     "@types/node": "^25.3.1",

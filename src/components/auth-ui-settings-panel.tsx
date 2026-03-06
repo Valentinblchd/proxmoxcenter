@@ -133,8 +133,8 @@ export default function AuthUiSettingsPanel({ initialSettings, ldapSecondaryEnab
           <strong>Toujours disponible</strong>
         </div>
         <div className="setup-actions">
-          <Link href="/settings?tab=connections" className="action-btn">
-            Connexions
+          <Link href="/settings?tab=proxmox" className="action-btn">
+            Proxmox
           </Link>
         </div>
       </div>

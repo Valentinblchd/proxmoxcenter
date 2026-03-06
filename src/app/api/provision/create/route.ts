@@ -45,8 +45,23 @@ type ProvisionCreateBody = {
   lxcUnprivileged?: unknown;
 };
 
+type ProxmoxClusterResource = {
+  type?: string;
+  vmid?: number;
+};
+
 function asNonEmptyString(value: unknown) {
   return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function normalizeBridgeInput(value: string | null) {
+  if (!value) return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  if (trimmed.toLowerCase().startsWith("bridge=")) {
+    return trimmed.slice("bridge=".length).trim() || null;
+  }
+  return trimmed;
 }
 
 function asPositiveInt(value: unknown) {
@@ -89,7 +104,7 @@ function validateCommon(body: ProvisionCreateBody) {
   const cores = asPositiveInt(body.cores);
   const diskGb = asPositiveInt(body.diskGb);
   const storage = asNonEmptyString(body.storage);
-  const bridge = asNonEmptyString(body.bridge);
+  const bridge = normalizeBridgeInput(asNonEmptyString(body.bridge));
 
   if (!kind || !node || !vmid || !name || !memoryMiB || !cores || !diskGb || !storage || !bridge) {
     return null;
@@ -114,13 +129,13 @@ function validateCommon(body: ProvisionCreateBody) {
 function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof validateCommon>) {
   if (!common || common.kind !== "qemu") return null;
   const sockets = asPositiveInt(body.sockets) ?? 1;
-  const ostype = asNonEmptyString(body.ostype) ?? "l26";
-  const cpuType = asNonEmptyString(body.cpuType) ?? "host";
+  const ostype = asNonEmptyString(body.ostype);
+  const cpuType = asNonEmptyString(body.cpuType);
   const isoVolume = asNonEmptyString(body.isoVolume);
   const { bios, machine, enableTpm } = normalizeQemuFirmware(body);
-  const enableAgent = asBoolean(body.enableAgent, true);
+  const enableAgent = asBoolean(body.enableAgent, false);
 
-  if (!OSTYPE_PATTERN.test(ostype) || !CPU_TYPE_PATTERN.test(cpuType)) {
+  if ((ostype && !OSTYPE_PATTERN.test(ostype)) || (cpuType && !CPU_TYPE_PATTERN.test(cpuType))) {
     return null;
   }
   if (sockets < 1 || sockets > 16) {
@@ -136,8 +151,12 @@ function createQemuParams(body: ProvisionCreateBody, common: ReturnType<typeof v
   params.set("memory", String(common.memoryMiB));
   params.set("cores", String(common.cores));
   params.set("sockets", String(sockets));
-  params.set("ostype", ostype);
-  params.set("cpu", cpuType);
+  if (ostype) {
+    params.set("ostype", ostype);
+  }
+  if (cpuType) {
+    params.set("cpu", cpuType);
+  }
   params.set("scsihw", "virtio-scsi-pci");
   params.set("scsi0", `${common.storage}:${common.diskGb}`);
   params.set("net0", `virtio,bridge=${common.bridge}`);
@@ -227,6 +246,24 @@ export async function POST(request: NextRequest) {
       { ok: false, error: "Champs requis manquants (kind/node/vmid/name/memory/cores/disk/storage/bridge)." },
       { status: 400 },
     );
+  }
+
+  try {
+    const resources = await proxmoxRequest<ProxmoxClusterResource[]>("cluster/resources");
+    const vmidAlreadyUsed = resources.some(
+      (entry) =>
+        (entry.type === "qemu" || entry.type === "lxc") &&
+        typeof entry.vmid === "number" &&
+        entry.vmid === common.vmid,
+    );
+    if (vmidAlreadyUsed) {
+      return NextResponse.json(
+        { ok: false, error: `VMID ${common.vmid} déjà utilisé. Choisis un autre identifiant.` },
+        { status: 409 },
+      );
+    }
+  } catch {
+    // VMID conflict check is best-effort; continue with create if cluster/resources is temporarily unavailable.
   }
 
   const params =

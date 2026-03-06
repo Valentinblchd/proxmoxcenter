@@ -36,13 +36,13 @@ export default async function NodeConsolePage({ params }: PageProps) {
             ← Retour au nœud
           </Link>
           <Link href="/console?tab=nodes" className="action-btn">
-            Shell nœuds
+            Consoles nœuds
           </Link>
         </div>
       </section>
 
       <ProxmoxConsoleSession
-        title={`${detail.name} • shell nœud`}
+        title={`${detail.name} • console nœud`}
         subtitle="Session xterm intégrée"
         target={{ type: "node-shell", node: detail.name }}
       />

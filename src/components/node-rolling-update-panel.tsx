@@ -261,7 +261,7 @@ export default function NodeRollingUpdatePanel({
             <strong>{policy?.autoSecurityNoReboot ? "Détection sécurité sans reboot" : "Détection standard"}</strong>
           </div>
           <p className="warning-text">
-            Aucun patch n’est appliqué automatiquement. ProxmoxCenter détecte, vide le nœud si demandé, puis te laisse valider et lancer les MAJ manuellement via le shell.
+            Aucun patch n’est appliqué automatiquement. ProxmoxCenter détecte, vide le nœud si demandé, puis te laisse valider et lancer les MAJ manuellement via la console.
           </p>
           {activeJob?.updates?.counts ? (
             <div className="inventory-update-meta">
@@ -274,7 +274,7 @@ export default function NodeRollingUpdatePanel({
           <div className="inventory-update-actions">
             {shellHref && activeJob?.status === "awaiting-manual" ? (
               <a href={shellHref} className="inventory-ghost-btn">
-                Ouvrir shell nœud
+                Ouvrir console nœud
               </a>
             ) : null}
             {canCancel ? (

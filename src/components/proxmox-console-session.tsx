@@ -26,7 +26,7 @@ type ConsoleSessionPayload = {
   ok?: boolean;
   error?: string;
   backend?: "terminal" | "novnc";
-  wsUrl?: string;
+  wsPath?: string;
   ticket?: string;
   title?: string;
   warning?: string | null;
@@ -49,10 +49,25 @@ function asText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function wsHostLabel(value: string | undefined) {
+  if (!value) return "";
+  try {
+    return new URL(value).host;
+  } catch {
+    return "";
+  }
+}
+
+function toAbsoluteWsUrl(wsPath: string) {
+  const protocol = window.location.protocol === "https:" ? "wss:" : "ws:";
+  return `${protocol}//${window.location.host}${wsPath.startsWith("/") ? wsPath : `/${wsPath}`}`;
+}
+
 export default function ProxmoxConsoleSession({ title, subtitle, target }: Props) {
   const [state, setState] = useState<SessionState>("idle");
   const [message, setMessage] = useState("");
   const [warning, setWarning] = useState("");
+  const [wsTarget, setWsTarget] = useState("");
   const sessionRef = useRef<ConsoleSessionPayload | null>(null);
   const terminalHostRef = useRef<HTMLDivElement | null>(null);
   const noVncHostRef = useRef<HTMLDivElement | null>(null);
@@ -75,6 +90,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       setState("loading");
       setMessage("Initialisation de la console…");
       setWarning("");
+      setWsTarget("");
 
       const response = await fetch("/api/console/session", {
         method: "POST",
@@ -85,21 +101,25 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
         body: JSON.stringify(target),
       });
       const payload = (await response.json().catch(() => ({}))) as ConsoleSessionPayload;
-      if (!response.ok || !payload.ok || !payload.backend || !payload.wsUrl) {
+      if (!response.ok || !payload.ok || !payload.backend || !payload.wsPath) {
         throw new Error(payload.error || "Impossible d’ouvrir la console interne.");
       }
       if (disposed) return;
       sessionRef.current = payload;
       setWarning(asText(payload.warning));
+      setWsTarget(asText(payload.wsPath));
+      const browserWsUrl = toAbsoluteWsUrl(payload.wsPath);
+      const connectionHint =
+        asText(payload.warning) ||
+        "Vérifie la connectivité Proxmox côté serveur et relance la session.";
 
       if (payload.backend === "novnc") {
         if (!noVncHostRef.current) {
           throw new Error("Surface noVNC indisponible.");
         }
-        const loadNoVncModule = new Function("return import('/vendor/novnc/rfb.js')");
-        const mod = (await loadNoVncModule()) as { default?: unknown };
+        const mod = (await import("@novnc/novnc/lib/rfb")) as { default?: unknown };
         if (disposed) return;
-        const RfbCtor = (mod.default ?? mod) as new (
+        const RfbClass = (mod.default ?? mod) as new (
           target: Element,
           url: string,
           options?: Record<string, unknown>,
@@ -111,7 +131,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
           scaleViewport?: boolean;
           background?: string;
         };
-        const rfb = new RfbCtor(noVncHostRef.current, payload.wsUrl, {
+        const rfb = new RfbClass(noVncHostRef.current, browserWsUrl, {
           credentials: payload.ticket ? { password: payload.ticket } : undefined,
         });
         rfb.scaleViewport = true;
@@ -125,7 +145,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
         const onDisconnect = () => {
           if (disposed) return;
           setState("error");
-          setMessage("Session fermée.");
+          setMessage(`${connectionHint} (session fermée)`);
         };
         rfb.addEventListener("connect", onConnect);
         rfb.addEventListener("disconnect", onDisconnect);
@@ -156,7 +176,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
 
       const encoder = new TextEncoder();
       const decoder = new TextDecoder();
-      const socket = new WebSocket(payload.wsUrl);
+      const socket = new WebSocket(browserWsUrl);
       websocket = socket;
       socket.binaryType = "arraybuffer";
 
@@ -175,7 +195,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
           }
         }, 15_000);
         setState("ready");
-        setMessage("Shell connecté.");
+        setMessage("Console connectée.");
       };
 
       socket.onmessage = async (event) => {
@@ -197,13 +217,23 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       socket.onerror = () => {
         if (disposed) return;
         setState("error");
-        setMessage("Erreur WebSocket console.");
+        const host = wsHostLabel(browserWsUrl);
+        setMessage(
+          `Erreur WebSocket console. ${connectionHint}${
+            host ? ` • ${host}` : ""
+          }`,
+        );
       };
 
       socket.onclose = () => {
         if (disposed) return;
         setState("error");
-        setMessage("Session shell fermée.");
+        const host = wsHostLabel(browserWsUrl);
+        setMessage(
+          `${connectionHint} (session fermée)${
+            host ? ` • ${host}` : ""
+          }`,
+        );
       };
 
       const dataDisposable = term.onData((data) => {
@@ -270,9 +300,17 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
         </div>
       </header>
 
-      {warning ? (
+      {warning || state === "error" ? (
         <section className="panel">
-          <p className="warning">{warning}</p>
+          <p className="warning">{warning || message}</p>
+          {wsTarget ? <p className="muted">WebSocket cible: {wsTarget}</p> : null}
+          {state === "error" ? (
+            <div className="quick-actions">
+              <button type="button" className="action-btn" onClick={() => window.location.reload()}>
+                Réessayer
+              </button>
+            </div>
+          ) : null}
         </section>
       ) : null}
 
