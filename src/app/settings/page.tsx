@@ -11,6 +11,7 @@ import { readAssistantMemory } from "@/lib/assistant/memory";
 import { AUTH_COOKIE_NAME, getAuthStatus, verifySessionToken } from "@/lib/auth/session";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
+import { readRuntimeHardwareMonitorConfig } from "@/lib/hardware/runtime-config";
 import { buildGreenItAdvisor } from "@/lib/insights/advisor";
 import { readRuntimePbsConfig } from "@/lib/pbs/runtime-config";
 import { readPbsToolingStatus } from "@/lib/pbs/tooling";
@@ -52,6 +53,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const pbsRuntime = readRuntimePbsConfig();
   const pbsTooling = await readPbsToolingStatus();
   const cloudOauthProviders = getPublicCloudOauthAppStatus();
+  const hardwareMonitorRuntime = readRuntimeHardwareMonitorConfig();
   const snapshot = await getDashboardSnapshot();
   const greenitRuntime = readRuntimeGreenItConfig();
   const greenit = buildGreenItAdvisor(snapshot, greenitRuntime);
@@ -69,7 +71,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <div>
           <p className="eyebrow">Paramètres</p>
           <h1>Configuration</h1>
-          <p className="muted">Connexion Proxmox, PBS, GreenIT, apparence et mémoire IA au même endroit.</p>
+          <p className="muted">Connexion Proxmox, PBS, OAuth cloud, sonde iLO/Redfish, GreenIT et réglages applicatifs au même endroit.</p>
         </div>
         <div className="topbar-meta">
           <span className={`pill ${authStatus.active ? "live" : ""}`}>
@@ -112,6 +114,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               <div className="stat-label">Cloud OAuth</div>
               <div className="stat-value">{configuredCloudProviders}/2</div>
               <div className="stat-subtle">OneDrive et Google Drive</div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Sonde serveur</div>
+              <div className="stat-value">{hardwareMonitorRuntime?.enabled ? "OK" : "Setup"}</div>
+              <div className="stat-subtle">
+                {hardwareMonitorRuntime?.label ?? hardwareMonitorRuntime?.host ?? "BMC / iLO Redfish"}
+              </div>
             </article>
             <article className="stat-tile">
               <div className="stat-label">GreenIT</div>
@@ -165,8 +174,23 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           {canAdmin ? (
             <details className="panel settings-detail-panel">
               <summary className="settings-collapsible-summary">
+                <span>OAuth Cloud</span>
+                <span className="muted">Google Drive / OneDrive</span>
+              </summary>
+              <div className="settings-collapsible-content">
+                <CloudOauthSettings initialProviders={cloudOauthProviders} canAdmin={canAdmin} />
+              </div>
+            </details>
+          ) : null}
+
+          {canAdmin ? (
+            <details className="panel settings-detail-panel">
+              <summary className="settings-collapsible-summary">
                 <span>Sonde serveur</span>
-                <span className="muted">BMC / iLO Redfish</span>
+                <span className="muted">
+                  BMC / iLO Redfish
+                  {hardwareMonitorRuntime?.enabled ? ` • ${hardwareMonitorRuntime.label ?? hardwareMonitorRuntime.host}` : ""}
+                </span>
               </summary>
               <div className="settings-collapsible-content">
                 <HardwareMonitorSettingsPanel />
@@ -182,18 +206,6 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </summary>
               <div className="settings-collapsible-content">
                 <SelfUpdateSettingsPanel />
-              </div>
-            </details>
-          ) : null}
-
-          {canAdmin ? (
-            <details className="panel settings-detail-panel">
-              <summary className="settings-collapsible-summary">
-                <span>OAuth Cloud</span>
-                <span className="muted">Google Drive / OneDrive</span>
-              </summary>
-              <div className="settings-collapsible-content">
-                <CloudOauthSettings initialProviders={cloudOauthProviders} canAdmin={canAdmin} />
               </div>
             </details>
           ) : null}
