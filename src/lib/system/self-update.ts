@@ -1,9 +1,9 @@
 import "server-only";
 
 import fs from "node:fs";
+import http from "node:http";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Agent, fetch } from "undici";
 
 type SelfUpdateStatus = "idle" | "running" | "success" | "failed";
 type UpdateAvailabilityStatus = "disabled" | "unknown" | "up-to-date" | "update-available" | "error";
@@ -98,13 +98,7 @@ const DEFAULT_AVAILABILITY: SelfUpdateAvailability = {
 
 const AVAILABILITY_TTL_MS = 15 * 60_000;
 const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
-const DOCKER_API_BASE = "http://docker";
 const DOCKER_REGISTRY_AUTH = Buffer.from("{}", "utf8").toString("base64");
-const DOCKER_SOCKET_AGENT = new Agent({
-  connect: {
-    socketPath: DOCKER_SOCKET_PATH,
-  },
-});
 
 function timestamp() {
   return new Date().toISOString();
@@ -194,14 +188,15 @@ function findDockerBinaryPath() {
   return null;
 }
 
-function buildDockerUrl(pathname: string, query?: Record<string, string | undefined>) {
-  const url = new URL(pathname, DOCKER_API_BASE);
+function buildDockerPath(pathname: string, query?: Record<string, string | undefined>) {
+  const params = new URLSearchParams();
   for (const [key, value] of Object.entries(query ?? {})) {
     if (typeof value === "string" && value.length > 0) {
-      url.searchParams.set(key, value);
+      params.set(key, value);
     }
   }
-  return url;
+  const suffix = params.toString();
+  return suffix ? `${pathname}?${suffix}` : pathname;
 }
 
 async function dockerApiRequest<T>(
@@ -226,24 +221,59 @@ async function dockerApiRequest<T>(
   }
 
   try {
-    const response = await fetch(buildDockerUrl(pathname, options?.query), {
-      method,
-      dispatcher: DOCKER_SOCKET_AGENT,
-      headers: {
-        ...(options?.body === undefined ? {} : { "Content-Type": "application/json" }),
-        ...(options?.headers ?? {}),
-      },
-      body:
-        options?.body === undefined
-          ? undefined
-          : typeof options.body === "string"
-            ? options.body
-            : JSON.stringify(options.body),
-      cache: "no-store",
-      signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
+    const bodyText =
+      options?.body === undefined
+        ? undefined
+        : typeof options.body === "string"
+          ? options.body
+          : JSON.stringify(options.body);
+
+    const response = await new Promise<{
+      status: number;
+      text: string;
+      headers: http.IncomingHttpHeaders;
+    }>((resolve, reject) => {
+      const request = http.request(
+        {
+          method,
+          socketPath: DOCKER_SOCKET_PATH,
+          path: buildDockerPath(pathname, options?.query),
+          headers: {
+            Accept: "application/json",
+            ...(bodyText === undefined ? {} : { "Content-Type": "application/json" }),
+            ...(options?.headers ?? {}),
+          },
+        },
+        (incoming) => {
+          const chunks: Buffer[] = [];
+          incoming.on("data", (chunk) => {
+            chunks.push(Buffer.isBuffer(chunk) ? chunk : Buffer.from(chunk));
+          });
+          incoming.on("end", () => {
+            resolve({
+              status: incoming.statusCode ?? 0,
+              text: Buffer.concat(chunks).toString("utf8"),
+              headers: incoming.headers,
+            });
+          });
+        },
+      );
+
+      request.on("error", (error) => {
+        reject(error);
+      });
+
+      request.setTimeout(options?.timeoutMs ?? 15_000, () => {
+        request.destroy(new Error(`Docker API timeout sur ${method} ${pathname}.`));
+      });
+
+      if (bodyText !== undefined) {
+        request.write(bodyText);
+      }
+      request.end();
     });
 
-    const text = await response.text();
+    const text = response.text;
     let data: T | null = null;
     if (options?.parseJson !== false && text.trim()) {
       try {
@@ -254,19 +284,28 @@ async function dockerApiRequest<T>(
     }
 
     return {
-      ok: response.ok,
+      ok: response.status >= 200 && response.status < 300,
       status: response.status,
       text,
       data,
-      error: response.ok ? null : text.trim() || `${method} ${pathname} a échoué (${response.status}).`,
+      error:
+        response.status >= 200 && response.status < 300
+          ? null
+          : text.trim() || `${method} ${pathname} a échoué (${response.status}).`,
     };
   } catch (error) {
+    const message =
+      error instanceof Error
+        ? error.cause instanceof Error
+          ? `${error.message} (${error.cause.message})`
+          : error.message
+        : `Impossible de joindre ${pathname}.`;
     return {
       ok: false,
       status: 0,
       text: "",
       data: null as T | null,
-      error: error instanceof Error ? error.message : `Impossible de joindre ${pathname}.`,
+      error: message,
     };
   }
 }
