@@ -85,9 +85,11 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
     let websocket: WebSocket | null = null;
     let keepAliveTimer: number | null = null;
     let resizeObserver: ResizeObserver | null = null;
+    let initialResizeTimer: number | null = null;
     let term: Terminal | null = null;
     let fitAddon: FitAddon | null = null;
     let rfbInstance: { disconnect?: () => void; resizeSession?: boolean; scaleViewport?: boolean } | null = null;
+    let lastResizeSignature = "";
 
     async function bootstrap() {
       setState("loading");
@@ -185,14 +187,24 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       socket.binaryType = "arraybuffer";
 
       const sendResize = (cols: number, rows: number) => {
-        if (socket.readyState !== WebSocket.OPEN) return;
+        if (socket.readyState !== WebSocket.OPEN || cols < 1 || rows < 1) return;
+        const nextSignature = `${cols}x${rows}`;
+        if (lastResizeSignature === nextSignature) return;
+        lastResizeSignature = nextSignature;
         socket.send(`1:${cols}:${rows}:`);
       };
 
-      socket.onopen = () => {
-        if (disposed || !term || !fitAddon) return;
+      const fitAndSyncResize = () => {
+        if (!fitAddon || !term) return;
         fitAddon.fit();
         sendResize(term.cols, term.rows);
+      };
+
+      socket.onopen = () => {
+        if (disposed || !term) return;
+        initialResizeTimer = window.setTimeout(() => {
+          fitAndSyncResize();
+        }, 80);
         keepAliveTimer = window.setInterval(() => {
           if (socket.readyState === WebSocket.OPEN) {
             socket.send("2");
@@ -251,9 +263,7 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       });
 
       resizeObserver = new ResizeObserver(() => {
-        if (!fitAddon || !term) return;
-        fitAddon.fit();
-        sendResize(term.cols, term.rows);
+        fitAndSyncResize();
       });
       resizeObserver.observe(terminalHostRef.current);
 
@@ -275,6 +285,9 @@ export default function ProxmoxConsoleSession({ title, subtitle, target }: Props
       disposed = true;
       if (keepAliveTimer !== null) {
         window.clearInterval(keepAliveTimer);
+      }
+      if (initialResizeTimer !== null) {
+        window.clearTimeout(initialResizeTimer);
       }
       resizeObserver?.disconnect();
       if (websocket && websocket.readyState === WebSocket.OPEN) {

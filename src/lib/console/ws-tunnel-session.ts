@@ -16,7 +16,7 @@ export type ConsoleWsTunnelSession = {
   expiresAt: number;
 };
 
-const SESSION_TTL_MS = 2 * 60 * 1000;
+const SESSION_TTL_MS = 10 * 60 * 1000;
 
 function getDefaultSessionDir() {
   return path.join(process.cwd(), "data", "console-ws");

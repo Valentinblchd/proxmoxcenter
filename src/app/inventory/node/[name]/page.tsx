@@ -100,7 +100,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           <h1>{detail.name}</h1>
         </div>
         <div className="topbar-meta">
-          <InventoryRefreshButton auto intervalMs={2000} />
+          <InventoryRefreshButton auto intervalMs={10000} />
           {detail.navigation.previous ? (
             <Link
               href={`/inventory/node/${encodeURIComponent(detail.navigation.previous.name)}`}

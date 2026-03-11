@@ -1869,6 +1869,11 @@ code {
 .provision-field {
   display: grid;
   gap: 0.35rem;
+  min-width: 0;
+}
+
+.provision-field-span-2 {
+  grid-column: span 2;
 }
 
 .provision-field-label {
@@ -1888,6 +1893,7 @@ code {
 .provision-input,
 .provision-textarea {
   width: 100%;
+  min-width: 0;
   border-radius: 10px;
   border: 1px solid rgba(255, 255, 255, 0.09);
   background: rgba(255, 255, 255, 0.03);
@@ -5388,6 +5394,10 @@ select.inventory-node-filter option {
 
   .provision-inline-split {
     grid-template-columns: 1fr;
+  }
+
+  .provision-field-span-2 {
+    grid-column: auto;
   }
 
   .provision-actions {

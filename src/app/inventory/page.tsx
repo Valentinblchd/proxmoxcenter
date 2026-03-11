@@ -440,7 +440,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
               </button>
             </form>
 
-            <InventoryRefreshButton auto={hasLiveData} intervalMs={2000} />
+            <InventoryRefreshButton auto={hasLiveData} intervalMs={10000} />
 
             <div className="inventory-toolbar-cta">
               <Link href="/provision?kind=qemu" className="action-btn primary">

@@ -149,14 +149,16 @@ function getFirmwarePresetForOstype(ostype: string) {
 function FieldRow({
   label,
   hint,
+  className,
   children,
 }: {
   label: string;
   hint?: string;
+  className?: string;
   children: React.ReactNode;
 }) {
   return (
-    <label className="provision-field">
+    <label className={`provision-field${className ? ` ${className}` : ""}`}>
       <span className="provision-field-label">
         {label}
         {hint ? <small>{hint}</small> : null}
@@ -962,7 +964,11 @@ export default function ProvisioningStudio({
                 </FieldRow>
               ) : (
                 <>
-                  <FieldRow label="URL du fichier ISO" hint="HTTPS direct, sans query, terminée par .iso">
+                  <FieldRow
+                    label="URL du fichier ISO"
+                    hint="HTTPS direct, sans query, terminée par .iso"
+                    className="provision-field-span-2"
+                  >
                     <input
                       className="provision-input"
                       value={draft.isoUrl}

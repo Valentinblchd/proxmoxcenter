@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import {
   AUTH_COOKIE_NAME,
+  createSessionToken,
   isAuthEnabled,
   sanitizeNextPath,
   verifySessionToken,
+  type AuthSession,
 } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import {
@@ -86,6 +88,38 @@ function buildPassThroughResponse(request: NextRequest, pathname: string, nonce:
   );
 }
 
+function shouldRefreshSession(session: AuthSession) {
+  const totalLifetimeMs = Math.max(0, session.expiresAt - session.issuedAt);
+  const remainingMs = session.expiresAt - Date.now();
+  const refreshThresholdMs = Math.min(15 * 60_000, Math.max(60_000, Math.floor(totalLifetimeMs / 2)));
+  return remainingMs > 0 && remainingMs <= refreshThresholdMs;
+}
+
+async function applySessionRefresh(response: NextResponse, session: AuthSession | null) {
+  if (!session || !shouldRefreshSession(session)) {
+    return response;
+  }
+
+  const renewed = await createSessionToken({
+    userId: session.userId,
+    username: session.username,
+    role: session.role,
+    authMethod: session.authMethod,
+  });
+
+  response.cookies.set({
+    name: AUTH_COOKIE_NAME,
+    value: renewed.token,
+    httpOnly: true,
+    sameSite: "lax",
+    secure: renewed.secureCookie,
+    path: "/",
+    maxAge: renewed.maxAge,
+  });
+
+  return response;
+}
+
 export async function proxy(request: NextRequest) {
   const { pathname } = request.nextUrl;
   const nonce = createCspNonce();
@@ -117,13 +151,16 @@ export async function proxy(request: NextRequest) {
 
   if (pathname === "/login") {
     if (session) {
-      return applySecurityHeaders(NextResponse.redirect(new URL("/", request.url)), pathname, nonce);
+      return applySessionRefresh(
+        applySecurityHeaders(NextResponse.redirect(new URL("/", request.url)), pathname, nonce),
+        session,
+      );
     }
     return buildPassThroughResponse(request, pathname, nonce);
   }
 
   if (isPublicRoute(pathname)) {
-    return buildPassThroughResponse(request, pathname, nonce);
+    return applySessionRefresh(buildPassThroughResponse(request, pathname, nonce), session);
   }
 
   if (!session) {
@@ -171,7 +208,7 @@ export async function proxy(request: NextRequest) {
     }
   }
 
-  return buildPassThroughResponse(request, pathname, nonce);
+  return applySessionRefresh(buildPassThroughResponse(request, pathname, nonce), session);
 }
 
 export const config = {
