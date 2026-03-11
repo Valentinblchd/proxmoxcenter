@@ -108,6 +108,18 @@ function normalizeHealthState(raw: unknown): HardwareHealthState {
   return "unknown";
 }
 
+function extractStateText(value: unknown) {
+  if (!isRecord(value)) {
+    return typeof value === "string" ? value.trim().toLowerCase() : "";
+  }
+  const status = isRecord(value.Status) ? value.Status : null;
+  const state =
+    asString(status?.State) ??
+    asString(value.State) ??
+    asString(value.Status);
+  return state ? state.trim().toLowerCase() : "";
+}
+
 function extractHealthState(value: unknown): HardwareHealthState {
   if (!isRecord(value)) return normalizeHealthState(value);
   const status = value.Status;
@@ -235,8 +247,9 @@ function collectTemperatureSensors(
     asNumber(value.TemperatureCelsius) ??
     asNumber(value.CurrentReading) ??
     asNumber(value.Reading);
+  const state = extractStateText(value);
 
-  if (reading !== null && reading >= -40 && reading <= 150) {
+  if (state !== "absent" && reading !== null && reading >= -40 && reading <= 150) {
     sensors.push({
       name:
         asString(value.Name) ??
@@ -281,7 +294,10 @@ function parseProcessor(resource: RedfishResource, temperatures: HardwareTempera
   };
 }
 
-function parseMemoryModule(resource: RedfishResource): HardwareMemoryModule {
+function parseMemoryModule(resource: RedfishResource): HardwareMemoryModule | null {
+  if (extractStateText(resource) === "absent") {
+    return null;
+  }
   const capacityBytes =
     asNumber(resource.CapacityBytes) ??
     (asNumber(resource.CapacityMiB) !== null ? asNumber(resource.CapacityMiB)! * 1024 * 1024 : null);
@@ -295,7 +311,10 @@ function parseMemoryModule(resource: RedfishResource): HardwareMemoryModule {
   };
 }
 
-function parseDrive(resource: RedfishResource): HardwareDrive {
+function parseDrive(resource: RedfishResource): HardwareDrive | null {
+  if (extractStateText(resource) === "absent") {
+    return null;
+  }
   const predictedFailureRaw = resource.PredictedMediaLifeLeftPercent ?? resource.FailurePredicted;
   const predictedFailure =
     typeof predictedFailureRaw === "boolean"
@@ -470,7 +489,9 @@ export async function fetchHardwareSnapshot(
   ).map((resource) => parseProcessor(resource, temperatures));
   const memoryModules = (
     await readCollectionMembers(config, getOdataId(system?.Memory))
-  ).map((resource) => parseMemoryModule(resource));
+  )
+    .map((resource) => parseMemoryModule(resource))
+    .filter((resource): resource is HardwareMemoryModule => Boolean(resource));
   const drives = await loadDrives(config, system);
 
   const baseSnapshot = {
