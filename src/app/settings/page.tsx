@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import AssistantMemorySettings from "@/components/assistant-memory-settings";
 import CloudOauthSettings from "@/components/cloud-oauth-settings";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
+import HardwareMonitorSettingsPanel from "@/components/hardware-monitor-settings-panel";
 import ProxmoxConnectionForm from "@/components/proxmox-connection-form";
 import SelfUpdateSettingsPanel from "@/components/self-update-settings-panel";
 import ThemeSettingsPanel from "@/components/theme-settings-panel";
@@ -160,6 +161,18 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
               </div>
             </div>
           </details>
+
+          {canAdmin ? (
+            <details className="panel settings-detail-panel">
+              <summary className="settings-collapsible-summary">
+                <span>Sonde serveur</span>
+                <span className="muted">BMC / iLO Redfish</span>
+              </summary>
+              <div className="settings-collapsible-content">
+                <HardwareMonitorSettingsPanel />
+              </div>
+            </details>
+          ) : null}
 
           {canAdmin ? (
             <details className="panel settings-detail-panel">

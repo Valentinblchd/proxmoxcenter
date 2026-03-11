@@ -4792,6 +4792,30 @@ select.inventory-node-filter option {
   background: rgba(255, 255, 255, 0.02);
 }
 
+.toggle-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.9rem;
+  padding: 0.68rem 0.74rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 72%),
+    rgba(255, 255, 255, 0.02);
+}
+
+.toggle-label {
+  display: grid;
+  gap: 0.16rem;
+  min-width: 0;
+}
+
+.field-textarea {
+  min-height: 132px;
+  resize: vertical;
+}
+
 .status-bad {
   color: #ffb0b0;
 }

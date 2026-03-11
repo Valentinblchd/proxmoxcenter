@@ -10,7 +10,7 @@ Interface web Proxmox orientée exploitation : inventaire, sauvegardes local/clo
 - **Sécurité** — tableau de bord sécurité, alertes et bonnes pratiques
 - **Contrôle d’accès** — comptes locaux `reader`, `operator`, `admin` avec audit des actions
 - **Provisioning** — création et configuration de VMs/LXCs
-- **Observabilité** — métriques et état des ressources
+- **Observabilité** — métriques et état des ressources, avec sonde matérielle BMC / iLO Redfish en option
 - **Opérations** — actions groupées sur les machines
 - **Paramètres** — gestion des connexions Proxmox, PBS, cloud et des comptes locaux
 
@@ -66,8 +66,31 @@ Ouvre `http://<IP_DU_SERVEUR>:3000` dans ton navigateur, puis :
 2. Ajoute la connexion Proxmox (hôte, port, token API)
 3. Configure les sauvegardes local/cloud si nécessaire
 4. Ajoute PBS si tu l'utilises
+5. Si ton serveur expose un BMC/iLO Redfish, configure-le dans `Paramètres > Proxmox > Sonde serveur`
 
 Les connexions et données sont stockées dans `<INSTALL_DIR>/data/`.
+
+## Métriques matérielles serveur
+
+Pour récupérer les métriques physiques du serveur hôte (températures, CPU, RAM, disques), ProxCenter peut interroger un BMC compatible Redfish, par exemple HPE iLO.
+
+Configuration :
+
+1. Ouvre `Paramètres > Proxmox > Sonde serveur`
+2. Renseigne l’IP ou le DNS du BMC/iLO
+3. Renseigne le compte BMC/iLO
+4. Laisse `HTTPS` + `TLS strict` si le certificat est valide
+5. Lie éventuellement la sonde à un nœud Proxmox précis
+
+Une fois configuré, l’onglet `Observabilité > Santé` affiche :
+
+- température max / moyenne du serveur
+- état global matériel
+- état CPU
+- état RAM
+- état des disques physiques
+
+Si ton iLO utilise un certificat autosigné, tu peux soit importer la CA personnalisée, soit passer temporairement en mode `TLS insecure`.
 
 ## Reverse Proxy
 

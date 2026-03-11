@@ -1,6 +1,8 @@
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
+import { fetchHardwareSnapshot, type HardwareSnapshot, type HardwareHealthState } from "@/lib/hardware/redfish";
+import { readRuntimeHardwareMonitorConfig } from "@/lib/hardware/runtime-config";
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
@@ -39,6 +41,19 @@ type NodeHealthRow = {
   temperatureC: number | null;
   temperatureSource: string | null;
 };
+
+function formatHealthState(value: HardwareHealthState) {
+  if (value === "ok") return "OK";
+  if (value === "warning") return "warning";
+  if (value === "critical") return "critical";
+  return "inconnu";
+}
+
+function hardwareMatchesNode(snapshot: HardwareSnapshot | null, nodeName: string) {
+  if (!snapshot) return false;
+  if (!snapshot.nodeName) return true;
+  return snapshot.nodeName === nodeName;
+}
 
 async function readSearchParams(
   value: ObservabilityPageProps["searchParams"],
@@ -120,7 +135,10 @@ function findTemperatureCandidate(value: unknown, depth = 0): number | null {
   return null;
 }
 
-async function fetchNodeHealth(snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>) {
+async function fetchNodeHealth(
+  snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>,
+  hardwareSnapshot: HardwareSnapshot | null,
+) {
   const rows = await Promise.all(
     snapshot.nodes.map(async (node) => {
       let temperatureC: number | null = null;
@@ -143,6 +161,12 @@ async function fetchNodeHealth(snapshot: Awaited<ReturnType<typeof getDashboardS
         } catch {
           // Ignore missing endpoints; keep probing.
         }
+      }
+
+      const matchedHardwareSnapshot = hardwareMatchesNode(hardwareSnapshot, node.name) ? hardwareSnapshot : null;
+      if (matchedHardwareSnapshot && matchedHardwareSnapshot.summary.maxTemperatureC !== null) {
+        temperatureC = matchedHardwareSnapshot.summary.maxTemperatureC;
+        temperatureSource = `BMC/iLO${matchedHardwareSnapshot.label ? ` • ${matchedHardwareSnapshot.label}` : ""}`;
       }
 
       return {
@@ -241,6 +265,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const security = buildSecurityAdvisor(snapshot);
   const greenitSettings = readRuntimeGreenItConfig();
   const greenit = buildGreenItAdvisor(snapshot, greenitSettings);
+  const hardwareMonitorConfig = readRuntimeHardwareMonitorConfig();
   const warningCount = snapshot.warnings.length;
   const avgCpu =
     snapshot.nodes.length > 0
@@ -254,13 +279,17 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         }, 0) / snapshot.nodes.length
       : 0;
 
+  const hardwareSnapshot =
+    hardwareMonitorConfig?.enabled && (activeTab === "overview" || activeTab === "health" || activeTab === "greenit")
+      ? await fetchHardwareSnapshot(hardwareMonitorConfig).catch(() => null)
+      : null;
   const diskHealth =
     hasLiveData && (activeTab === "overview" || activeTab === "health")
       ? await fetchDiskHealth(snapshot.nodes.map((node) => node.name))
       : [];
   const nodeHealth =
     hasLiveData && (activeTab === "overview" || activeTab === "health")
-      ? await fetchNodeHealth(snapshot)
+      ? await fetchNodeHealth(snapshot, hardwareSnapshot)
       : [];
   const diskCritical = diskHealth.filter((entry) => inferDiskSeverity(entry) === "critical").length;
   const diskWarning = diskHealth.filter((entry) => inferDiskSeverity(entry) === "warning").length;
@@ -279,8 +308,9 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const monthlyCost = Number((greenit.metrics.annualCost / 12).toFixed(2));
   const dailyCo2 = Number((greenit.metrics.annualCo2Kg / 365).toFixed(2));
   const representativeServerTemp =
-    greenitSettings?.serverTemperatureC ??
+    hardwareSnapshot?.summary.maxTemperatureC ??
     nodeHealth.find((entry) => entry.temperatureC !== null)?.temperatureC ??
+    greenitSettings?.serverTemperatureC ??
     null;
   const outsideTemp = greenitSettings?.outsideTemperatureC ?? null;
   const thermalDelta =
@@ -366,6 +396,16 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               <div className="row-line">
                 <span>Sondes thermiques critique / warning</span>
                 <strong>{thermalCritical} / {thermalWarning}</strong>
+              </div>
+              <div className="row-line">
+                <span>BMC / iLO</span>
+                <strong>
+                  {hardwareSnapshot
+                    ? `${hardwareSnapshot.model ?? hardwareSnapshot.managerModel ?? hardwareSnapshot.host}`
+                    : hardwareMonitorConfig?.enabled
+                      ? "Erreur de collecte"
+                      : "Non configuré"}
+                </strong>
               </div>
             </div>
             <div className="quick-actions">
@@ -580,6 +620,146 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                   </article>
                 );
               })}
+            </div>
+          )}
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Matériel serveur</h2>
+            <span className="muted">
+              {hardwareSnapshot
+                ? hardwareSnapshot.label ?? hardwareSnapshot.host
+                : hardwareMonitorConfig?.enabled
+                  ? "BMC/iLO configuré"
+                  : "BMC/iLO non configuré"}
+            </span>
+          </div>
+          {hardwareSnapshot ? (
+            <>
+              <div className="stack-sm">
+                <div className="row-line">
+                  <span>Plateforme</span>
+                  <strong>
+                    {[hardwareSnapshot.manufacturer, hardwareSnapshot.model].filter(Boolean).join(" ") || "—"}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>Série / puissance</span>
+                  <strong>
+                    {[hardwareSnapshot.serial, hardwareSnapshot.powerState].filter(Boolean).join(" • ") || "—"}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>Santé globale</span>
+                  <strong>{formatHealthState(hardwareSnapshot.systemHealth)}</strong>
+                </div>
+                <div className="row-line">
+                  <span>Température max / moyenne</span>
+                  <strong>
+                    {hardwareSnapshot.summary.maxTemperatureC !== null
+                      ? `${hardwareSnapshot.summary.maxTemperatureC.toFixed(1)}°C`
+                      : "—"}
+                    {hardwareSnapshot.summary.averageTemperatureC !== null
+                      ? ` • ${hardwareSnapshot.summary.averageTemperatureC.toFixed(1)}°C`
+                      : ""}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>CPU warning / critiques</span>
+                  <strong>
+                    {hardwareSnapshot.summary.processorWarning} / {hardwareSnapshot.summary.processorCritical}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>RAM warning / critiques</span>
+                  <strong>
+                    {hardwareSnapshot.summary.memoryWarning} / {hardwareSnapshot.summary.memoryCritical}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>Disques warning / critiques</span>
+                  <strong>
+                    {hardwareSnapshot.summary.driveWarning} / {hardwareSnapshot.summary.driveCritical}
+                  </strong>
+                </div>
+              </div>
+
+              <div className="mini-list">
+                {hardwareSnapshot.processors.slice(0, 8).map((processor) => (
+                  <article key={processor.id} className="mini-list-item">
+                    <div>
+                      <div className="item-title">{processor.name}</div>
+                      <div className="item-subtitle">
+                        {[processor.model, processor.totalCores !== null ? `${processor.totalCores} cœurs` : null]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                    </div>
+                    <div className="item-metric">
+                      <span className={`inventory-badge ${processor.health === "critical" ? "status-stopped" : processor.health === "warning" ? "status-pending" : "status-running"}`}>
+                        {formatHealthState(processor.health)}
+                      </span>
+                      {processor.temperatureC !== null ? (
+                        <div className="item-subtitle">{processor.temperatureC.toFixed(1)}°C</div>
+                      ) : null}
+                    </div>
+                  </article>
+                ))}
+
+                {hardwareSnapshot.memoryModules.slice(0, 8).map((module) => (
+                  <article key={module.id} className="mini-list-item">
+                    <div>
+                      <div className="item-title">{module.name}</div>
+                      <div className="item-subtitle">
+                        {[module.manufacturer, module.partNumber, module.capacityBytes ? formatBytes(module.capacityBytes) : null]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                    </div>
+                    <div className="item-metric">
+                      <span className={`inventory-badge ${module.health === "critical" ? "status-stopped" : module.health === "warning" ? "status-pending" : "status-running"}`}>
+                        {formatHealthState(module.health)}
+                      </span>
+                    </div>
+                  </article>
+                ))}
+
+                {hardwareSnapshot.drives.slice(0, 10).map((drive) => (
+                  <article key={drive.id} className="mini-list-item">
+                    <div>
+                      <div className="item-title">{drive.name}</div>
+                      <div className="item-subtitle">
+                        {[drive.model, drive.serial, drive.capacityBytes ? formatBytes(drive.capacityBytes) : null]
+                          .filter(Boolean)
+                          .join(" • ")}
+                      </div>
+                    </div>
+                    <div className="item-metric">
+                      <span className={`inventory-badge ${drive.health === "critical" || drive.predictedFailure ? "status-stopped" : drive.health === "warning" ? "status-pending" : "status-running"}`}>
+                        {formatHealthState(drive.health)}
+                      </span>
+                      <div className="item-subtitle">
+                        {drive.temperatureC !== null ? `${drive.temperatureC.toFixed(1)}°C` : "Temp —"}
+                        {drive.predictedFailure ? " • prédiction panne" : ""}
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </>
+          ) : (
+            <div className="stack-sm">
+              <p className="muted">
+                {hardwareMonitorConfig?.enabled
+                  ? "Le BMC/iLO est configuré mais aucune métrique n’a pu être lue depuis Redfish."
+                  : "Configure un endpoint BMC/iLO Redfish dans Paramètres pour récupérer température, CPU, RAM et disques du serveur physique."}
+              </p>
+              <div className="quick-actions">
+                <Link href="/settings?tab=proxmox" className="action-btn">
+                  Ouvrir Paramètres
+                </Link>
+              </div>
             </div>
           )}
         </section>
