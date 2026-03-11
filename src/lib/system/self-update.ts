@@ -42,6 +42,7 @@ type SelfComposeMetadata = {
   workingDir: string | null;
   configFile: string | null;
   service: string | null;
+  containerImage: string | null;
 };
 
 type SelfUpdateConfig = {
@@ -52,6 +53,7 @@ type SelfUpdateConfig = {
   branch: string;
   service: string;
   runnerImage: string;
+  fallbackRunnerImage: string | null;
   maxHistory: number;
 };
 
@@ -121,6 +123,34 @@ function getStatePath() {
 
 function getAvailabilityPath() {
   return path.join(getStateDir(), "availability.json");
+}
+
+function getDockerBinaryCandidates() {
+  const configured = asAbsolutePath(process.env.PROXMOXCENTER_DOCKER_BIN);
+  return [
+    configured,
+    "/usr/bin/docker",
+    "/usr/local/bin/docker",
+    "docker",
+  ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+}
+
+function resolveDockerBinary() {
+  for (const candidate of getDockerBinaryCandidates()) {
+    const result = spawnSync(candidate, ["--version"], {
+      encoding: "utf8",
+      env: {
+        ...process.env,
+        PATH:
+          process.env.PATH ||
+          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+      },
+    });
+    if (result.status === 0) {
+      return candidate;
+    }
+  }
+  return null;
 }
 
 function readState(): SelfUpdateState {
@@ -193,20 +223,41 @@ function readSelfComposeMetadata(): SelfComposeMetadata {
       workingDir: null,
       configFile: null,
       service: null,
+      containerImage: null,
     };
   }
 
-  const inspect = readCommandText("docker", ["inspect", containerId, "--format", "{{json .Config.Labels}}"], 8_000);
-  if (!inspect.ok || !inspect.stdout) {
+  const dockerBinary = resolveDockerBinary();
+  if (!dockerBinary) {
     return {
       workingDir: null,
       configFile: null,
       service: null,
+      containerImage: null,
+    };
+  }
+
+  const labelsInspect = readCommandText(
+    dockerBinary,
+    ["inspect", containerId, "--format", "{{json .Config.Labels}}"],
+    8_000,
+  );
+  const imageInspect = readCommandText(
+    dockerBinary,
+    ["inspect", containerId, "--format", "{{.Config.Image}}"],
+    8_000,
+  );
+  if (!labelsInspect.ok || !labelsInspect.stdout) {
+    return {
+      workingDir: null,
+      configFile: null,
+      service: null,
+      containerImage: null,
     };
   }
 
   try {
-    const labels = JSON.parse(inspect.stdout) as Record<string, unknown>;
+    const labels = JSON.parse(labelsInspect.stdout) as Record<string, unknown>;
     const configFilesRaw =
       typeof labels["com.docker.compose.project.config_files"] === "string"
         ? labels["com.docker.compose.project.config_files"]
@@ -223,12 +274,14 @@ function readSelfComposeMetadata(): SelfComposeMetadata {
         typeof labels["com.docker.compose.service"] === "string"
           ? labels["com.docker.compose.service"].trim() || null
           : null,
+      containerImage: imageInspect.ok && imageInspect.stdout ? imageInspect.stdout.trim() || null : null,
     };
   } catch {
     return {
       workingDir: null,
       configFile: null,
       service: null,
+      containerImage: null,
     };
   }
 }
@@ -266,14 +319,14 @@ function resolveConfig(): SelfUpdateConfig {
     branch: asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_BRANCH, "main"),
     service: composeMetadata.service || asSafeName(process.env.PROXMOXCENTER_SELF_UPDATE_SERVICE, "proxmoxcenter"),
     runnerImage: asSafeImage(process.env.PROXMOXCENTER_SELF_UPDATE_RUNNER_IMAGE, "docker:27-cli"),
+    fallbackRunnerImage: composeMetadata.containerImage,
     maxHistory: 24,
   };
 }
 
 function checkPrerequisites() {
   const dockerSocketAvailable = fs.existsSync("/var/run/docker.sock");
-  const dockerBinary = spawnSync("docker", ["--version"], { encoding: "utf8" });
-  const dockerCliAvailable = dockerBinary.status === 0;
+  const dockerCliAvailable = Boolean(resolveDockerBinary());
 
   return {
     dockerSocketAvailable,
@@ -322,6 +375,12 @@ function readCommandText(binary: string, args: string[], timeout = 15_000) {
   const result = spawnSync(binary, args, {
     encoding: "utf8",
     timeout,
+    env: {
+      ...process.env,
+      PATH:
+        process.env.PATH ||
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    },
   });
 
   return {
@@ -350,6 +409,14 @@ function shortenRef(value: string | null) {
   return trimmed.slice(0, 20);
 }
 
+function getComposeFileInsideMountedHost(config: SelfUpdateConfig) {
+  if (config.composeFile.startsWith(config.hostInstallDir)) {
+    const relativePath = path.relative(config.hostInstallDir, config.composeFile) || "docker-compose.yml";
+    return `/host/${relativePath}`;
+  }
+  return "/host/docker-compose.yml";
+}
+
 function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000) {
   if (!config.hostInstallDir || !path.isAbsolute(config.hostInstallDir)) {
     return {
@@ -359,20 +426,47 @@ function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000
     };
   }
 
-  const args = [
-    "run",
-    "--rm",
-    "-v",
-    "/var/run/docker.sock:/var/run/docker.sock",
-    "-v",
-    `${config.hostInstallDir}:/host:ro`,
-    config.runnerImage,
-    "sh",
-    "-lc",
-    script,
-  ];
+  const dockerBinary = resolveDockerBinary();
+  if (!dockerBinary) {
+    return {
+      ok: false,
+      stdout: "",
+      stderr: "Docker CLI introuvable dans le conteneur ProxmoxCenter.",
+    };
+  }
 
-  return readCommandText("docker", args, timeout);
+  const runnerCandidates = [
+    config.runnerImage,
+    config.fallbackRunnerImage,
+  ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
+
+  let lastError = "Impossible de lancer le runner de vérification.";
+
+  for (const runnerImage of runnerCandidates) {
+    const args = [
+      "run",
+      "--rm",
+      "-v",
+      "/var/run/docker.sock:/var/run/docker.sock",
+      "-v",
+      `${config.hostInstallDir}:/host:ro`,
+      runnerImage,
+      "sh",
+      "-lc",
+      script,
+    ];
+    const result = readCommandText(dockerBinary, args, timeout);
+    if (result.ok || result.stdout) {
+      return result;
+    }
+    lastError = result.stderr || `Runner ${runnerImage} indisponible.`;
+  }
+
+  return {
+    ok: false,
+    stdout: "",
+    stderr: lastError,
+  };
 }
 
 function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability | null {
@@ -454,11 +548,17 @@ function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability
 }
 
 function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailability {
+  const composeFileInHost = getComposeFileInsideMountedHost(config);
   const probe = runHostProbe(
     config,
     [
       "set -eu",
-      "service_image=$(docker compose -f /host/docker-compose.yml config --images 2>/dev/null | head -n 1)",
+      `compose_file=${shQuote(composeFileInHost)}`,
+      "if [ ! -f \"$compose_file\" ]; then",
+      "  printf 'error=compose_file_missing\\n'",
+      "  exit 0",
+      "fi",
+      "service_image=$(docker compose -f \"$compose_file\" config --images 2>/dev/null | head -n 1)",
       `current=$(docker inspect --format '{{.Image}}' ${shQuote(config.service)} 2>/dev/null || true)`,
       "before=$(if [ -n \"$service_image\" ]; then docker image inspect --format '{{.Id}}' \"$service_image\" 2>/dev/null || true; fi)",
       "pull_output=$(if [ -n \"$service_image\" ]; then docker pull \"$service_image\" 2>&1 || true; fi)",
@@ -489,10 +589,21 @@ function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailabili
     ? Buffer.from(parsed.pull_output_b64, "base64").toString("utf8")
     : "";
 
+  if (parsed.error === "compose_file_missing") {
+    return {
+      status: "error",
+      message: `Fichier compose introuvable dans le runner (${composeFileInHost}).`,
+      checkedAt: timestamp(),
+      currentRef: null,
+      availableRef: null,
+      serviceImage: null,
+    };
+  }
+
   if (!serviceImage) {
     return {
       status: "unknown",
-      message: "Image du service introuvable dans la compose.",
+      message: `Image du service introuvable dans la compose (${composeFileInHost}).`,
       checkedAt: timestamp(),
       currentRef: null,
       availableRef: null,
@@ -589,7 +700,10 @@ function refreshStateFromResult(state: SelfUpdateState) {
       : current.error;
 
   if (current.containerName) {
-    spawnSync("docker", ["rm", "-f", current.containerName], { stdio: "ignore" });
+    const dockerBinary = resolveDockerBinary();
+    if (dockerBinary) {
+      spawnSync(dockerBinary, ["rm", "-f", current.containerName], { stdio: "ignore" });
+    }
     current.containerName = null;
   }
 
@@ -603,6 +717,7 @@ function buildRunnerScript(options: {
   jobId: string;
   branch: string;
   service: string;
+  composeFile: string;
 }) {
   const logPath = `/state/self-update/${options.jobId}.log`;
   const resultPath = `/state/self-update/${options.jobId}.result`;
@@ -638,23 +753,29 @@ function buildRunnerScript(options: {
     `  git -C /host pull origin ${shQuote(options.branch)} 2>&1 | tee -a \"$LOG_FILE\"`,
     "else",
     "  log 'Update ProxmoxCenter: repo local absent, docker compose pull'",
-    "  docker compose -f /host/docker-compose.yml pull 2>&1 | tee -a \"$LOG_FILE\"",
+    `  docker compose -f ${shQuote(options.composeFile)} pull 2>&1 | tee -a \"$LOG_FILE\"`,
     "fi",
     "log 'Update ProxmoxCenter: docker compose down'",
-    "docker compose -f /host/docker-compose.yml down 2>&1 | tee -a \"$LOG_FILE\"",
+    `docker compose -f ${shQuote(options.composeFile)} down 2>&1 | tee -a \"$LOG_FILE\"`,
     "log 'Update ProxmoxCenter: docker compose up -d --build'",
-    "docker compose -f /host/docker-compose.yml up -d --build 2>&1 | tee -a \"$LOG_FILE\"",
+    `docker compose -f ${shQuote(options.composeFile)} up -d --build 2>&1 | tee -a \"$LOG_FILE\"`,
     `log 'Update ProxmoxCenter: docker compose logs --tail=200 ${options.service}'`,
-    `docker compose -f /host/docker-compose.yml logs --tail=200 ${shQuote(options.service)} 2>&1 | tee -a \"$LOG_FILE\" || true`,
+    `docker compose -f ${shQuote(options.composeFile)} logs --tail=200 ${shQuote(options.service)} 2>&1 | tee -a \"$LOG_FILE\" || true`,
     "log 'Update ProxmoxCenter terminé.'",
   ].join("\n");
 }
 
 function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob) {
+  const dockerBinary = resolveDockerBinary();
+  if (!dockerBinary) {
+    throw new Error("Docker CLI introuvable dans le conteneur ProxmoxCenter.");
+  }
+
   const script = buildRunnerScript({
     jobId: job.id,
     branch: job.branch,
     service: job.service,
+    composeFile: getComposeFileInsideMountedHost(config),
   });
 
   const args = [
@@ -674,8 +795,14 @@ function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob
     script,
   ];
 
-  const result = spawnSync("docker", args, {
+  const result = spawnSync(dockerBinary, args, {
     encoding: "utf8",
+    env: {
+      ...process.env,
+      PATH:
+        process.env.PATH ||
+        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
+    },
   });
 
   if (result.status !== 0) {
