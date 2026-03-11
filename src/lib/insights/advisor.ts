@@ -39,6 +39,8 @@ export type GreenItAdvisorResult = {
     annualCost: number;
     avgNodeCpu: number;
     avgNodeMem: number;
+    powerSource: "estimated" | "manual" | "metered";
+    powerSourceLabel: string;
   };
   config: {
     pue: number;
@@ -52,6 +54,8 @@ type GreenItRuntimeOverrides = {
   pue?: number | null;
   co2FactorKgPerKwh?: number | null;
   electricityPricePerKwh?: number | null;
+  liveMeasuredPowerWatts?: number | null;
+  liveMeasuredPowerSource?: string | null;
 };
 
 function clampScore(value: number) {
@@ -196,16 +200,26 @@ export function buildGreenItAdvisor(
         }, 0) / snapshot.nodes.length
       : 0;
 
-  // Very rough homelab/datacenter estimate: base node overhead + CPU + RAM contribution.
-  const estimatedPowerWatts =
-    overrides?.estimatedPowerWatts && overrides.estimatedPowerWatts > 0
-      ? overrides.estimatedPowerWatts
-      : snapshot.nodes.length > 0
-        ? snapshot.nodes.reduce((sum, node) => {
-            const memRatio = node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0;
-            return sum + (110 + node.cpuLoad * 220 + memRatio * 90);
-          }, 0)
-        : 0;
+  const manualPowerWatts =
+    overrides?.estimatedPowerWatts && overrides.estimatedPowerWatts > 0 ? overrides.estimatedPowerWatts : null;
+  const measuredPowerWatts =
+    overrides?.liveMeasuredPowerWatts && overrides.liveMeasuredPowerWatts > 0 ? overrides.liveMeasuredPowerWatts : null;
+  const heuristicPowerWatts =
+    snapshot.nodes.length > 0
+      ? snapshot.nodes.reduce((sum, node) => {
+          const memRatio = node.memoryTotal > 0 ? node.memoryUsed / node.memoryTotal : 0;
+          return sum + (110 + node.cpuLoad * 220 + memRatio * 90);
+        }, 0)
+      : 0;
+  const estimatedPowerWatts = measuredPowerWatts ?? manualPowerWatts ?? heuristicPowerWatts;
+  const powerSource =
+    measuredPowerWatts !== null ? "metered" : manualPowerWatts !== null ? "manual" : "estimated";
+  const powerSourceLabel =
+    powerSource === "metered"
+      ? overrides?.liveMeasuredPowerSource || "Power meter serveur"
+      : powerSource === "manual"
+        ? "Calibration manuelle"
+        : "Estimation Proxmox";
 
   const effectivePowerWatts = estimatedPowerWatts * pue;
   const annualKwh = (effectivePowerWatts * 24 * 365) / 1000;
@@ -298,6 +312,8 @@ export function buildGreenItAdvisor(
       annualCost: Math.round(annualCost),
       avgNodeCpu,
       avgNodeMem,
+      powerSource,
+      powerSourceLabel,
     },
     config: {
       pue,

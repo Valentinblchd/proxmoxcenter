@@ -223,7 +223,7 @@ export default function GreenItCalibrationPanel({ defaults, initialSettings = nu
 
       <div className="provision-grid">
         <label className="provision-field">
-          <span className="provision-field-label">Puissance IT locale (W)</span>
+          <span className="provision-field-label">Puissance IT locale (W, fallback si power meter)</span>
           <input
             className="provision-input"
             value={powerWatts}

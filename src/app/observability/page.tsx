@@ -49,6 +49,10 @@ function formatHealthState(value: HardwareHealthState) {
   return "inconnu";
 }
 
+function formatPowerMetric(value: number | null) {
+  return value !== null ? `${Math.round(value)} W` : "—";
+}
+
 function hardwareMatchesNode(snapshot: HardwareSnapshot | null, nodeName: string) {
   if (!snapshot) return false;
   if (!snapshot.nodeName) return true;
@@ -264,7 +268,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const hasLiveData = snapshot.mode === "live";
   const security = buildSecurityAdvisor(snapshot);
   const greenitSettings = readRuntimeGreenItConfig();
-  const greenit = buildGreenItAdvisor(snapshot, greenitSettings);
   const hardwareMonitorConfig = readRuntimeHardwareMonitorConfig();
   const warningCount = snapshot.warnings.length;
   const avgCpu =
@@ -283,6 +286,14 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
     hardwareMonitorConfig?.enabled && (activeTab === "overview" || activeTab === "health" || activeTab === "greenit")
       ? await fetchHardwareSnapshot(hardwareMonitorConfig).catch(() => null)
       : null;
+  const livePowerWatts = hardwareSnapshot?.summary.powerAverageWatts ?? hardwareSnapshot?.summary.powerNowWatts ?? null;
+  const livePowerSource =
+    livePowerWatts !== null ? `Power meter ${hardwareSnapshot?.label ?? hardwareSnapshot?.host ?? "serveur"}` : null;
+  const greenit = buildGreenItAdvisor(snapshot, {
+    ...(greenitSettings ?? {}),
+    liveMeasuredPowerWatts: livePowerWatts,
+    liveMeasuredPowerSource: livePowerSource,
+  });
   const diskHealth =
     hasLiveData && (activeTab === "overview" || activeTab === "health")
       ? await fetchDiskHealth(snapshot.nodes.map((node) => node.name))
@@ -418,9 +429,17 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           <section className="panel">
             <div className="panel-head">
               <h2>Contexte GreenIT</h2>
-              <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
+              <span className="muted">{greenit.metrics.powerSourceLabel}</span>
             </div>
             <div className="stack-sm">
+              <div className="row-line">
+                <span>Source puissance</span>
+                <strong>{greenit.metrics.powerSourceLabel}</strong>
+              </div>
+              <div className="row-line">
+                <span>Puissance IT</span>
+                <strong>{greenit.metrics.estimatedPowerWatts} W</strong>
+              </div>
               <div className="row-line">
                 <span>Température serveur</span>
                 <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "Non remontée"}</strong>
@@ -434,7 +453,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "Indisponible"}</strong>
               </div>
               <div className="row-line">
-                <span>Puissance effective</span>
+                <span>Puissance effective (PUE)</span>
                 <strong>{greenit.metrics.effectivePowerWatts} W</strong>
               </div>
             </div>
@@ -637,6 +656,25 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           </div>
           {hardwareSnapshot ? (
             <>
+              <div className="advisor-kpi-grid hardware-kpi-grid">
+                <article className="advisor-kpi-card">
+                  <span className="stat-label">Puissance live</span>
+                  <strong>{formatPowerMetric(hardwareSnapshot.summary.powerNowWatts)}</strong>
+                </article>
+                <article className="advisor-kpi-card">
+                  <span className="stat-label">Puissance moy.</span>
+                  <strong>{formatPowerMetric(hardwareSnapshot.summary.powerAverageWatts)}</strong>
+                </article>
+                <article className="advisor-kpi-card">
+                  <span className="stat-label">CPU power</span>
+                  <strong>{formatPowerMetric(hardwareSnapshot.summary.cpuPowerWatts)}</strong>
+                </article>
+                <article className="advisor-kpi-card">
+                  <span className="stat-label">DIMM power</span>
+                  <strong>{formatPowerMetric(hardwareSnapshot.summary.memoryPowerWatts)}</strong>
+                </article>
+              </div>
+
               <div className="stack-sm">
                 <div className="row-line">
                   <span>Plateforme</span>
@@ -662,6 +700,15 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                       : "—"}
                     {hardwareSnapshot.summary.averageTemperatureC !== null
                       ? ` • ${hardwareSnapshot.summary.averageTemperatureC.toFixed(1)}°C`
+                      : ""}
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>Power meter</span>
+                  <strong>
+                    {formatPowerMetric(hardwareSnapshot.summary.powerAverageWatts)}
+                    {hardwareSnapshot.summary.powerPeakWatts !== null
+                      ? ` • pic ${Math.round(hardwareSnapshot.summary.powerPeakWatts)} W`
                       : ""}
                   </strong>
                 </div>
@@ -769,30 +816,64 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       {activeTab === "greenit" ? (
         <section className="content-grid">
           <section className="panel">
-            <div className="panel-head">
-              <h2>Calcul GreenIT</h2>
-              <span className="muted">Mesure estimée</span>
+            <div className="greenit-hero">
+              <div className="greenit-hero-left">
+                <div>
+                  <h2>Calcul GreenIT</h2>
+                  <div className="muted">{greenit.metrics.powerSourceLabel}</div>
+                </div>
+              </div>
+              <div className="greenit-hero-bars">
+                <div className="greenit-inline-bar">
+                  <span>Puissance IT</span>
+                  <div className="inventory-progress inventory-progress-wide">
+                    <span className="tone-green" style={{ width: `${Math.min(100, Math.max(8, Math.round((greenit.metrics.estimatedPowerWatts / Math.max(greenit.metrics.effectivePowerWatts, 1)) * 100)))}%` }} />
+                  </div>
+                  <strong>{greenit.metrics.estimatedPowerWatts} W</strong>
+                </div>
+                <div className="greenit-inline-bar">
+                  <span>Puissance PUE</span>
+                  <div className="inventory-progress inventory-progress-wide">
+                    <span className="tone-orange" style={{ width: `${Math.min(100, Math.max(10, Math.round((greenit.metrics.effectivePowerWatts / Math.max(greenit.metrics.effectivePowerWatts, 1)) * 100)))}%` }} />
+                  </div>
+                  <strong>{greenit.metrics.effectivePowerWatts} W</strong>
+                </div>
+              </div>
             </div>
+
+            <section className="advisor-kpi-grid">
+              <article className="advisor-kpi-card">
+                <span className="stat-label">
+                  {greenit.metrics.powerSource === "metered"
+                    ? "Puissance mesurée"
+                    : greenit.metrics.powerSource === "manual"
+                      ? "Puissance locale"
+                      : "Puissance estimée"}
+                </span>
+                <strong>{greenit.metrics.estimatedPowerWatts} W</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Puissance effective</span>
+                <strong>{greenit.metrics.effectivePowerWatts} W</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Conso annuelle</span>
+                <strong>{greenit.metrics.annualKwh} kWh</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Coût annuel</span>
+                <strong>{greenit.metrics.annualCost} €</strong>
+              </article>
+            </section>
+
             <div className="stack-sm">
               <div className="row-line">
-                <span>Puissance IT estimée</span>
-                <strong>{greenit.metrics.estimatedPowerWatts} W</strong>
-              </div>
-              <div className="row-line">
-                <span>Puissance effective (PUE)</span>
-                <strong>{greenit.metrics.effectivePowerWatts} W</strong>
-              </div>
-              <div className="row-line">
-                <span>Conso annuelle</span>
-                <strong>{greenit.metrics.annualKwh} kWh</strong>
+                <span>Source puissance</span>
+                <strong>{greenit.metrics.powerSourceLabel}</strong>
               </div>
               <div className="row-line">
                 <span>CO2 annuel</span>
                 <strong>{greenit.metrics.annualCo2Kg} kg</strong>
-              </div>
-              <div className="row-line">
-                <span>Coût annuel</span>
-                <strong>{greenit.metrics.annualCost} €</strong>
               </div>
               <div className="row-line">
                 <span>Conso actuelle</span>
@@ -808,8 +889,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </div>
             </div>
             <p className="muted">
-              Lecture rapide: consommation électrique et impact CO2 sont calculés à partir de la charge
-              CPU/RAM des nœuds, puis corrigés par le PUE.
+              Lecture rapide: quand un power meter serveur est disponible via iLO/Redfish, GreenIT l’utilise en priorité.
+              Sinon l’app retombe sur la calibration locale ou l’estimation Proxmox.
             </p>
           </section>
 
@@ -817,6 +898,24 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="panel-head">
               <h2>Thermique & environnement</h2>
               <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
+            </div>
+            <div className="advisor-kpi-grid hardware-kpi-grid">
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Temp serveur</span>
+                <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "—"}</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Extérieur</span>
+                <strong>{outsideTemp !== null ? `${outsideTemp.toFixed(1)}°C` : "—"}</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Delta</span>
+                <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "—"}</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Ambiant power meter</span>
+                <strong>{hardwareSnapshot?.summary.ambientTemperatureC !== null && hardwareSnapshot?.summary.ambientTemperatureC !== undefined ? `${hardwareSnapshot.summary.ambientTemperatureC.toFixed(1)}°C` : "—"}</strong>
+              </article>
             </div>
             <div className="stack-sm">
               <div className="row-line">
@@ -837,7 +936,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </div>
             </div>
             <p className="muted">
-              La température serveur utilise d’abord une sonde nœud si Proxmox la remonte, sinon la valeur calibrée.
+              La température serveur priorise la sonde matérielle BMC/iLO quand elle existe, puis les sondes nœud Proxmox, puis la valeur calibrée.
             </p>
           </section>
 

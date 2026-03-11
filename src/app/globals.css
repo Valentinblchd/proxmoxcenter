@@ -4602,6 +4602,10 @@ select.inventory-node-filter option {
   color: var(--muted);
 }
 
+.hardware-kpi-grid {
+  margin: 0.1rem 0 0.75rem;
+}
+
 .advisor-node-list {
   display: grid;
   gap: 0.55rem;

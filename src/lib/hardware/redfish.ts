@@ -45,6 +45,18 @@ export type HardwareDrive = {
   predictedFailure: boolean | null;
 };
 
+export type HardwarePowerMetrics = {
+  source: string;
+  currentWatts: number | null;
+  averageWatts: number | null;
+  minWatts: number | null;
+  maxWatts: number | null;
+  cpuWatts: number | null;
+  memoryWatts: number | null;
+  gpuWatts: number | null;
+  ambientTemperatureC: number | null;
+};
+
 export type HardwareSnapshot = {
   source: "redfish";
   fetchedAt: string;
@@ -62,6 +74,7 @@ export type HardwareSnapshot = {
   processors: HardwareProcessor[];
   memoryModules: HardwareMemoryModule[];
   drives: HardwareDrive[];
+  power: HardwarePowerMetrics | null;
   summary: {
     maxTemperatureC: number | null;
     averageTemperatureC: number | null;
@@ -74,6 +87,12 @@ export type HardwareSnapshot = {
     driveCount: number;
     driveCritical: number;
     driveWarning: number;
+    powerNowWatts: number | null;
+    powerAverageWatts: number | null;
+    powerPeakWatts: number | null;
+    cpuPowerWatts: number | null;
+    memoryPowerWatts: number | null;
+    ambientTemperatureC: number | null;
   };
 };
 
@@ -340,6 +359,118 @@ function parseDrive(resource: RedfishResource): HardwareDrive | null {
   };
 }
 
+function readHpePowerMetric(resource: RedfishResource) {
+  const oem = isRecord(resource.Oem) ? resource.Oem : null;
+  const hpe = oem && isRecord(oem.Hpe) ? oem.Hpe : null;
+  return hpe && isRecord(hpe.PowerMetric) ? hpe.PowerMetric : null;
+}
+
+function sumNullableNumbers(values: Array<number | null | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (numbers.length === 0) return null;
+  return numbers.reduce((sum, value) => sum + value, 0);
+}
+
+function averageNullableNumbers(values: Array<number | null | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (numbers.length === 0) return null;
+  return numbers.reduce((sum, value) => sum + value, 0) / numbers.length;
+}
+
+function maxNullableNumbers(values: Array<number | null | undefined>) {
+  const numbers = values.filter((value): value is number => typeof value === "number" && Number.isFinite(value));
+  if (numbers.length === 0) return null;
+  return Math.max(...numbers);
+}
+
+function parsePowerMetrics(resource: RedfishResource, source: string): HardwarePowerMetrics | null {
+  const powerControl = Array.isArray(resource.PowerControl) ? resource.PowerControl.filter(isRecord) : [];
+  const powerSupplies = Array.isArray(resource.PowerSupplies) ? resource.PowerSupplies.filter(isRecord) : [];
+  const hpePowerMetric = readHpePowerMetric(resource);
+
+  const currentWatts =
+    sumNullableNumbers(powerControl.map((entry) => asNumber(entry.PowerConsumedWatts))) ??
+    sumNullableNumbers(powerSupplies.map((entry) => asNumber(entry.LastPowerOutputWatts)));
+  const averageWatts =
+    sumNullableNumbers(
+      powerControl.map((entry) => {
+        const metrics = isRecord(entry.PowerMetrics) ? entry.PowerMetrics : null;
+        return asNumber(metrics?.AverageConsumedWatts);
+      }),
+    ) ??
+    sumNullableNumbers(
+      powerSupplies.map((entry) => {
+        const oem = isRecord(entry.Oem) ? entry.Oem : null;
+        const hpe = oem && isRecord(oem.Hpe) ? oem.Hpe : null;
+        return asNumber(hpe?.AveragePowerOutputWatts);
+      }),
+    );
+  const minWatts = sumNullableNumbers(
+    powerControl.map((entry) => {
+      const metrics = isRecord(entry.PowerMetrics) ? entry.PowerMetrics : null;
+      return asNumber(metrics?.MinConsumedWatts);
+    }),
+  );
+  const maxWatts =
+    sumNullableNumbers(
+      powerControl.map((entry) => {
+        const metrics = isRecord(entry.PowerMetrics) ? entry.PowerMetrics : null;
+        return asNumber(metrics?.MaxConsumedWatts);
+      }),
+    ) ??
+    sumNullableNumbers(
+      powerSupplies.map((entry) => {
+        const oem = isRecord(entry.Oem) ? entry.Oem : null;
+        const hpe = oem && isRecord(oem.Hpe) ? oem.Hpe : null;
+        return asNumber(hpe?.MaxPowerOutputWatts);
+      }),
+    );
+  const cpuWatts = hpePowerMetric ? asNumber(hpePowerMetric.CpuWatts) : null;
+  const memoryWatts = hpePowerMetric ? asNumber(hpePowerMetric.DimmWatts) : null;
+  const gpuWatts = hpePowerMetric ? asNumber(hpePowerMetric.GpuWatts) : null;
+  const ambientTemperatureC = hpePowerMetric ? asNumber(hpePowerMetric.AmbTemp) : null;
+
+  if (
+    currentWatts === null &&
+    averageWatts === null &&
+    minWatts === null &&
+    maxWatts === null &&
+    cpuWatts === null &&
+    memoryWatts === null &&
+    gpuWatts === null &&
+    ambientTemperatureC === null
+  ) {
+    return null;
+  }
+
+  return {
+    source,
+    currentWatts,
+    averageWatts,
+    minWatts,
+    maxWatts,
+    cpuWatts,
+    memoryWatts,
+    gpuWatts,
+    ambientTemperatureC,
+  };
+}
+
+function mergePowerMetrics(metrics: HardwarePowerMetrics[]): HardwarePowerMetrics | null {
+  if (metrics.length === 0) return null;
+  return {
+    source: metrics.map((entry) => entry.source).join(" + "),
+    currentWatts: sumNullableNumbers(metrics.map((entry) => entry.currentWatts)),
+    averageWatts: sumNullableNumbers(metrics.map((entry) => entry.averageWatts)),
+    minWatts: sumNullableNumbers(metrics.map((entry) => entry.minWatts)),
+    maxWatts: sumNullableNumbers(metrics.map((entry) => entry.maxWatts)),
+    cpuWatts: sumNullableNumbers(metrics.map((entry) => entry.cpuWatts)),
+    memoryWatts: sumNullableNumbers(metrics.map((entry) => entry.memoryWatts)),
+    gpuWatts: sumNullableNumbers(metrics.map((entry) => entry.gpuWatts)),
+    ambientTemperatureC: averageNullableNumbers(metrics.map((entry) => entry.ambientTemperatureC)),
+  };
+}
+
 function summarizeHardware(snapshot: Omit<HardwareSnapshot, "summary">) {
   const temperatureValues = snapshot.temperatures
     .map((entry) => entry.readingC)
@@ -365,6 +496,12 @@ function summarizeHardware(snapshot: Omit<HardwareSnapshot, "summary">) {
     driveWarning: snapshot.drives.filter(
       (entry) => entry.health === "warning" || entry.temperatureC !== null && entry.temperatureC >= 50,
     ).length,
+    powerNowWatts: snapshot.power?.currentWatts ?? null,
+    powerAverageWatts: snapshot.power?.averageWatts ?? null,
+    powerPeakWatts: snapshot.power?.maxWatts ?? null,
+    cpuPowerWatts: snapshot.power?.cpuWatts ?? null,
+    memoryPowerWatts: snapshot.power?.memoryWatts ?? null,
+    ambientTemperatureC: snapshot.power?.ambientTemperatureC ?? null,
   };
 }
 
@@ -450,6 +587,34 @@ async function loadTemperatureSensors(config: RuntimeHardwareMonitorConfig, root
   return [...deduped.values()];
 }
 
+async function loadPowerMetrics(
+  config: RuntimeHardwareMonitorConfig,
+  root: RedfishResource,
+  system: RedfishResource | null,
+) {
+  const chassis = await loadChassisResources(config, root, system);
+  const metrics: HardwarePowerMetrics[] = [];
+  for (const resource of chassis) {
+    const chassisId = asString(resource["@odata.id"]) ?? null;
+    const powerCandidates = uniqueStrings([
+      getOdataId(resource.Power),
+      chassisId ? `${chassisId.replace(/\/+$/, "")}/Power` : null,
+    ]);
+    for (const candidate of powerCandidates) {
+      try {
+        const payload = await redfishRequest<RedfishResource>(config, candidate);
+        const metric = parsePowerMetrics(payload, candidate);
+        if (metric) {
+          metrics.push(metric);
+        }
+      } catch {
+        // Continue probing other candidate endpoints.
+      }
+    }
+  }
+  return mergePowerMetrics(metrics);
+}
+
 async function loadDrives(config: RuntimeHardwareMonitorConfig, system: RedfishResource | null) {
   const storagePath = getOdataId(system?.Storage);
   const storageMembers = await readCollectionMembers(config, storagePath);
@@ -484,6 +649,7 @@ export async function fetchHardwareSnapshot(
   const system = systems[0] ?? null;
   const manager = managers[0] ?? null;
   const temperatures = await loadTemperatureSensors(config, root, system);
+  const power = await loadPowerMetrics(config, root, system);
   const processors = (
     await readCollectionMembers(config, getOdataId(system?.Processors))
   ).map((resource) => parseProcessor(resource, temperatures));
@@ -511,6 +677,7 @@ export async function fetchHardwareSnapshot(
     processors,
     memoryModules,
     drives,
+    power,
   };
 
   return {
