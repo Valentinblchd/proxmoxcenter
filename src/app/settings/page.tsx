@@ -10,6 +10,7 @@ import ThemeSettingsPanel from "@/components/theme-settings-panel";
 import { readAssistantMemory } from "@/lib/assistant/memory";
 import { AUTH_COOKIE_NAME, getAuthStatus, verifySessionToken } from "@/lib/auth/session";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
+import { resolveGreenItElectricityPricing } from "@/lib/greenit/edf-tariff";
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { readRuntimeHardwareMonitorConfig } from "@/lib/hardware/runtime-config";
 import { buildGreenItAdvisor } from "@/lib/insights/advisor";
@@ -56,7 +57,11 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const hardwareMonitorRuntime = readRuntimeHardwareMonitorConfig();
   const snapshot = await getDashboardSnapshot();
   const greenitRuntime = readRuntimeGreenItConfig();
-  const greenit = buildGreenItAdvisor(snapshot, greenitRuntime);
+  const electricityPricing = await resolveGreenItElectricityPricing(greenitRuntime);
+  const greenit = buildGreenItAdvisor(snapshot, {
+    ...(greenitRuntime ?? {}),
+    electricityPricePerKwh: electricityPricing.pricePerKwh,
+  });
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
@@ -225,6 +230,15 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             pue: greenit.config.pue,
             co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
             electricityPricePerKwh: greenit.config.electricityPricePerKwh,
+          }}
+          pricing={{
+            activePricePerKwh: electricityPricing.pricePerKwh,
+            mode: electricityPricing.mode,
+            sourceLabel: electricityPricing.sourceLabel,
+            updatedAt: electricityPricing.fetchedAt,
+            effectiveDate: electricityPricing.effectiveDate,
+            stale: electricityPricing.stale,
+            annualSubscriptionEur: electricityPricing.annualSubscriptionEur,
           }}
           initialSettings={greenitRuntime}
         />

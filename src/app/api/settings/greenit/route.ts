@@ -19,6 +19,7 @@ type Body = {
   pue?: unknown;
   co2FactorKgPerKwh?: unknown;
   electricityPricePerKwh?: unknown;
+  electricityPriceMode?: unknown;
   serverTemperatureC?: unknown;
   outsideTemperatureC?: unknown;
   outsideCity?: unknown;
@@ -95,7 +96,8 @@ export async function POST(request: NextRequest) {
       details: {
         pue: String(saved.pue),
         co2FactorKgPerKwh: String(saved.co2FactorKgPerKwh),
-        electricityPricePerKwh: String(saved.electricityPricePerKwh),
+        electricityPriceMode: saved.electricityPriceMode,
+        electricityPricePerKwh: saved.electricityPricePerKwh === null ? "auto" : String(saved.electricityPricePerKwh),
       },
     });
 

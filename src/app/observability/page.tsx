@@ -1,6 +1,8 @@
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
+import { resolveGreenItElectricityPricing } from "@/lib/greenit/edf-tariff";
+import { readGreenItHistorySummary, recordGreenItSample } from "@/lib/greenit/history";
 import { fetchHardwareSnapshot, type HardwareSnapshot, type HardwareHealthState } from "@/lib/hardware/redfish";
 import { readRuntimeHardwareMonitorConfig } from "@/lib/hardware/runtime-config";
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
@@ -268,6 +270,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const hasLiveData = snapshot.mode === "live";
   const security = buildSecurityAdvisor(snapshot);
   const greenitSettings = readRuntimeGreenItConfig();
+  const electricityPricing = await resolveGreenItElectricityPricing(greenitSettings);
   const hardwareMonitorConfig = readRuntimeHardwareMonitorConfig();
   const warningCount = snapshot.warnings.length;
   const avgCpu =
@@ -291,9 +294,19 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
     livePowerWatts !== null ? `Power meter ${hardwareSnapshot?.label ?? hardwareSnapshot?.host ?? "serveur"}` : null;
   const greenit = buildGreenItAdvisor(snapshot, {
     ...(greenitSettings ?? {}),
+    electricityPricePerKwh: electricityPricing.pricePerKwh,
     liveMeasuredPowerWatts: livePowerWatts,
     liveMeasuredPowerSource: livePowerSource,
   });
+  recordGreenItSample({
+    timestamp: new Date().toISOString(),
+    itPowerWatts: greenit.metrics.estimatedPowerWatts,
+    effectivePowerWatts: greenit.metrics.effectivePowerWatts,
+    electricityPricePerKwh: electricityPricing.pricePerKwh,
+    co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
+    powerSource: greenit.metrics.powerSourceLabel,
+  });
+  const greenitHistory = readGreenItHistorySummary();
   const diskHealth =
     hasLiveData && (activeTab === "overview" || activeTab === "health")
       ? await fetchDiskHealth(snapshot.nodes.map((node) => node.name))
@@ -872,6 +885,13 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.powerSourceLabel}</strong>
               </div>
               <div className="row-line">
+                <span>Tarif énergie</span>
+                <strong>
+                  {electricityPricing.pricePerKwh.toFixed(4)} €/kWh
+                  {electricityPricing.mode === "edf-standard" ? " • EDF standard auto" : " • manuel"}
+                </strong>
+              </div>
+              <div className="row-line">
                 <span>CO2 annuel</span>
                 <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
@@ -939,7 +959,65 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               La température serveur priorise la sonde matérielle BMC/iLO quand elle existe, puis les sondes nœud Proxmox, puis la valeur calibrée.
             </p>
           </section>
+        </section>
+      ) : null}
 
+      {activeTab === "greenit" ? (
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Historique & projection</h2>
+            <span className="muted">{greenitHistory.days.length} jour(s) suivis</span>
+          </div>
+
+          <div className="advisor-kpi-grid hardware-kpi-grid">
+            <article className="advisor-kpi-card">
+              <span className="stat-label">Mois en cours</span>
+              <strong>{greenitHistory.currentMonth.totalKwh.toFixed(1)} kWh</strong>
+              <small>{greenitHistory.currentMonth.totalCostEur.toFixed(2)} €</small>
+            </article>
+            <article className="advisor-kpi-card">
+              <span className="stat-label">Projection fin de mois</span>
+              <strong>{greenitHistory.currentMonth.projectedMonthKwh.toFixed(1)} kWh</strong>
+              <small>{greenitHistory.currentMonth.projectedMonthCostEur.toFixed(2)} €</small>
+            </article>
+            <article className="advisor-kpi-card">
+              <span className="stat-label">Jour moyen</span>
+              <strong>{greenitHistory.currentMonth.averageDailyKwh.toFixed(2)} kWh</strong>
+              <small>{greenitHistory.currentMonth.averageDailyCostEur.toFixed(2)} €/j</small>
+            </article>
+            <article className="advisor-kpi-card">
+              <span className="stat-label">Mois précédent</span>
+              <strong>{greenitHistory.previousMonth.totalKwh.toFixed(1)} kWh</strong>
+              <small>{greenitHistory.previousMonth.totalCostEur.toFixed(2)} €</small>
+            </article>
+          </div>
+
+          {greenitHistory.days.length === 0 ? (
+            <p className="muted">L’historique journalier commencera à se remplir automatiquement avec les prochaines lectures GreenIT.</p>
+          ) : (
+            <div className="mini-list">
+              {greenitHistory.days.slice(-14).reverse().map((day) => (
+                <article key={day.date} className="mini-list-item">
+                  <div>
+                    <div className="item-title">{day.date}</div>
+                    <div className="item-subtitle">
+                      {day.kwh.toFixed(2)} kWh • suivi {day.trackedHours.toFixed(1)} h
+                    </div>
+                  </div>
+                  <div className="item-metric">
+                    <div>{day.costEur.toFixed(2)} €</div>
+                    <div className="item-subtitle">
+                      {Math.round(day.averageEffectivePowerWatts)} W moy • pic {Math.round(day.maxEffectivePowerWatts)} W
+                    </div>
+                  </div>
+                </article>
+              ))}
+            </div>
+          )}
+
+          <p className="muted">
+            Le coût journalier est calculé sur l’énergie effective (avec PUE). L’abonnement EDF fixe n’est pas inclus dans ce suivi serveur.
+          </p>
         </section>
       ) : null}
 
@@ -967,6 +1045,15 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               pue: greenit.config.pue,
               co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
               electricityPricePerKwh: greenit.config.electricityPricePerKwh,
+            }}
+            pricing={{
+              activePricePerKwh: electricityPricing.pricePerKwh,
+              mode: electricityPricing.mode,
+              sourceLabel: electricityPricing.sourceLabel,
+              updatedAt: electricityPricing.fetchedAt,
+              effectiveDate: electricityPricing.effectiveDate,
+              stale: electricityPricing.stale,
+              annualSubscriptionEur: electricityPricing.annualSubscriptionEur,
             }}
             initialSettings={greenitSettings}
           />

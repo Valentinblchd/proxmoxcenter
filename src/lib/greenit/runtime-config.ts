@@ -6,7 +6,8 @@ export type RuntimeGreenItConfig = {
   estimatedPowerWatts: number | null;
   pue: number;
   co2FactorKgPerKwh: number;
-  electricityPricePerKwh: number;
+  electricityPricePerKwh: number | null;
+  electricityPriceMode: "manual" | "edf-standard";
   serverTemperatureC: number | null;
   outsideTemperatureC: number | null;
   outsideCity: string | null;
@@ -18,6 +19,7 @@ type RuntimeGreenItConfigInput = {
   pue?: unknown;
   co2FactorKgPerKwh?: unknown;
   electricityPricePerKwh?: unknown;
+  electricityPriceMode?: unknown;
   serverTemperatureC?: unknown;
   outsideTemperatureC?: unknown;
   outsideCity?: unknown;
@@ -52,11 +54,25 @@ function asIsoDate(value: unknown) {
   return date.toISOString();
 }
 
+function asElectricityPriceMode(value: unknown): "manual" | "edf-standard" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "manual") return "manual";
+  if (normalized === "edf-standard" || normalized === "edf" || normalized === "auto") return "edf-standard";
+  return null;
+}
+
 function normalizeInput(input: RuntimeGreenItConfigInput): RuntimeGreenItConfig | null {
   const pue = asNumber(input.pue, { min: 1, max: 5 });
   const co2FactorKgPerKwh = asNumber(input.co2FactorKgPerKwh, { min: 0.001, max: 5 });
-  const electricityPricePerKwh = asNumber(input.electricityPricePerKwh, { min: 0.001, max: 20 });
-  if (pue === null || co2FactorKgPerKwh === null || electricityPricePerKwh === null) {
+  const electricityPricePerKwh = asNumber(input.electricityPricePerKwh, { min: 0.001, max: 20, allowNull: true });
+  const electricityPriceMode =
+    asElectricityPriceMode(input.electricityPriceMode) ??
+    (electricityPricePerKwh !== null ? "manual" : "edf-standard");
+  if (pue === null || co2FactorKgPerKwh === null) {
+    return null;
+  }
+  if (electricityPriceMode === "manual" && electricityPricePerKwh === null) {
     return null;
   }
 
@@ -64,7 +80,8 @@ function normalizeInput(input: RuntimeGreenItConfigInput): RuntimeGreenItConfig 
     estimatedPowerWatts: asNumber(input.estimatedPowerWatts, { min: 1, max: 1_000_000, allowNull: true }),
     pue,
     co2FactorKgPerKwh,
-    electricityPricePerKwh,
+    electricityPricePerKwh: electricityPriceMode === "manual" ? electricityPricePerKwh : null,
+    electricityPriceMode,
     serverTemperatureC: asNumber(input.serverTemperatureC, { min: -40, max: 120, allowNull: true }),
     outsideTemperatureC: asNumber(input.outsideTemperatureC, { min: -80, max: 80, allowNull: true }),
     outsideCity: asText(input.outsideCity, 160),
