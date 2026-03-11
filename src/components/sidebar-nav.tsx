@@ -565,7 +565,7 @@ export default function SidebarNav({
         <div className="sidebar-bottom">
           <div className="sidebar-bottom-divider" />
 
-          {visibleAccountSection && sidebarExpanded ? (
+          {visibleAccountSection ? (
             <SectionBlock
               section={visibleAccountSection}
               expanded={sidebarExpanded}
