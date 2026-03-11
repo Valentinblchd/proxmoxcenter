@@ -32,7 +32,7 @@ export async function GET(request: NextRequest) {
 
   return NextResponse.json({
     ok: true,
-    ...getSelfUpdateOverview({ refreshAvailability }),
+    ...(await getSelfUpdateOverview({ refreshAvailability })),
   });
 }
 
@@ -74,12 +74,12 @@ export async function POST(request: NextRequest) {
         'Confirmation forte requise. Tape "UPDATE PROXMOXCENTER".',
       );
 
-      const overview = startSelfUpdate(capability.session.username);
+      const overview = await startSelfUpdate(capability.session.username);
       return NextResponse.json({ ok: true, ...overview });
     }
 
     if (action === "reset") {
-      const overview = resetSelfUpdateState();
+      const overview = await resetSelfUpdateState();
       return NextResponse.json({ ok: true, ...overview });
     }
 

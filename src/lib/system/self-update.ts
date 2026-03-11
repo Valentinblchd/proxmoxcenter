@@ -3,7 +3,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { spawnSync } from "node:child_process";
+import { Agent, fetch } from "undici";
 
 type SelfUpdateStatus = "idle" | "running" | "success" | "failed";
 type UpdateAvailabilityStatus = "disabled" | "unknown" | "up-to-date" | "update-available" | "error";
@@ -57,6 +57,30 @@ type SelfUpdateConfig = {
   maxHistory: number;
 };
 
+type DockerContainerInspect = {
+  Image?: string;
+  Config?: {
+    Image?: string;
+    Labels?: Record<string, unknown>;
+  };
+};
+
+type DockerImageInspect = {
+  Id?: string;
+};
+
+type DockerCreateResponse = {
+  Id?: string;
+  Warnings?: string[];
+};
+
+type DockerWaitResponse = {
+  StatusCode?: number;
+  Error?: {
+    Message?: string;
+  };
+};
+
 const DEFAULT_STATE: SelfUpdateState = {
   current: null,
   history: [],
@@ -73,6 +97,14 @@ const DEFAULT_AVAILABILITY: SelfUpdateAvailability = {
 };
 
 const AVAILABILITY_TTL_MS = 15 * 60_000;
+const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
+const DOCKER_API_BASE = "http://docker";
+const DOCKER_REGISTRY_AUTH = Buffer.from("{}", "utf8").toString("base64");
+const DOCKER_SOCKET_AGENT = new Agent({
+  connect: {
+    socketPath: DOCKER_SOCKET_PATH,
+  },
+});
 
 function timestamp() {
   return new Date().toISOString();
@@ -135,22 +167,153 @@ function getDockerBinaryCandidates() {
   ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
 }
 
-function resolveDockerBinary() {
+function findDockerBinaryPath() {
   for (const candidate of getDockerBinaryCandidates()) {
-    const result = spawnSync(candidate, ["--version"], {
-      encoding: "utf8",
-      env: {
-        ...process.env,
-        PATH:
-          process.env.PATH ||
-          "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-      },
-    });
-    if (result.status === 0) {
-      return candidate;
+    if (candidate.includes("/")) {
+      try {
+        fs.accessSync(candidate, fs.constants.X_OK);
+        return candidate;
+      } catch {
+        continue;
+      }
+    }
+    if (candidate === "docker") {
+      const searchPath =
+        process.env.PATH || "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin";
+      for (const directory of searchPath.split(":").map((entry) => entry.trim()).filter(Boolean)) {
+        const binaryPath = path.join(directory, candidate);
+        try {
+          fs.accessSync(binaryPath, fs.constants.X_OK);
+          return binaryPath;
+        } catch {
+          continue;
+        }
+      }
     }
   }
   return null;
+}
+
+function buildDockerUrl(pathname: string, query?: Record<string, string | undefined>) {
+  const url = new URL(pathname, DOCKER_API_BASE);
+  for (const [key, value] of Object.entries(query ?? {})) {
+    if (typeof value === "string" && value.length > 0) {
+      url.searchParams.set(key, value);
+    }
+  }
+  return url;
+}
+
+async function dockerApiRequest<T>(
+  method: string,
+  pathname: string,
+  options?: {
+    query?: Record<string, string | undefined>;
+    body?: unknown;
+    headers?: Record<string, string>;
+    timeoutMs?: number;
+    parseJson?: boolean;
+  },
+) {
+  if (!fs.existsSync(DOCKER_SOCKET_PATH)) {
+    return {
+      ok: false,
+      status: 0,
+      text: "",
+      data: null as T | null,
+      error: "Docker socket non monté (/var/run/docker.sock).",
+    };
+  }
+
+  try {
+    const response = await fetch(buildDockerUrl(pathname, options?.query), {
+      method,
+      dispatcher: DOCKER_SOCKET_AGENT,
+      headers: {
+        ...(options?.body === undefined ? {} : { "Content-Type": "application/json" }),
+        ...(options?.headers ?? {}),
+      },
+      body:
+        options?.body === undefined
+          ? undefined
+          : typeof options.body === "string"
+            ? options.body
+            : JSON.stringify(options.body),
+      cache: "no-store",
+      signal: options?.timeoutMs ? AbortSignal.timeout(options.timeoutMs) : undefined,
+    });
+
+    const text = await response.text();
+    let data: T | null = null;
+    if (options?.parseJson !== false && text.trim()) {
+      try {
+        data = JSON.parse(text) as T;
+      } catch {
+        data = null;
+      }
+    }
+
+    return {
+      ok: response.ok,
+      status: response.status,
+      text,
+      data,
+      error: response.ok ? null : text.trim() || `${method} ${pathname} a échoué (${response.status}).`,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      status: 0,
+      text: "",
+      data: null as T | null,
+      error: error instanceof Error ? error.message : `Impossible de joindre ${pathname}.`,
+    };
+  }
+}
+
+async function inspectDockerContainer(containerIdOrName: string) {
+  const result = await dockerApiRequest<DockerContainerInspect>(
+    "GET",
+    `/containers/${encodeURIComponent(containerIdOrName)}/json`,
+    { timeoutMs: 8_000 },
+  );
+  return result.ok ? result.data : null;
+}
+
+async function inspectDockerImage(imageRef: string) {
+  const result = await dockerApiRequest<DockerImageInspect>(
+    "GET",
+    `/images/${encodeURIComponent(imageRef)}/json`,
+    { timeoutMs: 12_000 },
+  );
+  return result.ok ? result.data : null;
+}
+
+async function removeDockerContainer(containerIdOrName: string, force = false) {
+  await dockerApiRequest(
+    "DELETE",
+    `/containers/${encodeURIComponent(containerIdOrName)}`,
+    {
+      query: force ? { force: "1" } : undefined,
+      parseJson: false,
+      timeoutMs: 10_000,
+    },
+  );
+}
+
+async function pullDockerImage(imageRef: string) {
+  return dockerApiRequest(
+    "POST",
+    "/images/create",
+    {
+      query: { fromImage: imageRef },
+      headers: {
+        "X-Registry-Auth": DOCKER_REGISTRY_AUTH,
+      },
+      parseJson: false,
+      timeoutMs: 90_000,
+    },
+  );
 }
 
 function readState(): SelfUpdateState {
@@ -215,7 +378,7 @@ function writeAvailability(availability: SelfUpdateAvailability) {
   });
 }
 
-function readSelfComposeMetadata(): SelfComposeMetadata {
+async function readSelfComposeMetadata(): Promise<SelfComposeMetadata> {
   const containerId =
     fs.existsSync("/etc/hostname") ? fs.readFileSync("/etc/hostname", "utf8").trim() : "";
   if (!containerId) {
@@ -227,27 +390,8 @@ function readSelfComposeMetadata(): SelfComposeMetadata {
     };
   }
 
-  const dockerBinary = resolveDockerBinary();
-  if (!dockerBinary) {
-    return {
-      workingDir: null,
-      configFile: null,
-      service: null,
-      containerImage: null,
-    };
-  }
-
-  const labelsInspect = readCommandText(
-    dockerBinary,
-    ["inspect", containerId, "--format", "{{json .Config.Labels}}"],
-    8_000,
-  );
-  const imageInspect = readCommandText(
-    dockerBinary,
-    ["inspect", containerId, "--format", "{{.Config.Image}}"],
-    8_000,
-  );
-  if (!labelsInspect.ok || !labelsInspect.stdout) {
+  const inspect = await inspectDockerContainer(containerId);
+  if (!inspect) {
     return {
       workingDir: null,
       configFile: null,
@@ -257,7 +401,7 @@ function readSelfComposeMetadata(): SelfComposeMetadata {
   }
 
   try {
-    const labels = JSON.parse(labelsInspect.stdout) as Record<string, unknown>;
+    const labels = inspect.Config?.Labels ?? {};
     const configFilesRaw =
       typeof labels["com.docker.compose.project.config_files"] === "string"
         ? labels["com.docker.compose.project.config_files"]
@@ -274,7 +418,8 @@ function readSelfComposeMetadata(): SelfComposeMetadata {
         typeof labels["com.docker.compose.service"] === "string"
           ? labels["com.docker.compose.service"].trim() || null
           : null,
-      containerImage: imageInspect.ok && imageInspect.stdout ? imageInspect.stdout.trim() || null : null,
+      containerImage:
+        typeof inspect.Config?.Image === "string" ? inspect.Config.Image.trim() || null : null,
     };
   } catch {
     return {
@@ -297,8 +442,8 @@ function shQuote(value: string) {
   return `'${value.replace(/'/g, `'"'"'`)}'`;
 }
 
-function resolveConfig(): SelfUpdateConfig {
-  const composeMetadata = readSelfComposeMetadata();
+async function resolveConfig(): Promise<SelfUpdateConfig> {
+  const composeMetadata = await readSelfComposeMetadata();
   const enabled = asBooleanEnv(process.env.PROXMOXCENTER_SELF_UPDATE_ENABLED, false);
   const configuredInstallDir = asAbsolutePath(process.env.PROXMOXCENTER_SELF_UPDATE_INSTALL_DIR);
   const hostInstallDir =
@@ -326,7 +471,7 @@ function resolveConfig(): SelfUpdateConfig {
 
 function checkPrerequisites() {
   const dockerSocketAvailable = fs.existsSync("/var/run/docker.sock");
-  const dockerCliAvailable = Boolean(resolveDockerBinary());
+  const dockerCliAvailable = Boolean(findDockerBinaryPath());
 
   return {
     dockerSocketAvailable,
@@ -371,25 +516,6 @@ function tailLogLines(logFile: string | null | undefined, maxLines = 120) {
   }
 }
 
-function readCommandText(binary: string, args: string[], timeout = 15_000) {
-  const result = spawnSync(binary, args, {
-    encoding: "utf8",
-    timeout,
-    env: {
-      ...process.env,
-      PATH:
-        process.env.PATH ||
-        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    },
-  });
-
-  return {
-    ok: result.status === 0,
-    stdout: (result.stdout ?? "").trim(),
-    stderr: (result.stderr ?? "").trim(),
-  };
-}
-
 function parseKeyValueOutput(raw: string) {
   const out: Record<string, string> = {};
   for (const line of raw.split(/\r?\n/u)) {
@@ -417,21 +543,151 @@ function getComposeFileInsideMountedHost(config: SelfUpdateConfig) {
   return "/host/docker-compose.yml";
 }
 
-function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000) {
+async function ensureRunnerImage(imageRef: string) {
+  const inspect = await inspectDockerImage(imageRef);
+  if (inspect?.Id) return { ok: true, message: "" };
+
+  const pull = await pullDockerImage(imageRef);
+  return {
+    ok: pull.ok,
+    message: pull.error || pull.text.trim() || `Impossible de récupérer ${imageRef}.`,
+  };
+}
+
+async function createRunnerContainer(options: {
+  name: string;
+  image: string;
+  script: string;
+  binds: string[];
+}) {
+  const firstPass = await dockerApiRequest<DockerCreateResponse>(
+    "POST",
+    "/containers/create",
+    {
+      query: { name: options.name },
+      body: {
+        Image: options.image,
+        Cmd: ["sh", "-lc", options.script],
+        Tty: true,
+        AttachStdout: true,
+        AttachStderr: true,
+        HostConfig: {
+          AutoRemove: false,
+          Binds: options.binds,
+        },
+      },
+      timeoutMs: 15_000,
+    },
+  );
+
+  if (firstPass.ok && firstPass.data?.Id) {
+    return { ok: true, id: firstPass.data.Id, error: "" };
+  }
+
+  if (firstPass.status === 404 || /No such image/i.test(firstPass.error || firstPass.text)) {
+    const pulled = await ensureRunnerImage(options.image);
+    if (!pulled.ok) {
+      return { ok: false, id: null, error: pulled.message };
+    }
+
+    const secondPass = await dockerApiRequest<DockerCreateResponse>(
+      "POST",
+      "/containers/create",
+      {
+        query: { name: options.name },
+        body: {
+          Image: options.image,
+          Cmd: ["sh", "-lc", options.script],
+          Tty: true,
+          AttachStdout: true,
+          AttachStderr: true,
+          HostConfig: {
+            AutoRemove: false,
+            Binds: options.binds,
+          },
+        },
+        timeoutMs: 15_000,
+      },
+    );
+
+    if (secondPass.ok && secondPass.data?.Id) {
+      return { ok: true, id: secondPass.data.Id, error: "" };
+    }
+
+    return {
+      ok: false,
+      id: null,
+      error: secondPass.error || secondPass.text.trim() || "Impossible de créer le conteneur runner.",
+    };
+  }
+
+  return {
+    ok: false,
+    id: null,
+    error: firstPass.error || firstPass.text.trim() || "Impossible de créer le conteneur runner.",
+  };
+}
+
+async function startRunnerContainer(containerId: string) {
+  const result = await dockerApiRequest(
+    "POST",
+    `/containers/${encodeURIComponent(containerId)}/start`,
+    {
+      parseJson: false,
+      timeoutMs: 15_000,
+    },
+  );
+  return {
+    ok: result.ok,
+    error: result.error || result.text.trim(),
+  };
+}
+
+async function waitRunnerContainer(containerId: string, timeout = 60_000) {
+  const result = await dockerApiRequest<DockerWaitResponse>(
+    "POST",
+    `/containers/${encodeURIComponent(containerId)}/wait`,
+    {
+      query: { condition: "not-running" },
+      timeoutMs: timeout,
+    },
+  );
+
+  return {
+    ok: result.ok,
+    statusCode: result.data?.StatusCode ?? null,
+    error:
+      result.data?.Error?.Message ||
+      result.error ||
+      result.text.trim() ||
+      "Le runner de vérification n’a pas répondu.",
+  };
+}
+
+async function readRunnerLogs(containerId: string) {
+  const result = await dockerApiRequest(
+    "GET",
+    `/containers/${encodeURIComponent(containerId)}/logs`,
+    {
+      query: { stdout: "1", stderr: "1", tail: "all" },
+      parseJson: false,
+      timeoutMs: 10_000,
+    },
+  );
+
+  return {
+    ok: result.ok,
+    text: result.text.trim(),
+    error: result.error || result.text.trim(),
+  };
+}
+
+async function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000) {
   if (!config.hostInstallDir || !path.isAbsolute(config.hostInstallDir)) {
     return {
       ok: false,
       stdout: "",
       stderr: "Host install dir invalide.",
-    };
-  }
-
-  const dockerBinary = resolveDockerBinary();
-  if (!dockerBinary) {
-    return {
-      ok: false,
-      stdout: "",
-      stderr: "Docker CLI introuvable dans le conteneur ProxmoxCenter.",
     };
   }
 
@@ -443,23 +699,50 @@ function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000
   let lastError = "Impossible de lancer le runner de vérification.";
 
   for (const runnerImage of runnerCandidates) {
-    const args = [
-      "run",
-      "--rm",
-      "-v",
-      "/var/run/docker.sock:/var/run/docker.sock",
-      "-v",
-      `${config.hostInstallDir}:/host:ro`,
-      runnerImage,
-      "sh",
-      "-lc",
+    const name = `proxmoxcenter-probe-${Date.now()}-${randomUUID().slice(0, 8)}`.toLowerCase();
+    const created = await createRunnerContainer({
+      name,
+      image: runnerImage,
       script,
-    ];
-    const result = readCommandText(dockerBinary, args, timeout);
-    if (result.ok || result.stdout) {
-      return result;
+      binds: [
+        "/var/run/docker.sock:/var/run/docker.sock",
+        `${config.hostInstallDir}:/host:ro`,
+      ],
+    });
+    if (!created.ok || !created.id) {
+      lastError = created.error || `Runner ${runnerImage} indisponible.`;
+      continue;
     }
-    lastError = result.stderr || `Runner ${runnerImage} indisponible.`;
+
+    try {
+      const started = await startRunnerContainer(created.id);
+      if (!started.ok) {
+        lastError = started.error || `Runner ${runnerImage} indisponible.`;
+        continue;
+      }
+
+      const waited = await waitRunnerContainer(created.id, timeout);
+      const logs = await readRunnerLogs(created.id);
+      const stdout = logs.text;
+      if (waited.ok && waited.statusCode === 0) {
+        return {
+          ok: true,
+          stdout,
+          stderr: "",
+        };
+      }
+      if (stdout) {
+        return {
+          ok: false,
+          stdout,
+          stderr: waited.error,
+        };
+      }
+
+      lastError = waited.error || logs.error || `Runner ${runnerImage} indisponible.`;
+    } finally {
+      await removeDockerContainer(created.id, true);
+    }
   }
 
   return {
@@ -469,8 +752,8 @@ function runHostProbe(config: SelfUpdateConfig, script: string, timeout = 60_000
   };
 }
 
-function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability | null {
-  const probe = runHostProbe(
+async function verifyGitAvailability(config: SelfUpdateConfig): Promise<SelfUpdateAvailability | null> {
+  const probe = await runHostProbe(
     config,
     [
       "set -eu",
@@ -478,7 +761,14 @@ function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability
       "  printf 'mode=none\\n'",
       "  exit 0",
       "fi",
-      "if ! command -v git >/dev/null 2>&1; then apk add --no-cache git >/dev/null 2>&1 || true; fi",
+      "if ! command -v git >/dev/null 2>&1; then",
+      "  if command -v apk >/dev/null 2>&1; then apk add --no-cache git >/dev/null 2>&1 || true; fi",
+      "  if ! command -v git >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then",
+      "    export DEBIAN_FRONTEND=noninteractive",
+      "    apt-get update >/dev/null 2>&1 || true",
+      "    apt-get install -y --no-install-recommends git >/dev/null 2>&1 || true",
+      "  fi",
+      "fi",
       "if ! command -v git >/dev/null 2>&1; then",
       "  printf 'mode=git\\nerror=git_missing\\n'",
       "  exit 0",
@@ -547,63 +837,19 @@ function verifyGitAvailability(config: SelfUpdateConfig): SelfUpdateAvailability
   };
 }
 
-function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailability {
-  const composeFileInHost = getComposeFileInsideMountedHost(config);
-  const probe = runHostProbe(
-    config,
-    [
-      "set -eu",
-      `compose_file=${shQuote(composeFileInHost)}`,
-      "if [ ! -f \"$compose_file\" ]; then",
-      "  printf 'error=compose_file_missing\\n'",
-      "  exit 0",
-      "fi",
-      "service_image=$(docker compose -f \"$compose_file\" config --images 2>/dev/null | head -n 1)",
-      `current=$(docker inspect --format '{{.Image}}' ${shQuote(config.service)} 2>/dev/null || true)`,
-      "before=$(if [ -n \"$service_image\" ]; then docker image inspect --format '{{.Id}}' \"$service_image\" 2>/dev/null || true; fi)",
-      "pull_output=$(if [ -n \"$service_image\" ]; then docker pull \"$service_image\" 2>&1 || true; fi)",
-      "after=$(if [ -n \"$service_image\" ]; then docker image inspect --format '{{.Id}}' \"$service_image\" 2>/dev/null || true; fi)",
-      "printf 'service_image=%s\\n' \"$service_image\"",
-      "printf 'current=%s\\n' \"$current\"",
-      "printf 'before=%s\\n' \"$before\"",
-      "printf 'after=%s\\n' \"$after\"",
-      "printf 'pull_output_b64=%s\\n' \"$(printf '%s' \"$pull_output\" | base64 | tr -d '\\n')\"",
-    ].join("\n"),
-    90_000,
-  );
-
-  if (!probe.ok && !probe.stdout) {
-    return {
-      status: "error",
-      message: probe.stderr || "Impossible de lancer la vérification image.",
-      checkedAt: timestamp(),
-      currentRef: null,
-      availableRef: null,
-      serviceImage: null,
-    };
-  }
-
-  const parsed = parseKeyValueOutput(probe.stdout);
-  const serviceImage = parsed.service_image || null;
-  const pullOutput = parsed.pull_output_b64
-    ? Buffer.from(parsed.pull_output_b64, "base64").toString("utf8")
-    : "";
-
-  if (parsed.error === "compose_file_missing") {
-    return {
-      status: "error",
-      message: `Fichier compose introuvable dans le runner (${composeFileInHost}).`,
-      checkedAt: timestamp(),
-      currentRef: null,
-      availableRef: null,
-      serviceImage: null,
-    };
-  }
+async function verifyImageAvailability(config: SelfUpdateConfig): Promise<SelfUpdateAvailability> {
+  const serviceContainer = await inspectDockerContainer(config.service);
+  const serviceImage =
+    typeof serviceContainer?.Config?.Image === "string"
+      ? serviceContainer.Config.Image.trim() || null
+      : config.fallbackRunnerImage;
+  const currentRef =
+    typeof serviceContainer?.Image === "string" ? serviceContainer.Image.trim() || null : null;
 
   if (!serviceImage) {
     return {
       status: "unknown",
-      message: `Image du service introuvable dans la compose (${composeFileInHost}).`,
+      message: "Image du service introuvable dans l’inspection Docker.",
       checkedAt: timestamp(),
       currentRef: null,
       availableRef: null,
@@ -611,34 +857,44 @@ function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailabili
     };
   }
 
+  const before = (await inspectDockerImage(serviceImage))?.Id?.trim() || null;
+  const pulled = await pullDockerImage(serviceImage);
+  const after = (await inspectDockerImage(serviceImage))?.Id?.trim() || null;
+  const pullOutput = (pulled.text || "").trim();
+
   if (
-    /pull access denied|repository does not exist|requested access to the resource is denied/i.test(pullOutput)
+    /pull access denied|repository does not exist|requested access to the resource is denied|not found: manifest unknown/i.test(
+      pullOutput || pulled.error || "",
+    )
   ) {
     return {
       status: "unknown",
       message: "Image locale build détectée: aucun registre distant exploitable pour comparer.",
       checkedAt: timestamp(),
-      currentRef: shortenRef(parsed.current || parsed.before || null),
-      availableRef: shortenRef(parsed.after || null),
+      currentRef: shortenRef(currentRef || before),
+      availableRef: shortenRef(after),
       serviceImage,
     };
   }
 
-  if (pullOutput && /error|denied|unauthorized|not found/i.test(pullOutput) && !/image is up to date/i.test(pullOutput)) {
+  if (!pulled.ok) {
     return {
       status: "error",
-      message: pullOutput.split(/\r?\n/u).filter(Boolean)[0] ?? "Impossible de vérifier l’image distante.",
+      message:
+        pulled.error?.split(/\r?\n/u).find(Boolean) ||
+        pullOutput.split(/\r?\n/u).find(Boolean) ||
+        "Impossible de vérifier l’image distante.",
       checkedAt: timestamp(),
-      currentRef: shortenRef(parsed.current || parsed.before || null),
-      availableRef: shortenRef(parsed.after || null),
+      currentRef: shortenRef(currentRef || before),
+      availableRef: shortenRef(after),
       serviceImage,
     };
   }
 
   const updateAvailable =
-    /downloaded newer image/i.test(pullOutput) ||
-    (Boolean(parsed.before) && Boolean(parsed.after) && parsed.before !== parsed.after) ||
-    (Boolean(parsed.current) && Boolean(parsed.after) && parsed.current !== parsed.after);
+    /Downloaded newer image|Status: Downloaded newer image/i.test(pullOutput) ||
+    (Boolean(before) && Boolean(after) && before !== after) ||
+    (Boolean(currentRef) && Boolean(after) && currentRef !== after);
 
   return {
     status: updateAvailable ? "update-available" : "up-to-date",
@@ -646,13 +902,13 @@ function verifyImageAvailability(config: SelfUpdateConfig): SelfUpdateAvailabili
       ? "Une nouvelle image est prête. Lance la mise à jour pour la redéployer."
       : "Aucune nouvelle image détectée.",
     checkedAt: timestamp(),
-    currentRef: shortenRef(parsed.current || parsed.before || null),
-    availableRef: shortenRef(parsed.after || null),
+    currentRef: shortenRef(currentRef || before),
+    availableRef: shortenRef(after),
     serviceImage,
   };
 }
 
-function resolveAvailability(config: SelfUpdateConfig, options?: { refresh?: boolean }) {
+async function resolveAvailability(config: SelfUpdateConfig, options?: { refresh?: boolean }) {
   if (!config.enabled) {
     const availability = {
       status: "disabled",
@@ -675,13 +931,13 @@ function resolveAvailability(config: SelfUpdateConfig, options?: { refresh?: boo
     return cached;
   }
 
-  const byGit = verifyGitAvailability(config);
-  const availability = byGit ?? verifyImageAvailability(config);
+  const byGit = await verifyGitAvailability(config);
+  const availability = byGit ?? (await verifyImageAvailability(config));
   writeAvailability(availability);
   return availability;
 }
 
-function refreshStateFromResult(state: SelfUpdateState) {
+async function refreshStateFromResult(state: SelfUpdateState) {
   const current = state.current;
   if (!current || current.status !== "running") {
     return state;
@@ -700,14 +956,12 @@ function refreshStateFromResult(state: SelfUpdateState) {
       : current.error;
 
   if (current.containerName) {
-    const dockerBinary = resolveDockerBinary();
-    if (dockerBinary) {
-      spawnSync(dockerBinary, ["rm", "-f", current.containerName], { stdio: "ignore" });
-    }
+    await removeDockerContainer(current.containerName, true);
     current.containerName = null;
   }
 
-  state.history = [current, ...state.history.filter((entry) => entry.id !== current.id)].slice(0, resolveConfig().maxHistory);
+  const config = await resolveConfig();
+  state.history = [current, ...state.history.filter((entry) => entry.id !== current.id)].slice(0, config.maxHistory);
   state.current = current;
   writeState(state);
   return state;
@@ -748,7 +1002,14 @@ function buildRunnerScript(options: {
     "}",
     "trap on_exit EXIT",
     "if [ -d /host/.git ]; then",
-    "  if ! command -v git >/dev/null 2>&1; then apk add --no-cache git >/dev/null; fi",
+    "  if ! command -v git >/dev/null 2>&1; then",
+    "    if command -v apk >/dev/null 2>&1; then apk add --no-cache git >/dev/null 2>&1 || true; fi",
+    "    if ! command -v git >/dev/null 2>&1 && command -v apt-get >/dev/null 2>&1; then",
+    "      export DEBIAN_FRONTEND=noninteractive",
+    "      apt-get update >/dev/null 2>&1 || true",
+    "      apt-get install -y --no-install-recommends git >/dev/null 2>&1 || true",
+    "    fi",
+    "  fi",
     "  log 'Update ProxmoxCenter: git pull'",
     `  git -C /host pull origin ${shQuote(options.branch)} 2>&1 | tee -a \"$LOG_FILE\"`,
     "else",
@@ -765,12 +1026,7 @@ function buildRunnerScript(options: {
   ].join("\n");
 }
 
-function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob) {
-  const dockerBinary = resolveDockerBinary();
-  if (!dockerBinary) {
-    throw new Error("Docker CLI introuvable dans le conteneur ProxmoxCenter.");
-  }
-
+async function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob) {
   const script = buildRunnerScript({
     jobId: job.id,
     branch: job.branch,
@@ -778,50 +1034,51 @@ function runDetachedUpdateContainer(config: SelfUpdateConfig, job: SelfUpdateJob
     composeFile: getComposeFileInsideMountedHost(config),
   });
 
-  const args = [
-    "run",
-    "-d",
-    "--name",
-    job.containerName ?? `proxmoxcenter-self-update-${job.id.slice(-8)}`,
-    "-v",
-    "/var/run/docker.sock:/var/run/docker.sock",
-    "-v",
-    `${config.hostInstallDir}:/host:rw`,
-    "-v",
-    `${config.hostDataDir}:/state:rw`,
+  const runnerCandidates = [
     config.runnerImage,
-    "sh",
-    "-lc",
-    script,
-  ];
+    config.fallbackRunnerImage,
+  ].filter((value, index, list): value is string => Boolean(value) && list.indexOf(value) === index);
 
-  const result = spawnSync(dockerBinary, args, {
-    encoding: "utf8",
-    env: {
-      ...process.env,
-      PATH:
-        process.env.PATH ||
-        "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin",
-    },
-  });
+  let lastError = "Impossible de lancer le conteneur de mise à jour.";
 
-  if (result.status !== 0) {
-    throw new Error(result.stderr?.trim() || result.stdout?.trim() || "Impossible de lancer le conteneur de mise à jour.");
+  for (const runnerImage of runnerCandidates) {
+    const created = await createRunnerContainer({
+      name: job.containerName ?? `proxmoxcenter-self-update-${job.id.slice(-8)}`,
+      image: runnerImage,
+      script,
+      binds: [
+        "/var/run/docker.sock:/var/run/docker.sock",
+        `${config.hostInstallDir}:/host:rw`,
+        `${config.hostDataDir}:/state:rw`,
+      ],
+    });
+
+    if (!created.ok || !created.id) {
+      lastError = created.error || `Runner ${runnerImage} indisponible.`;
+      continue;
+    }
+
+    const started = await startRunnerContainer(created.id);
+    if (started.ok) {
+      return {
+        containerId: created.id,
+      };
+    }
+
+    lastError = started.error || `Runner ${runnerImage} indisponible.`;
+    await removeDockerContainer(created.id, true);
   }
 
-  const containerId = (result.stdout ?? "").trim();
-  return {
-    containerId,
-  };
+  throw new Error(lastError);
 }
 
-export function getSelfUpdateOverview(options?: { refreshAvailability?: boolean }) {
-  const config = resolveConfig();
+export async function getSelfUpdateOverview(options?: { refreshAvailability?: boolean }) {
+  const config = await resolveConfig();
   const prereq = checkPrerequisites();
 
-  const state = refreshStateFromResult(readState());
+  const state = await refreshStateFromResult(readState());
   const job = state.current;
-  const availability = resolveAvailability(config, {
+  const availability = await resolveAvailability(config, {
     refresh: Boolean(options?.refreshAvailability) && job?.status !== "running",
   });
 
@@ -841,8 +1098,8 @@ export function getSelfUpdateOverview(options?: { refreshAvailability?: boolean 
   };
 }
 
-export function startSelfUpdate(requestedBy: string | null) {
-  const config = resolveConfig();
+export async function startSelfUpdate(requestedBy: string | null) {
+  const config = await resolveConfig();
   if (!config.enabled) {
     throw new Error("Mise à jour UI désactivée (PROXMOXCENTER_SELF_UPDATE_ENABLED=0).");
   }
@@ -888,7 +1145,7 @@ export function startSelfUpdate(requestedBy: string | null) {
   };
 
   try {
-    runDetachedUpdateContainer(config, job);
+    await runDetachedUpdateContainer(config, job);
   } catch (error) {
     job.status = "failed";
     job.finishedAt = timestamp();
@@ -905,7 +1162,7 @@ export function startSelfUpdate(requestedBy: string | null) {
   return getSelfUpdateOverview();
 }
 
-export function resetSelfUpdateState() {
+export async function resetSelfUpdateState() {
   mutateState((state) => {
     state.current = null;
   });
