@@ -8,6 +8,7 @@ export type RuntimeGreenItConfig = {
   co2FactorKgPerKwh: number;
   electricityPricePerKwh: number | null;
   electricityPriceMode: "manual" | "edf-standard";
+  electricityBillingMode: "energy-only" | "full-bill";
   serverTemperatureC: number | null;
   outsideTemperatureC: number | null;
   outsideCity: string | null;
@@ -20,6 +21,7 @@ type RuntimeGreenItConfigInput = {
   co2FactorKgPerKwh?: unknown;
   electricityPricePerKwh?: unknown;
   electricityPriceMode?: unknown;
+  electricityBillingMode?: unknown;
   serverTemperatureC?: unknown;
   outsideTemperatureC?: unknown;
   outsideCity?: unknown;
@@ -62,6 +64,14 @@ function asElectricityPriceMode(value: unknown): "manual" | "edf-standard" | nul
   return null;
 }
 
+function asElectricityBillingMode(value: unknown): "energy-only" | "full-bill" | null {
+  if (typeof value !== "string") return null;
+  const normalized = value.trim().toLowerCase();
+  if (normalized === "energy-only" || normalized === "energy") return "energy-only";
+  if (normalized === "full-bill" || normalized === "full") return "full-bill";
+  return null;
+}
+
 function normalizeInput(input: RuntimeGreenItConfigInput): RuntimeGreenItConfig | null {
   const pue = asNumber(input.pue, { min: 1, max: 5 });
   const co2FactorKgPerKwh = asNumber(input.co2FactorKgPerKwh, { min: 0.001, max: 5 });
@@ -69,6 +79,7 @@ function normalizeInput(input: RuntimeGreenItConfigInput): RuntimeGreenItConfig 
   const electricityPriceMode =
     asElectricityPriceMode(input.electricityPriceMode) ??
     (electricityPricePerKwh !== null ? "manual" : "edf-standard");
+  const electricityBillingMode = asElectricityBillingMode(input.electricityBillingMode) ?? "energy-only";
   if (pue === null || co2FactorKgPerKwh === null) {
     return null;
   }
@@ -82,6 +93,7 @@ function normalizeInput(input: RuntimeGreenItConfigInput): RuntimeGreenItConfig 
     co2FactorKgPerKwh,
     electricityPricePerKwh: electricityPriceMode === "manual" ? electricityPricePerKwh : null,
     electricityPriceMode,
+    electricityBillingMode,
     serverTemperatureC: asNumber(input.serverTemperatureC, { min: -40, max: 120, allowNull: true }),
     outsideTemperatureC: asNumber(input.outsideTemperatureC, { min: -80, max: 80, allowNull: true }),
     outsideCity: asText(input.outsideCity, 160),

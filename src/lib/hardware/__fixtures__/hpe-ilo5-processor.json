@@ -1,0 +1,10 @@
+{
+  "Id": "1",
+  "Name": "Processors",
+  "Model": "Intel(R) Xeon(R) Gold 5120 CPU @ 2.20GHz",
+  "TotalCores": 14,
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

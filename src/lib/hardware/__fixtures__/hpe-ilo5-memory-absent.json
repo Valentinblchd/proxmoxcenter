@@ -1,0 +1,11 @@
+{
+  "Id": "proc1dimm1",
+  "Name": "proc1dimm1",
+  "DeviceLocator": "PROC 1 DIMM 1",
+  "CapacityMiB": 0,
+  "PartNumber": "NOT AVAILABLE",
+  "Status": {
+    "Health": "OK",
+    "State": "Absent"
+  }
+}

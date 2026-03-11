@@ -1,0 +1,34 @@
+{
+  "Temperatures": [
+    {
+      "Name": "01-Inlet Ambient",
+      "PhysicalContext": "Intake",
+      "ReadingCelsius": 23,
+      "Status": { "Health": "OK", "State": "Enabled" }
+    },
+    {
+      "Name": "02-CPU 1",
+      "PhysicalContext": "CPU",
+      "ReadingCelsius": 40,
+      "Status": { "Health": "OK", "State": "Enabled" }
+    },
+    {
+      "Name": "03-P1 DIMM 1-3",
+      "PhysicalContext": "Memory",
+      "ReadingCelsius": 38,
+      "Status": { "Health": "OK", "State": "Enabled" }
+    },
+    {
+      "Name": "18-PCI 1",
+      "PhysicalContext": "SystemBoard",
+      "ReadingCelsius": 0,
+      "Status": { "State": "Absent" }
+    },
+    {
+      "Name": "30-CPU 1 PkgTmp",
+      "PhysicalContext": "CPU",
+      "ReadingCelsius": 47,
+      "Status": { "Health": "OK", "State": "Enabled" }
+    }
+  ]
+}

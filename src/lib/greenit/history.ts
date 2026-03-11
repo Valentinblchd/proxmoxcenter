@@ -11,6 +11,7 @@ export type GreenItHistorySample = {
   itPowerWatts: number;
   effectivePowerWatts: number;
   electricityPricePerKwh: number;
+  annualSubscriptionEur?: number;
   co2FactorKgPerKwh: number;
   powerSource: string;
 };
@@ -208,7 +209,9 @@ function integrateInterval(days: GreenItHistoryDay[], sample: GreenItHistorySamp
         trackedHours: hours,
         itWattHours: sample.itPowerWatts * hours,
         effectiveWattHours: sample.effectivePowerWatts * hours,
-        costEur: (sample.effectivePowerWatts * hours / 1000) * sample.electricityPricePerKwh,
+        costEur:
+          (sample.effectivePowerWatts * hours / 1000) * sample.electricityPricePerKwh +
+          ((sample.annualSubscriptionEur ?? 0) / 8760) * hours,
         co2Kg: (sample.effectivePowerWatts * hours / 1000) * sample.co2FactorKgPerKwh,
         maxItPowerWatts: sample.itPowerWatts,
         maxEffectivePowerWatts: sample.effectivePowerWatts,

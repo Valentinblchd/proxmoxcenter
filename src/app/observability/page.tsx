@@ -1,15 +1,21 @@
+import { cookies } from "next/headers";
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
+import GreenItHistoryChart from "@/components/greenit-history-chart";
+import HardwareMonitorStatusPanel from "@/components/hardware-monitor-status-panel";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
+import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { resolveGreenItElectricityPricing } from "@/lib/greenit/edf-tariff";
-import { readGreenItHistorySummary, recordGreenItSample } from "@/lib/greenit/history";
+import { readGreenItHistorySummary } from "@/lib/greenit/history";
 import { fetchHardwareSnapshot, type HardwareSnapshot, type HardwareHealthState } from "@/lib/hardware/redfish";
 import { readRuntimeHardwareMonitorConfig } from "@/lib/hardware/runtime-config";
+import { readRuntimeHardwareSnapshotState } from "@/lib/hardware/runtime-snapshot";
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { proxmoxRequest } from "@/lib/proxmox/client";
-import { formatBytes, formatPercent } from "@/lib/ui/format";
+import { formatBytes, formatPercent, formatRelativeTime } from "@/lib/ui/format";
 
 export const dynamic = "force-dynamic";
 
@@ -265,6 +271,10 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const activeTab = TABS.some((tab) => tab.id === readString(params.tab))
     ? (readString(params.tab) as (typeof TABS)[number]["id"])
     : "overview";
+  const cookieStore = await cookies();
+  const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
+  const session = token ? await verifySessionToken(token) : null;
+  const canRetestHardwareProbe = session?.role === "admin";
 
   const snapshot = await getDashboardSnapshot();
   const hasLiveData = snapshot.mode === "live";
@@ -285,26 +295,31 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
         }, 0) / snapshot.nodes.length
       : 0;
 
+  const cachedHardwareState = readRuntimeHardwareSnapshotState();
   const hardwareSnapshot =
-    hardwareMonitorConfig?.enabled && (activeTab === "overview" || activeTab === "health" || activeTab === "greenit")
+    cachedHardwareState.snapshot ??
+    (hardwareMonitorConfig?.enabled && (activeTab === "overview" || activeTab === "health" || activeTab === "greenit")
       ? await fetchHardwareSnapshot(hardwareMonitorConfig).catch(() => null)
-      : null;
+      : null);
   const livePowerWatts = hardwareSnapshot?.summary.powerAverageWatts ?? hardwareSnapshot?.summary.powerNowWatts ?? null;
   const livePowerSource =
     livePowerWatts !== null ? `Power meter ${hardwareSnapshot?.label ?? hardwareSnapshot?.host ?? "serveur"}` : null;
+  const hardwareFreshnessLabel = cachedHardwareState.fetchedAt ? formatRelativeTime(cachedHardwareState.fetchedAt) : "jamais";
+  const hardwareStatusLabel =
+    !hardwareMonitorConfig?.enabled
+      ? "Non configuré"
+      : cachedHardwareState.status === "ok"
+        ? `OK • ${hardwareFreshnessLabel}`
+        : cachedHardwareState.status === "error"
+          ? `Erreur • ${hardwareFreshnessLabel}`
+          : "En attente";
   const greenit = buildGreenItAdvisor(snapshot, {
     ...(greenitSettings ?? {}),
     electricityPricePerKwh: electricityPricing.pricePerKwh,
+    electricityBillingMode: greenitSettings?.electricityBillingMode ?? "energy-only",
+    annualSubscriptionEur: electricityPricing.annualSubscriptionEur,
     liveMeasuredPowerWatts: livePowerWatts,
     liveMeasuredPowerSource: livePowerSource,
-  });
-  recordGreenItSample({
-    timestamp: new Date().toISOString(),
-    itPowerWatts: greenit.metrics.estimatedPowerWatts,
-    effectivePowerWatts: greenit.metrics.effectivePowerWatts,
-    electricityPricePerKwh: electricityPricing.pricePerKwh,
-    co2FactorKgPerKwh: greenit.config.co2FactorKgPerKwh,
-    powerSource: greenit.metrics.powerSourceLabel,
   });
   const greenitHistory = readGreenItHistorySummary();
   const diskHealth =
@@ -341,6 +356,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
     representativeServerTemp !== null && outsideTemp !== null
       ? representativeServerTemp - outsideTemp
       : null;
+  const recent7Days = greenitHistory.days.slice(-7);
+  const recent30Days = greenitHistory.days.slice(-30);
 
   const topRecommendations = [...security.recommendations, ...greenit.recommendations].slice(0, 8);
   const priorityRecommendations = topRecommendations.slice(0, 4);
@@ -358,6 +375,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           <InventoryRefreshButton auto intervalMs={12000} />
         </div>
       </header>
+
+      <PlatformStateAlerts live={hasLiveData} warnings={snapshot.warnings} />
 
       <section className="panel">
         <div className="hub-tabs">
@@ -430,6 +449,10 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                       ? "Erreur de collecte"
                       : "Non configuré"}
                 </strong>
+              </div>
+              <div className="row-line">
+                <span>Statut sonde</span>
+                <strong>{hardwareStatusLabel}</strong>
               </div>
             </div>
             <div className="quick-actions">
@@ -745,6 +768,15 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 </div>
               </div>
 
+              <HardwareMonitorStatusPanel
+                configured={Boolean(hardwareMonitorConfig?.enabled)}
+                canRetest={canRetestHardwareProbe}
+                initialStatus={cachedHardwareState.status}
+                initialFetchedAt={cachedHardwareState.fetchedAt}
+                initialAttemptedAt={cachedHardwareState.attemptedAt}
+                initialError={cachedHardwareState.error}
+              />
+
               <div className="mini-list">
                 {hardwareSnapshot.processors.slice(0, 8).map((processor) => (
                   <article key={processor.id} className="mini-list-item">
@@ -892,6 +924,15 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 </strong>
               </div>
               <div className="row-line">
+                <span>Mode coût</span>
+                <strong>
+                  {greenit.config.electricityBillingMode === "full-bill" ? "Facture complète" : "Énergie seule"}
+                  {greenit.config.annualSubscriptionEur !== null
+                    ? ` • abonnement ${greenit.config.annualSubscriptionEur.toFixed(2)} €/an`
+                    : ""}
+                </strong>
+              </div>
+              <div className="row-line">
                 <span>CO2 annuel</span>
                 <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
@@ -1016,8 +1057,31 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           )}
 
           <p className="muted">
-            Le coût journalier est calculé sur l’énergie effective (avec PUE). L’abonnement EDF fixe n’est pas inclus dans ce suivi serveur.
+            {greenit.config.electricityBillingMode === "full-bill"
+              ? "Le coût journalier inclut l’énergie effective (avec PUE) et la part abonnement répartie au fil des jours."
+              : "Le coût journalier est calculé sur l’énergie effective (avec PUE), sans ajouter l’abonnement fixe."}
           </p>
+        </section>
+      ) : null}
+
+      {activeTab === "greenit" ? (
+        <section className="content-grid">
+          <GreenItHistoryChart
+            title="Puissance moyenne 7 jours"
+            subtitle="W effectifs / jour"
+            days={recent7Days}
+            metric={(day) => day.averageEffectivePowerWatts}
+            suffix="W"
+            colorClass="tone-green"
+          />
+          <GreenItHistoryChart
+            title="Coût 30 jours"
+            subtitle="€ / jour"
+            days={recent30Days}
+            metric={(day) => day.costEur}
+            suffix="€"
+            colorClass="tone-orange"
+          />
         </section>
       ) : null}
 

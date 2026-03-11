@@ -46,6 +46,9 @@ export default function AppError({
           <Link href="/inventory" className="action-btn">
             Ouvrir inventaire
           </Link>
+          <Link href="/security?tab=logs" className="action-btn">
+            Ouvrir les journaux
+          </Link>
         </>
       }
     />

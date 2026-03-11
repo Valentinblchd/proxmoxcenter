@@ -1,0 +1,15 @@
+{
+  "@odata.type": "#Drive.v1_16_0.Drive",
+  "Id": "Drive1",
+  "Name": "NVMe Slot 1",
+  "Model": "HPE NVMe Mixed Use",
+  "SerialNumber": "SANITIZED123",
+  "CapacityBytes": 960197124096,
+  "MediaType": "SSD",
+  "TemperatureCelsius": 54,
+  "PredictedMediaLifeLeftPercent": 8,
+  "Status": {
+    "Health": "Warning",
+    "State": "Enabled"
+  }
+}

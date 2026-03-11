@@ -4,6 +4,7 @@ import AppFrame from "@/components/app-frame";
 import ThemeProvider from "@/components/theme-provider";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { ensureBackupEngineStarted } from "@/lib/backups/engine";
+import { ensureGreenItSamplerStarted } from "@/lib/greenit/sampler";
 import { CSP_NONCE_HEADER, readCspNonce } from "@/lib/security/csp";
 import { buildThemeBootstrapScript } from "@/lib/ui/themes";
 import "./globals.css";
@@ -19,6 +20,7 @@ export default async function RootLayout({
   children: React.ReactNode;
 }>) {
   ensureBackupEngineStarted();
+  ensureGreenItSamplerStarted();
   const cookieStore = await cookies();
   const headerStore = await headers();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;

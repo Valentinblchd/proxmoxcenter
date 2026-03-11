@@ -1,0 +1,22 @@
+{
+  "PowerControl": [
+    {
+      "PowerConsumedWatts": 248,
+      "PowerMetrics": {
+        "AverageConsumedWatts": 236,
+        "MinConsumedWatts": 228,
+        "MaxConsumedWatts": 271
+      }
+    }
+  ],
+  "Oem": {
+    "Hpe": {
+      "PowerMetric": {
+        "AmbTemp": 24,
+        "CpuWatts": 91,
+        "DimmWatts": 22,
+        "GpuWatts": 18
+      }
+    }
+  }
+}

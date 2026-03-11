@@ -24,6 +24,7 @@ type GreenItCalibrationPanelProps = {
     co2FactorKgPerKwh: number;
     electricityPricePerKwh: number | null;
     electricityPriceMode: "manual" | "edf-standard";
+    electricityBillingMode: "energy-only" | "full-bill";
     serverTemperatureC: number | null;
     outsideTemperatureC: number | null;
     outsideCity: string | null;
@@ -40,6 +41,7 @@ type SaveResponse = {
     co2FactorKgPerKwh: number;
     electricityPricePerKwh: number | null;
     electricityPriceMode: "manual" | "edf-standard";
+    electricityBillingMode: "energy-only" | "full-bill";
     serverTemperatureC: number | null;
     outsideTemperatureC: number | null;
     outsideCity: string | null;
@@ -79,6 +81,9 @@ export default function GreenItCalibrationPanel({
   const [priceMode, setPriceMode] = useState<"manual" | "edf-standard">(
     () => initialSettings?.electricityPriceMode ?? pricing.mode,
   );
+  const [billingMode, setBillingMode] = useState<"energy-only" | "full-bill">(
+    () => initialSettings?.electricityBillingMode ?? "energy-only",
+  );
   const [priceKwh, setPriceKwh] = useState(() =>
     String(initialSettings?.electricityPricePerKwh ?? pricing.activePricePerKwh ?? defaults.electricityPricePerKwh),
   );
@@ -103,6 +108,7 @@ export default function GreenItCalibrationPanel({
     setPue(String(initialSettings?.pue ?? defaults.pue));
     setCo2Factor(String(initialSettings?.co2FactorKgPerKwh ?? defaults.co2FactorKgPerKwh));
     setPriceMode(initialSettings?.electricityPriceMode ?? pricing.mode);
+    setBillingMode(initialSettings?.electricityBillingMode ?? "energy-only");
     setPriceKwh(String(initialSettings?.electricityPricePerKwh ?? pricing.activePricePerKwh ?? defaults.electricityPricePerKwh));
     setServerTemperatureC(
       initialSettings?.serverTemperatureC !== null && initialSettings?.serverTemperatureC !== undefined
@@ -125,10 +131,14 @@ export default function GreenItCalibrationPanel({
       priceMode === "manual"
         ? asPositiveNumber(priceKwh, pricing.activePricePerKwh || defaults.electricityPricePerKwh)
         : pricing.activePricePerKwh;
+    const annualSubscriptionEur =
+      billingMode === "full-bill" && typeof pricing.annualSubscriptionEur === "number"
+        ? pricing.annualSubscriptionEur
+        : 0;
     const effectivePowerWatts = watts * pueValue;
     const annualKwh = (effectivePowerWatts * 24 * 365) / 1000;
     const annualCo2Kg = annualKwh * co2Value;
-    const annualCost = annualKwh * priceValue;
+    const annualCost = annualKwh * priceValue + annualSubscriptionEur;
     const serverTemp = asNumberOrNull(serverTemperatureC);
     const outsideTemp = asNumberOrNull(outsideTemperatureC);
     const thermalDelta = serverTemp !== null && outsideTemp !== null ? serverTemp - outsideTemp : null;
@@ -138,10 +148,23 @@ export default function GreenItCalibrationPanel({
       annualKwh,
       annualCo2Kg,
       annualCost,
+      annualSubscriptionEur,
       thermalDelta,
       activePriceValue: priceValue,
     };
-  }, [co2Factor, defaults, outsideTemperatureC, powerWatts, priceKwh, priceMode, pricing.activePricePerKwh, pue, serverTemperatureC]);
+  }, [
+    billingMode,
+    co2Factor,
+    defaults,
+    outsideTemperatureC,
+    powerWatts,
+    priceKwh,
+    priceMode,
+    pricing.activePricePerKwh,
+    pricing.annualSubscriptionEur,
+    pue,
+    serverTemperatureC,
+  ]);
 
   async function saveSettings() {
     setBusy(true);
@@ -159,6 +182,7 @@ export default function GreenItCalibrationPanel({
           pue: asPositiveNumber(pue, defaults.pue),
           co2FactorKgPerKwh: asPositiveNumber(co2Factor, defaults.co2FactorKgPerKwh),
           electricityPriceMode: priceMode,
+          electricityBillingMode: billingMode,
           electricityPricePerKwh:
             priceMode === "manual"
               ? asPositiveNumber(priceKwh, pricing.activePricePerKwh || defaults.electricityPricePerKwh)
@@ -174,6 +198,7 @@ export default function GreenItCalibrationPanel({
       }
       if (payload.settings) {
         setPriceMode(payload.settings.electricityPriceMode);
+        setBillingMode(payload.settings.electricityBillingMode);
         setPriceKwh(
           payload.settings.electricityPricePerKwh !== null && payload.settings.electricityPricePerKwh !== undefined
             ? String(payload.settings.electricityPricePerKwh)
@@ -227,6 +252,7 @@ export default function GreenItCalibrationPanel({
     setPue(String(defaults.pue));
     setCo2Factor(String(defaults.co2FactorKgPerKwh));
     setPriceMode(initialSettings?.electricityPriceMode ?? pricing.mode);
+    setBillingMode(initialSettings?.electricityBillingMode ?? "energy-only");
     setPriceKwh(String(initialSettings?.electricityPricePerKwh ?? pricing.activePricePerKwh ?? defaults.electricityPricePerKwh));
     setServerTemperatureC("");
     setOutsideTemperatureC("");
@@ -304,6 +330,17 @@ export default function GreenItCalibrationPanel({
             <option value="manual">Manuel</option>
           </select>
         </label>
+        <label className="provision-field">
+          <span className="provision-field-label">Mode coût</span>
+          <select
+            className="provision-input"
+            value={billingMode}
+            onChange={(event) => setBillingMode(event.target.value === "full-bill" ? "full-bill" : "energy-only")}
+          >
+            <option value="energy-only">Énergie seule</option>
+            <option value="full-bill">Facture complète</option>
+          </select>
+        </label>
       </div>
 
       <div className="backup-alert info">
@@ -312,6 +349,9 @@ export default function GreenItCalibrationPanel({
           {priceMode === "manual"
             ? `Prix manuel appliqué: ${computed.activePriceValue.toFixed(4)} €/kWh`
             : `${pricing.sourceLabel}: ${pricing.activePricePerKwh.toFixed(4)} €/kWh${pricing.effectiveDate ? ` • effet ${pricing.effectiveDate}` : ""}${pricing.stale ? " • cache local" : ""}`}
+          {billingMode === "full-bill" && pricing.annualSubscriptionEur !== null
+            ? ` • abonnement inclus ${pricing.annualSubscriptionEur.toFixed(2)} €/an`
+            : ""}
         </p>
       </div>
 
@@ -370,16 +410,25 @@ export default function GreenItCalibrationPanel({
         </article>
         <article className="mini-list-item">
           <div>
-            <div className="item-title">Coût annuel</div>
-            <div className="item-subtitle">
-              Conso × prix kWh
+              <div className="item-title">Coût annuel</div>
+              <div className="item-subtitle">
+              {billingMode === "full-bill" ? "Énergie + abonnement" : "Conso × prix kWh"}
               {priceMode !== "manual" && pricing.annualSubscriptionEur !== null
-                ? ` • abonnement base 6 kVA ${Math.round(pricing.annualSubscriptionEur)} €/an hors projection`
+                ? ` • base 6 kVA ${Math.round(pricing.annualSubscriptionEur)} €/an`
                 : ""}
+              </div>
             </div>
-          </div>
-          <div className="item-metric">{Math.round(computed.annualCost)} €</div>
-        </article>
+            <div className="item-metric">{Math.round(computed.annualCost)} €</div>
+          </article>
+        {billingMode === "full-bill" && computed.annualSubscriptionEur > 0 ? (
+          <article className="mini-list-item">
+            <div>
+              <div className="item-title">Part abonnement</div>
+              <div className="item-subtitle">Répartie dans l’historique journalier et mensuel</div>
+            </div>
+            <div className="item-metric">{computed.annualSubscriptionEur.toFixed(2)} €</div>
+          </article>
+        ) : null}
         {computed.thermalDelta !== null ? (
           <article className="mini-list-item">
             <div>

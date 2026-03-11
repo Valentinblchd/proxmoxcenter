@@ -1,0 +1,42 @@
+{
+  "PowerControl": [
+    {
+      "PowerConsumedWatts": 103,
+      "PowerMetrics": {
+        "AverageConsumedWatts": 90,
+        "MinConsumedWatts": 88,
+        "MaxConsumedWatts": 117
+      }
+    }
+  ],
+  "PowerSupplies": [
+    {
+      "LastPowerOutputWatts": 45,
+      "Oem": {
+        "Hpe": {
+          "AveragePowerOutputWatts": 45,
+          "MaxPowerOutputWatts": 53
+        }
+      }
+    },
+    {
+      "LastPowerOutputWatts": 58,
+      "Oem": {
+        "Hpe": {
+          "AveragePowerOutputWatts": 58,
+          "MaxPowerOutputWatts": 64
+        }
+      }
+    }
+  ],
+  "Oem": {
+    "Hpe": {
+      "PowerMetric": {
+        "AmbTemp": 23,
+        "CpuWatts": 28,
+        "DimmWatts": 3,
+        "GpuWatts": 0
+      }
+    }
+  }
+}

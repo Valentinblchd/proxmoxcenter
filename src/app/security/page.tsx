@@ -3,6 +3,7 @@ import Link from "next/link";
 import { cookies } from "next/headers";
 import AuthUiSettingsPanel from "@/components/auth-ui-settings-panel";
 import LocalUsersSettings from "@/components/local-users-settings";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
 import SecurityAuditLogPanel from "@/components/security-audit-log-panel";
 import { buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
@@ -145,6 +146,8 @@ export default async function SecurityPage({ searchParams }: SecurityPageProps) 
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
         </div>
       </header>
+
+      <PlatformStateAlerts live={snapshot.mode === "live"} warnings={snapshot.warnings} />
 
       <section className="panel">
         <div className="hub-tabs">

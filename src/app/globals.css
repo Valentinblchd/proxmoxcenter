@@ -1220,6 +1220,10 @@ code {
   margin-top: 0.55rem;
 }
 
+.page-alert-stack {
+  margin: 0 0 0.95rem;
+}
+
 .backup-alert {
   padding: 0.65rem 0.75rem;
   border-radius: 12px;
@@ -4581,6 +4585,54 @@ select.inventory-node-filter option {
 
 .greenit-inline-bar strong {
   font-size: 0.78rem;
+}
+
+.greenit-chart-panel {
+  overflow: hidden;
+}
+
+.greenit-chart {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(28px, 1fr));
+  gap: 0.45rem;
+  align-items: end;
+  min-height: 210px;
+}
+
+.greenit-chart-bar {
+  display: grid;
+  gap: 0.4rem;
+  align-items: end;
+}
+
+.greenit-chart-value {
+  font-size: 0.72rem;
+  color: var(--muted);
+  text-align: center;
+}
+
+.greenit-chart-rail {
+  position: relative;
+  min-height: 136px;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.07);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.03), rgba(255, 255, 255, 0.01)),
+    rgba(255, 255, 255, 0.02);
+  overflow: hidden;
+}
+
+.greenit-chart-rail > span {
+  position: absolute;
+  inset-inline: 0;
+  bottom: 0;
+  border-radius: 10px 10px 0 0;
+}
+
+.greenit-chart-label {
+  font-size: 0.71rem;
+  color: var(--muted);
+  text-align: center;
 }
 
 .advisor-kpi-grid {

@@ -89,8 +89,11 @@ Une fois configuré, l’onglet `Observabilité > Santé` affiche :
 - état CPU
 - état RAM
 - état des disques physiques
+- puissance instantanée et moyenne si le BMC expose un power meter Redfish
 
 Si ton iLO utilise un certificat autosigné, tu peux soit importer la CA personnalisée, soit passer temporairement en mode `TLS insecure`.
+
+Si le power meter Redfish est disponible, GreenIT l’utilise automatiquement en priorité pour le calcul de consommation et de coût. Sinon, ProxCenter retombe sur la puissance manuelle ou l’estimation Proxmox.
 
 ## Reverse Proxy
 
@@ -209,3 +212,16 @@ npm run dev
 Puis ouvre `http://localhost:3000`.
 
 L'application ne dépend pas d'un `.env` pour la configuration fonctionnelle courante. Les connexions Proxmox, PBS, auth locale et cibles cloud sont stockées par l'interface dans `data/`.
+
+## Validation rapide
+
+```bash
+npm run typecheck
+npm run test:redfish
+npm run test:ui:smoke
+```
+
+Notes :
+
+- `test:redfish` valide le parseur Redfish/HPE iLO sur des fixtures réelles
+- `test:ui:smoke` couvre les routes UI principales et les pages d’erreur ; définis `PROXCENTER_SMOKE_USER` et `PROXCENTER_SMOKE_PASSWORD` pour activer aussi le smoke authentifié

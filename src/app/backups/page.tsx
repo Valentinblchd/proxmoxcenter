@@ -1,5 +1,6 @@
 import { cookies } from "next/headers";
 import BackupPlannerPanel from "@/components/backup-planner-panel";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
@@ -52,6 +53,8 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
         </div>
       </header>
+
+      <PlatformStateAlerts live={snapshot.mode === "live"} warnings={snapshot.warnings} />
 
       <BackupPlannerPanel initialTab={initialTab} canOperate={canOperate} />
     </section>

@@ -47,6 +47,9 @@ export default function GlobalError({
               <Link href="/" className="action-btn">
                 Retour accueil
               </Link>
+              <Link href="/settings?tab=proxmox" className="action-btn">
+                Vérifier Proxmox
+              </Link>
             </>
           }
         />

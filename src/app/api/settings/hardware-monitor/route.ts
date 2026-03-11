@@ -9,6 +9,10 @@ import {
   readRuntimeHardwareMonitorConfig,
   writeRuntimeHardwareMonitorConfig,
 } from "@/lib/hardware/runtime-config";
+import {
+  readRuntimeHardwareSnapshotState,
+  writeRuntimeHardwareSnapshotState,
+} from "@/lib/hardware/runtime-snapshot";
 import { consumeRateLimit } from "@/lib/security/rate-limit";
 import { ensureSameOriginRequest, getClientIp } from "@/lib/security/request-guards";
 import { assertStrongConfirmation } from "@/lib/security/strong-confirm";
@@ -160,9 +164,26 @@ export async function POST(request: NextRequest) {
   let probe: Awaited<ReturnType<typeof probeHardwareMonitor>> | null = null;
 
   if (!skipTest) {
+    const attemptedAt = new Date().toISOString();
     try {
       probe = await probeHardwareMonitor(normalized);
+      const previousSnapshot = readRuntimeHardwareSnapshotState().snapshot;
+      writeRuntimeHardwareSnapshotState({
+        status: "ok",
+        attemptedAt,
+        fetchedAt: previousSnapshot?.fetchedAt ?? attemptedAt,
+        error: null,
+        snapshot: previousSnapshot,
+      });
     } catch (error) {
+      const previous = readRuntimeHardwareSnapshotState();
+      writeRuntimeHardwareSnapshotState({
+        status: "error",
+        attemptedAt,
+        fetchedAt: previous.fetchedAt,
+        error: error instanceof Error ? error.message : "Impossible de joindre le BMC/iLO.",
+        snapshot: previous.snapshot,
+      });
       return NextResponse.json(
         {
           ok: false,

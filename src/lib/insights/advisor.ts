@@ -46,6 +46,8 @@ export type GreenItAdvisorResult = {
     pue: number;
     co2FactorKgPerKwh: number;
     electricityPricePerKwh: number;
+    electricityBillingMode: "energy-only" | "full-bill";
+    annualSubscriptionEur: number | null;
   };
 };
 
@@ -54,6 +56,8 @@ type GreenItRuntimeOverrides = {
   pue?: number | null;
   co2FactorKgPerKwh?: number | null;
   electricityPricePerKwh?: number | null;
+  electricityBillingMode?: "energy-only" | "full-bill" | null;
+  annualSubscriptionEur?: number | null;
   liveMeasuredPowerWatts?: number | null;
   liveMeasuredPowerSource?: string | null;
 };
@@ -187,6 +191,11 @@ export function buildGreenItAdvisor(
     overrides?.electricityPricePerKwh && overrides.electricityPricePerKwh > 0
       ? overrides.electricityPricePerKwh
       : parseNumberEnv("GREENIT_ELECTRICITY_PRICE", 0.18);
+  const electricityBillingMode = overrides?.electricityBillingMode === "full-bill" ? "full-bill" : "energy-only";
+  const annualSubscriptionEur =
+    electricityBillingMode === "full-bill" && overrides?.annualSubscriptionEur && overrides.annualSubscriptionEur > 0
+      ? overrides.annualSubscriptionEur
+      : null;
 
   const avgNodeCpu =
     snapshot.nodes.length > 0
@@ -224,7 +233,7 @@ export function buildGreenItAdvisor(
   const effectivePowerWatts = estimatedPowerWatts * pue;
   const annualKwh = (effectivePowerWatts * 24 * 365) / 1000;
   const annualCo2Kg = annualKwh * co2FactorKgPerKwh;
-  const annualCost = annualKwh * electricityPricePerKwh;
+  const annualCost = annualKwh * electricityPricePerKwh + (annualSubscriptionEur ?? 0);
 
   let score = 100;
   const recommendations: AdvisorRecommendation[] = [];
@@ -319,6 +328,8 @@ export function buildGreenItAdvisor(
       pue,
       co2FactorKgPerKwh,
       electricityPricePerKwh,
+      electricityBillingMode,
+      annualSubscriptionEur,
     },
   };
 }

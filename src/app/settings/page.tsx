@@ -4,6 +4,7 @@ import AssistantMemorySettings from "@/components/assistant-memory-settings";
 import CloudOauthSettings from "@/components/cloud-oauth-settings";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
 import HardwareMonitorSettingsPanel from "@/components/hardware-monitor-settings-panel";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
 import ProxmoxConnectionForm from "@/components/proxmox-connection-form";
 import SelfUpdateSettingsPanel from "@/components/self-update-settings-panel";
 import ThemeSettingsPanel from "@/components/theme-settings-panel";
@@ -61,6 +62,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
   const greenit = buildGreenItAdvisor(snapshot, {
     ...(greenitRuntime ?? {}),
     electricityPricePerKwh: electricityPricing.pricePerKwh,
+    electricityBillingMode: greenitRuntime?.electricityBillingMode ?? "energy-only",
+    annualSubscriptionEur: electricityPricing.annualSubscriptionEur,
   });
   const cookieStore = await cookies();
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
@@ -85,6 +88,8 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           {proxmoxConfigured ? <span className="pill live">Proxmox configuré</span> : <span className="pill">Proxmox non configuré</span>}
         </div>
       </header>
+
+      <PlatformStateAlerts live={snapshot.mode === "live"} warnings={snapshot.warnings} />
 
       <section className="panel">
         <div className="hub-tabs">

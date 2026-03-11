@@ -1,4 +1,5 @@
 import ErrorStateScreen from "@/components/error-state-screen";
+import Link from "next/link";
 
 export default function NotFound() {
   return (
@@ -12,6 +13,19 @@ export default function NotFound() {
         { label: "Impact", value: "Navigation interrompue" },
         { label: "Suite", value: "Repartir depuis un menu connu" },
       ]}
+      actions={
+        <>
+          <Link href="/" className="action-btn primary">
+            Retour accueil
+          </Link>
+          <Link href="/inventory" className="action-btn">
+            Ouvrir inventaire
+          </Link>
+          <Link href="/observability" className="action-btn">
+            Ouvrir observabilité
+          </Link>
+        </>
+      }
     />
   );
 }

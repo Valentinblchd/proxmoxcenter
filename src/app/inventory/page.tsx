@@ -3,6 +3,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import InventoryWorkloadActions from "@/components/inventory-workload-actions";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
@@ -407,6 +408,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
         </div>
       </header>
+
+      <PlatformStateAlerts live={hasLiveData} warnings={snapshot.warnings} />
 
       <section className="panel inventory-toolbar-panel">
         <div className="inventory-toolbar">

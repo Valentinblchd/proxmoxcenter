@@ -1,0 +1,13 @@
+{
+  "@odata.type": "#Memory.v1_17_0.Memory",
+  "Id": "P1D1",
+  "Name": "DIMM P1D1",
+  "DeviceLocator": "PROC 1 DIMM 1",
+  "CapacityMiB": 16384,
+  "Manufacturer": "Smart Modular",
+  "PartNumber": "DDR4-3200-16G",
+  "Status": {
+    "Health": "OK",
+    "State": "Enabled"
+  }
+}

@@ -7,7 +7,9 @@
     "build": "next build --webpack",
     "start": "NODE_ENV=production node server/custom-server.mjs",
     "lint": "eslint . --max-warnings=0",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test:redfish": "node --import tsx --test src/lib/hardware/redfish.test.ts",
+    "test:ui:smoke": "playwright test -c playwright.smoke.config.ts"
   },
   "keywords": [
     "proxmox",
@@ -18,22 +20,25 @@
   "license": "UNLICENSED",
   "description": "Personal Proxmox dashboard (ProxCenter-style) built with Next.js",
   "dependencies": {
-    "@novnc/novnc": "1.5.0",
+    "@novnc/novnc": "^1.5.0",
     "@xterm/addon-fit": "^0.11.0",
     "@xterm/xterm": "^6.0.0",
-    "ldapts": "^8.1.6",
+    "ldapts": "^8.1.7",
     "next": "^16.1.6",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
+    "server-only": "^0.0.1",
     "undici": "^7.22.0",
     "ws": "^8.19.0"
   },
   "devDependencies": {
+    "@playwright/test": "^1.58.2",
     "@types/node": "^25.3.1",
     "@types/react": "^19.2.14",
     "@types/react-dom": "^19.2.3",
     "eslint": "^9.39.3",
     "eslint-config-next": "^16.1.6",
+    "tsx": "^4.21.0",
     "typescript": "^5.9.3"
   },
   "engines": {

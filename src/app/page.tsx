@@ -1,4 +1,5 @@
 import Link from "next/link";
+import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatBytes } from "@/lib/ui/format";
 
@@ -34,11 +35,7 @@ export default async function HomePage() {
         </div>
       </header>
 
-      {snapshot.warnings.length > 0 ? (
-        <div className="warning">
-          {snapshot.warnings[0]}
-        </div>
-      ) : null}
+      <PlatformStateAlerts live={hasLiveData} warnings={snapshot.warnings} />
 
       <section className="panel welcome-panel">
         <div className="stack-sm">
