@@ -49,6 +49,7 @@ Passe-les en préfixe de la commande d'installation :
 | `PROXMOXCENTER_TRUST_PROXY_HEADERS` | `0` | Fais confiance à `X-Forwarded-For` / `X-Real-IP` pour les rate limits et l’audit IP. Active-le uniquement derrière un reverse proxy que tu contrôles |
 | `PROXMOXCENTER_CLOUD_OAUTH_MODE` | `local` | `local` ou `central` (broker OAuth) |
 | `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` | _(vide)_ | Obligatoire sur un broker OAuth public: liste d'origins autorisées à recevoir le refresh token |
+| `PROXMOXCENTER_CLOUD_OAUTH_SECRETS_PATH` | `<INSTALL_DIR>/data/cloud-oauth-secrets.json` | Fichier local optionnel contenant les identifiants OAuth Google / Microsoft côté serveur, sans passer par l’UI |
 | `PROXMOXCENTER_IMAGE` | `ghcr.io/valentinblchd/proxmoxcenter:latest` | Image Docker à utiliser |
 
 Exemple :
@@ -201,6 +202,50 @@ Modes disponibles :
 
 Le flow reste popup-based côté interface, avec état OAuth persisté localement pour supporter un redémarrage de l’application pendant l’échange.
 En mode `central`, le broker public doit être borné avec `PROXMOXCENTER_CLOUD_OAUTH_BROKER_ALLOWED_ORIGINS` pour ne pas servir de relais OAuth ouvert.
+
+### Fichier local de secrets OAuth
+
+Si tu veux que les utilisateurs n’aient qu’à cliquer sur `Se connecter avec Google` ou `Se connecter avec Microsoft`, tu peux déposer un fichier local côté serveur avec les identifiants OAuth de ton application.
+
+Chemin par défaut :
+
+```bash
+/opt/proxmoxcenter/data/cloud-oauth-secrets.json
+```
+
+Format :
+
+```json
+{
+  "onedrive": {
+    "clientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
+    "clientSecret": "microsoft-client-secret",
+    "authority": "consumers"
+  },
+  "gdrive": {
+    "clientId": "1234567890-abcdefghijklmnopqrstuvwxyz.apps.googleusercontent.com",
+    "clientSecret": "google-client-secret"
+  }
+}
+```
+
+Notes :
+
+- ce fichier est lu automatiquement par l’application
+- il surcharge la configuration OAuth saisie dans l’interface
+- il reste local au serveur et n’est pas pushé dans git
+- le chemin peut être changé avec `PROXMOXCENTER_CLOUD_OAUTH_SECRETS_PATH`
+- mets-lui des permissions strictes, par exemple `chmod 600`
+
+Exemple :
+
+```bash
+sudo install -m 600 /dev/null /opt/proxmoxcenter/data/cloud-oauth-secrets.json
+sudo editor /opt/proxmoxcenter/data/cloud-oauth-secrets.json
+sudo docker compose -f /opt/proxmoxcenter/docker-compose.yml restart proxcenter
+```
+
+Une fois le fichier présent, les boutons OAuth Google / Microsoft peuvent être utilisés sans ressaisie des clés dans l’UI.
 
 ## Développement local
 

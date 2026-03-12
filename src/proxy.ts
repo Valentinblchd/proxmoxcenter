@@ -36,6 +36,8 @@ function isPublicAssetPath(pathname: string) {
 
 function isPublicRoute(pathname: string) {
   if (pathname === "/login") return true;
+  if (pathname === "/unauthorized") return true;
+  if (pathname === "/forbidden") return true;
   if (pathname === "/install" || pathname.startsWith("/install/")) return true;
   if (pathname === "/api/health") return true;
   if (pathname.startsWith("/api/auth/")) return true;
@@ -48,17 +50,20 @@ function isProtectedApiPath(pathname: string) {
 }
 
 function buildLoginRedirect(request: NextRequest, nonce: string) {
-  const loginUrl = new URL("/login", request.url);
+  const loginUrl = new URL("/unauthorized", request.url);
   const nextPath = sanitizeNextPath(`${request.nextUrl.pathname}${request.nextUrl.search}`);
-  if (nextPath !== "/login") {
+  if (nextPath !== "/login" && nextPath !== "/unauthorized") {
     loginUrl.searchParams.set("next", nextPath);
   }
   return applySecurityHeaders(NextResponse.redirect(loginUrl), request.nextUrl.pathname, nonce);
 }
 
 function buildDeniedRedirect(request: NextRequest, nonce: string) {
-  const deniedUrl = new URL("/", request.url);
-  deniedUrl.searchParams.set("denied", "1");
+  const deniedUrl = new URL("/forbidden", request.url);
+  const fromPath = sanitizeNextPath(`${request.nextUrl.pathname}${request.nextUrl.search}`);
+  if (fromPath !== "/forbidden") {
+    deniedUrl.searchParams.set("from", fromPath);
+  }
   return applySecurityHeaders(NextResponse.redirect(deniedUrl), request.nextUrl.pathname, nonce);
 }
 

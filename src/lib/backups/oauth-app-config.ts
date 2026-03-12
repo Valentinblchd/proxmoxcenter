@@ -24,6 +24,20 @@ export type RuntimeCloudOauthAppConfig = {
   gdrive: RuntimeGoogleOauthAppConfig | null;
 };
 
+type LocalSecretFilePayload = {
+  onedrive?: {
+    clientId?: unknown;
+    clientSecret?: unknown;
+    authority?: unknown;
+    updatedAt?: unknown;
+  } | null;
+  gdrive?: {
+    clientId?: unknown;
+    clientSecret?: unknown;
+    updatedAt?: unknown;
+  } | null;
+};
+
 type FilePayload = {
   onedrive?: {
     clientId?: unknown;
@@ -74,6 +88,11 @@ function getPath() {
   return path.join(process.cwd(), "data", "cloud-oauth-apps.json");
 }
 
+function getLocalSecretPath() {
+  const custom = process.env.PROXCENTER_CLOUD_OAUTH_SECRETS_PATH?.trim();
+  return custom || path.join(process.cwd(), "data", "cloud-oauth-secrets.json");
+}
+
 function ensureParentDirectory(filePath: string) {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
 }
@@ -86,53 +105,109 @@ export function maskClientId(value: string | null | undefined) {
 
 export function readRuntimeCloudOauthAppConfig(): RuntimeCloudOauthAppConfig {
   const filePath = getPath();
-  if (!fs.existsSync(filePath)) {
-    return { onedrive: null, gdrive: null };
-  }
+  const localSecretPath = getLocalSecretPath();
+  const now = new Date().toISOString();
 
-  try {
-    const raw = fs.readFileSync(filePath, "utf8");
-    if (!raw.trim()) return { onedrive: null, gdrive: null };
-    const parsed = JSON.parse(raw) as FilePayload;
-    const now = new Date().toISOString();
+  const storedConfig = (() => {
+    if (!fs.existsSync(filePath)) {
+      return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+    }
 
-    const oneDrive =
-      parsed.onedrive && typeof parsed.onedrive === "object"
-        ? (() => {
-            const clientId = asNonEmptyString(parsed.onedrive?.clientId, 200);
-            if (!clientId) return null;
-            const secretCipher = asNonEmptyString(parsed.onedrive?.clientSecretCipher, 4000);
-            return {
-              clientId,
-              clientSecret: secretCipher ? openSecret(secretCipher) : null,
-              authority: normalizeAuthority(parsed.onedrive?.authority),
-              updatedAt: asIsoDate(parsed.onedrive?.updatedAt, now),
-            } satisfies RuntimeOneDriveOauthAppConfig;
-          })()
-        : null;
+    try {
+      const raw = fs.readFileSync(filePath, "utf8");
+      if (!raw.trim()) return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+      const parsed = JSON.parse(raw) as FilePayload;
 
-    const google =
-      parsed.gdrive && typeof parsed.gdrive === "object"
-        ? (() => {
-            const clientId = asNonEmptyString(parsed.gdrive?.clientId, 200);
-            const secretCipher = asNonEmptyString(parsed.gdrive?.clientSecretCipher, 4000);
-            const clientSecret = secretCipher ? openSecret(secretCipher) : null;
-            if (!clientId || !clientSecret) return null;
-            return {
-              clientId,
-              clientSecret,
-              updatedAt: asIsoDate(parsed.gdrive?.updatedAt, now),
-            } satisfies RuntimeGoogleOauthAppConfig;
-          })()
-        : null;
+      const oneDrive =
+        parsed.onedrive && typeof parsed.onedrive === "object"
+          ? (() => {
+              const clientId = asNonEmptyString(parsed.onedrive?.clientId, 200);
+              if (!clientId) return null;
+              const secretCipher = asNonEmptyString(parsed.onedrive?.clientSecretCipher, 4000);
+              return {
+                clientId,
+                clientSecret: secretCipher ? openSecret(secretCipher) : null,
+                authority: normalizeAuthority(parsed.onedrive?.authority),
+                updatedAt: asIsoDate(parsed.onedrive?.updatedAt, now),
+              } satisfies RuntimeOneDriveOauthAppConfig;
+            })()
+          : null;
 
-    return {
-      onedrive: oneDrive,
-      gdrive: google,
-    };
-  } catch {
-    return { onedrive: null, gdrive: null };
-  }
+      const google =
+        parsed.gdrive && typeof parsed.gdrive === "object"
+          ? (() => {
+              const clientId = asNonEmptyString(parsed.gdrive?.clientId, 200);
+              const secretCipher = asNonEmptyString(parsed.gdrive?.clientSecretCipher, 4000);
+              const clientSecret = secretCipher ? openSecret(secretCipher) : null;
+              if (!clientId || !clientSecret) return null;
+              return {
+                clientId,
+                clientSecret,
+                updatedAt: asIsoDate(parsed.gdrive?.updatedAt, now),
+              } satisfies RuntimeGoogleOauthAppConfig;
+            })()
+          : null;
+
+      return {
+        onedrive: oneDrive,
+        gdrive: google,
+      } satisfies RuntimeCloudOauthAppConfig;
+    } catch {
+      return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+    }
+  })();
+
+  const localSecretConfig = (() => {
+    if (!fs.existsSync(localSecretPath)) {
+      return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+    }
+
+    try {
+      const raw = fs.readFileSync(localSecretPath, "utf8");
+      if (!raw.trim()) return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+      const parsed = JSON.parse(raw) as LocalSecretFilePayload;
+
+      const oneDrive =
+        parsed.onedrive && typeof parsed.onedrive === "object"
+          ? (() => {
+              const clientId = asNonEmptyString(parsed.onedrive?.clientId, 200);
+              if (!clientId) return null;
+              return {
+                clientId,
+                clientSecret: asNonEmptyString(parsed.onedrive?.clientSecret, 3000),
+                authority: normalizeAuthority(parsed.onedrive?.authority),
+                updatedAt: asIsoDate(parsed.onedrive?.updatedAt, now),
+              } satisfies RuntimeOneDriveOauthAppConfig;
+            })()
+          : null;
+
+      const google =
+        parsed.gdrive && typeof parsed.gdrive === "object"
+          ? (() => {
+              const clientId = asNonEmptyString(parsed.gdrive?.clientId, 200);
+              const clientSecret = asNonEmptyString(parsed.gdrive?.clientSecret, 3000);
+              if (!clientId || !clientSecret) return null;
+              return {
+                clientId,
+                clientSecret,
+                updatedAt: asIsoDate(parsed.gdrive?.updatedAt, now),
+              } satisfies RuntimeGoogleOauthAppConfig;
+            })()
+          : null;
+
+      return {
+        onedrive: oneDrive,
+        gdrive: google,
+      } satisfies RuntimeCloudOauthAppConfig;
+    } catch {
+      return { onedrive: null, gdrive: null } satisfies RuntimeCloudOauthAppConfig;
+    }
+  })();
+
+  return {
+    onedrive: localSecretConfig.onedrive ?? storedConfig.onedrive,
+    gdrive: localSecretConfig.gdrive ?? storedConfig.gdrive,
+  };
 }
 
 export function writeRuntimeCloudOauthAppConfig(input: {
