@@ -43,6 +43,9 @@ type SelfComposeMetadata = {
   configFile: string | null;
   service: string | null;
   containerImage: string | null;
+  containerId: string | null;
+  containerName: string | null;
+  imageId: string | null;
 };
 
 type SelfUpdateConfig = {
@@ -58,6 +61,8 @@ type SelfUpdateConfig = {
 };
 
 type DockerContainerInspect = {
+  Id?: string;
+  Name?: string;
   Image?: string;
   Config?: {
     Image?: string;
@@ -426,6 +431,9 @@ async function readSelfComposeMetadata(): Promise<SelfComposeMetadata> {
       configFile: null,
       service: null,
       containerImage: null,
+      containerId: null,
+      containerName: null,
+      imageId: null,
     };
   }
 
@@ -436,6 +444,9 @@ async function readSelfComposeMetadata(): Promise<SelfComposeMetadata> {
       configFile: null,
       service: null,
       containerImage: null,
+      containerId,
+      containerName: null,
+      imageId: null,
     };
   }
 
@@ -459,6 +470,12 @@ async function readSelfComposeMetadata(): Promise<SelfComposeMetadata> {
           : null,
       containerImage:
         typeof inspect.Config?.Image === "string" ? inspect.Config.Image.trim() || null : null,
+      containerId: typeof inspect.Id === "string" ? inspect.Id.trim() || containerId : containerId,
+      containerName:
+        typeof inspect.Name === "string"
+          ? inspect.Name.replace(/^\/+/u, "").trim() || null
+          : null,
+      imageId: typeof inspect.Image === "string" ? inspect.Image.trim() || null : null,
     };
   } catch {
     return {
@@ -466,6 +483,9 @@ async function readSelfComposeMetadata(): Promise<SelfComposeMetadata> {
       configFile: null,
       service: null,
       containerImage: null,
+      containerId,
+      containerName: null,
+      imageId: null,
     };
   }
 }
@@ -877,20 +897,40 @@ async function verifyGitAvailability(config: SelfUpdateConfig): Promise<SelfUpda
 }
 
 async function verifyImageAvailability(config: SelfUpdateConfig): Promise<SelfUpdateAvailability> {
-  const serviceContainer = await inspectDockerContainer(config.service);
+  const selfMetadata = await readSelfComposeMetadata();
+  const serviceContainer =
+    selfMetadata.containerId
+      ? await inspectDockerContainer(selfMetadata.containerId)
+      : await inspectDockerContainer(config.service);
   const serviceImage =
     typeof serviceContainer?.Config?.Image === "string"
       ? serviceContainer.Config.Image.trim() || null
       : config.fallbackRunnerImage;
   const currentRef =
-    typeof serviceContainer?.Image === "string" ? serviceContainer.Image.trim() || null : null;
+    typeof serviceContainer?.Image === "string"
+      ? serviceContainer.Image.trim() || null
+      : selfMetadata.imageId;
 
   if (!serviceImage) {
+    const fallbackImage =
+      selfMetadata.containerImage ||
+      config.fallbackRunnerImage;
+    if (fallbackImage) {
+      return {
+        status: "unknown",
+        message: "Image locale détectée mais inspection service incomplète. Vérification distante limitée.",
+        checkedAt: timestamp(),
+        currentRef: shortenRef(currentRef),
+        availableRef: null,
+        serviceImage: fallbackImage,
+      };
+    }
+
     return {
       status: "unknown",
       message: "Image du service introuvable dans l’inspection Docker.",
       checkedAt: timestamp(),
-      currentRef: null,
+      currentRef: shortenRef(currentRef),
       availableRef: null,
       serviceImage: null,
     };

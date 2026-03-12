@@ -1,6 +1,7 @@
 "use client";
 
-import { useState } from "react";
+import { useEffect, useState } from "react";
+import { createPortal } from "react-dom";
 
 type StrongConfirmDialogProps = {
   open: boolean;
@@ -24,14 +25,25 @@ export default function StrongConfirmDialog({
   onConfirm,
 }: StrongConfirmDialogProps) {
   const [value, setValue] = useState("");
+  const [mounted, setMounted] = useState(false);
 
-  if (!open) return null;
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      setValue("");
+    }
+  }, [open, expectedText]);
+
+  if (!open || !mounted) return null;
 
   const normalizedValue = value.trim().replace(/\s+/g, " ").toUpperCase();
   const normalizedExpected = expectedText.trim().replace(/\s+/g, " ").toUpperCase();
   const canConfirm = normalizedValue === normalizedExpected && !busy;
 
-  return (
+  return createPortal(
     <div className="logout-confirm-layer" role="presentation">
       <button
         type="button"
@@ -76,6 +88,7 @@ export default function StrongConfirmDialog({
           </button>
         </div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }

@@ -827,9 +827,11 @@ code {
 .logout-confirm-layer {
   position: fixed;
   inset: 0;
-  z-index: 130;
+  z-index: 220;
   display: grid;
   place-items: center;
+  padding: 1rem;
+  overflow: auto;
 }
 
 .logout-confirm-backdrop {
@@ -849,6 +851,8 @@ code {
   position: relative;
   z-index: 1;
   width: min(460px, calc(100vw - 1.4rem));
+  max-height: calc(100vh - 2rem);
+  overflow: auto;
   border-radius: 16px;
   border: 1px solid rgba(255, 255, 255, 0.08);
   background:
