@@ -234,9 +234,24 @@ function buildPayload(
     oauthApps: {
       onedrive: {
         configured: brokerOauth.mode === "central" ? brokerOauth.onedrive : oauthApps.onedrive.configured,
+        clientIdMasked: brokerOauth.mode === "central" ? null : oauthApps.onedrive.clientIdMasked,
+        authority: brokerOauth.mode === "central" ? "consumers" : oauthApps.onedrive.authority,
+        updatedAt: brokerOauth.mode === "central" ? null : oauthApps.onedrive.updatedAt,
+        source: brokerOauth.mode === "central" ? "central-broker" : oauthApps.onedrive.source,
+        secretExpiresAt: brokerOauth.mode === "central" ? null : oauthApps.onedrive.secretExpiresAt,
+        secretExpiryState: brokerOauth.mode === "central" ? "unknown" : oauthApps.onedrive.secretExpiryState,
+        daysUntilSecretExpiry:
+          brokerOauth.mode === "central" ? null : oauthApps.onedrive.daysUntilSecretExpiry,
       },
       gdrive: {
         configured: brokerOauth.mode === "central" ? brokerOauth.gdrive : oauthApps.gdrive.configured,
+        clientIdMasked: brokerOauth.mode === "central" ? null : oauthApps.gdrive.clientIdMasked,
+        updatedAt: brokerOauth.mode === "central" ? null : oauthApps.gdrive.updatedAt,
+        source: brokerOauth.mode === "central" ? "central-broker" : oauthApps.gdrive.source,
+        secretExpiresAt: brokerOauth.mode === "central" ? null : oauthApps.gdrive.secretExpiresAt,
+        secretExpiryState: brokerOauth.mode === "central" ? "unknown" : oauthApps.gdrive.secretExpiryState,
+        daysUntilSecretExpiry:
+          brokerOauth.mode === "central" ? null : oauthApps.gdrive.daysUntilSecretExpiry,
       },
     },
     plans: config.plans,

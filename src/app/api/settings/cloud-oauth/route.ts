@@ -36,6 +36,15 @@ function buildPayload() {
   };
 }
 
+function buildLocalOverrideSuffix(
+  providers: ReturnType<typeof getPublicCloudOauthAppStatus>,
+  provider: CloudOauthProvider,
+) {
+  return providers[provider].source === "local-file"
+    ? " Le fichier local serveur reste prioritaire."
+    : "";
+}
+
 export async function GET(request: NextRequest) {
   const capability = await requireRequestCapability(request, "admin");
   if (!capability.ok) {
@@ -104,12 +113,13 @@ export async function POST(request: NextRequest) {
     );
   }
 
+  const payload = buildPayload();
   return NextResponse.json({
-    ...buildPayload(),
+    ...payload,
     message:
-      provider === "onedrive"
+      (provider === "onedrive"
         ? "Application OAuth OneDrive enregistrée."
-        : "Application OAuth Google Drive enregistrée.",
+        : "Application OAuth Google Drive enregistrée.") + buildLocalOverrideSuffix(payload.providers, provider),
   });
 }
 
@@ -148,11 +158,12 @@ export async function DELETE(request: NextRequest) {
   }
 
   clearRuntimeCloudOauthAppConfig(provider);
+  const payload = buildPayload();
   return NextResponse.json({
-    ...buildPayload(),
+    ...payload,
     message:
-      provider === "onedrive"
+      (provider === "onedrive"
         ? "Application OAuth OneDrive réinitialisée."
-        : "Application OAuth Google Drive réinitialisée.",
+        : "Application OAuth Google Drive réinitialisée.") + buildLocalOverrideSuffix(payload.providers, provider),
   });
 }

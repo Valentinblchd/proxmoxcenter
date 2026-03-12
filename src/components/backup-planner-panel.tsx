@@ -80,9 +80,22 @@ type BackupConfigResponse = {
   oauthApps?: {
     onedrive: {
       configured: boolean;
+      clientIdMasked?: string | null;
+      updatedAt?: string | null;
+      authority?: string;
+      source?: "ui" | "local-file" | "central-broker" | null;
+      secretExpiresAt?: string | null;
+      secretExpiryState?: "ok" | "expiring" | "expired" | "unknown";
+      daysUntilSecretExpiry?: number | null;
     };
     gdrive: {
       configured: boolean;
+      clientIdMasked?: string | null;
+      updatedAt?: string | null;
+      source?: "ui" | "local-file" | "central-broker" | null;
+      secretExpiresAt?: string | null;
+      secretExpiryState?: "ok" | "expiring" | "expired" | "unknown";
+      daysUntilSecretExpiry?: number | null;
     };
   };
   plans: BackupPlan[];
@@ -590,6 +603,66 @@ function formatScheduleDate(value: string) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDateOnly(value: string | null | undefined) {
+  if (!value) return "Non défini";
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function getOauthProviderSourceLabel(source: "ui" | "local-file" | "central-broker" | null | undefined) {
+  if (source === "local-file") return "Fichier local serveur";
+  if (source === "ui") return "Interface";
+  if (source === "central-broker") return "Broker central";
+  return "Non défini";
+}
+
+function getOauthSecretStateBadgeClass(
+  state: "ok" | "expiring" | "expired" | "unknown" | null | undefined,
+) {
+  if (state === "expired") return "status-stopped";
+  if (state === "expiring") return "status-pending";
+  if (state === "ok") return "status-running";
+  return "status-template";
+}
+
+function getOauthSecretStateLabel(status: NonNullable<BackupConfigResponse["oauthApps"]>[keyof NonNullable<BackupConfigResponse["oauthApps"]>]) {
+  if (status.secretExpiryState === "expired") return "Secret expiré";
+  if (status.secretExpiryState === "expiring") {
+    return typeof status.daysUntilSecretExpiry === "number" && status.daysUntilSecretExpiry > 0
+      ? `Expire dans ${status.daysUntilSecretExpiry} j`
+      : "Expire aujourd’hui";
+  }
+  if (status.secretExpiryState === "ok") return "Secret valide";
+  return "Expiration inconnue";
+}
+
+function getOauthSecretStateText(
+  providerLabel: string,
+  status: NonNullable<BackupConfigResponse["oauthApps"]>[keyof NonNullable<BackupConfigResponse["oauthApps"]>],
+) {
+  if (status.source === "central-broker") {
+    return `${providerLabel} utilise le broker OAuth central de ProxmoxCenter.`;
+  }
+  if (status.secretExpiryState === "expired") {
+    return `Le secret ${providerLabel} est expiré depuis le ${formatDateOnly(status.secretExpiresAt ?? null)}.`;
+  }
+  if (status.secretExpiryState === "expiring") {
+    if (typeof status.daysUntilSecretExpiry === "number" && status.daysUntilSecretExpiry > 0) {
+      return `Le secret ${providerLabel} expire dans ${status.daysUntilSecretExpiry} jours, le ${formatDateOnly(status.secretExpiresAt ?? null)}.`;
+    }
+    return `Le secret ${providerLabel} arrive à expiration le ${formatDateOnly(status.secretExpiresAt ?? null)}.`;
+  }
+  if (status.secretExpiryState === "ok") {
+    return `Le secret ${providerLabel} reste valide jusqu’au ${formatDateOnly(status.secretExpiresAt ?? null)}.`;
+  }
+  return `La date d’expiration du secret ${providerLabel} n’est pas renseignée.`;
 }
 
 function inferRestoreHintsFromObject(object: CloudBackupObjectItem | null) {
@@ -3363,6 +3436,26 @@ export default function BackupPlannerPanel({
                     <span className={`inventory-badge ${getStatusBadgeClass(currentCloudOauthStatus.state)}`}>
                       {currentCloudOauthStatus.label}
                     </span>
+                  </p>
+                ) : null}
+                {currentProviderOauthConfig ? (
+                  <p className="item-subtitle">
+                    Source OAuth: <strong>{getOauthProviderSourceLabel(currentProviderOauthConfig.source)}</strong>{" "}
+                    <span
+                      className={`inventory-badge ${getOauthSecretStateBadgeClass(
+                        currentProviderOauthConfig.secretExpiryState,
+                      )}`}
+                    >
+                      {getOauthSecretStateLabel(currentProviderOauthConfig)}
+                    </span>
+                  </p>
+                ) : null}
+                {currentProviderOauthConfig ? (
+                  <p className="item-subtitle">
+                    {getOauthSecretStateText(
+                      selectedTargetProvider === "onedrive" ? "Microsoft" : "Google",
+                      currentProviderOauthConfig,
+                    )}
                   </p>
                 ) : null}
                 <p className="item-subtitle">

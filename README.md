@@ -220,11 +220,13 @@ Format :
   "onedrive": {
     "clientId": "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx",
     "clientSecret": "microsoft-client-secret",
-    "authority": "consumers"
+    "authority": "consumers",
+    "secretExpiresAt": "2027-03-12"
   },
   "gdrive": {
     "clientId": "1234567890-abcdefghijklmnopqrstuvwxyz.apps.googleusercontent.com",
-    "clientSecret": "google-client-secret"
+    "clientSecret": "google-client-secret",
+    "secretExpiresAt": "2027-03-12"
   }
 }
 ```
@@ -236,6 +238,7 @@ Notes :
 - il reste local au serveur et n’est pas pushé dans git
 - le chemin peut être changé avec `PROXMOXCENTER_CLOUD_OAUTH_SECRETS_PATH`
 - mets-lui des permissions strictes, par exemple `chmod 600`
+- `secretExpiresAt` est optionnel mais recommandé: l’interface remonte une alerte 30 jours avant expiration du secret client
 
 Exemple :
 

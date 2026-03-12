@@ -7,6 +7,10 @@ type ProviderStatus = {
   configured: boolean;
   clientIdMasked: string | null;
   updatedAt: string | null;
+  source: "ui" | "local-file" | null;
+  secretExpiresAt: string | null;
+  secretExpiryState: "ok" | "expiring" | "expired" | "unknown";
+  daysUntilSecretExpiry: number | null;
   authority?: string;
 };
 
@@ -39,6 +43,72 @@ function formatUpdatedAt(value: string | null) {
     hour: "2-digit",
     minute: "2-digit",
   });
+}
+
+function formatDateOnly(value: string | null) {
+  if (!value) return "Non défini";
+  const date = new Date(`${value}T00:00:00Z`);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleDateString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+}
+
+function formatProviderSource(value: ProviderStatus["source"]) {
+  if (value === "local-file") return "Fichier local serveur";
+  if (value === "ui") return "Interface";
+  return "Non défini";
+}
+
+function getSecretExpiryBadge(provider: ProviderStatus) {
+  if (provider.secretExpiryState === "expired") {
+    return {
+      className: "status-stopped",
+      label: "Secret expiré",
+    };
+  }
+
+  if (provider.secretExpiryState === "expiring") {
+    return {
+      className: "status-pending",
+      label:
+        typeof provider.daysUntilSecretExpiry === "number"
+          ? provider.daysUntilSecretExpiry <= 0
+            ? "Expire aujourd’hui"
+            : `Expire dans ${provider.daysUntilSecretExpiry} j`
+          : "Secret proche expiration",
+    };
+  }
+
+  if (provider.secretExpiryState === "ok") {
+    return {
+      className: "status-running",
+      label: "Secret valide",
+    };
+  }
+
+  return {
+    className: "status-template",
+    label: "Expiration non définie",
+  };
+}
+
+function getSecretExpiryText(label: string, provider: ProviderStatus) {
+  if (provider.secretExpiryState === "expired") {
+    return `${label} expiré depuis le ${formatDateOnly(provider.secretExpiresAt)}.`;
+  }
+  if (provider.secretExpiryState === "expiring") {
+    if (typeof provider.daysUntilSecretExpiry === "number" && provider.daysUntilSecretExpiry > 0) {
+      return `${label} expire dans ${provider.daysUntilSecretExpiry} jours, le ${formatDateOnly(provider.secretExpiresAt)}.`;
+    }
+    return `${label} arrive à expiration le ${formatDateOnly(provider.secretExpiresAt)}.`;
+  }
+  if (provider.secretExpiryState === "ok") {
+    return `${label} valide jusqu’au ${formatDateOnly(provider.secretExpiresAt)}.`;
+  }
+  return `${label} sans date d’expiration renseignée.`;
 }
 
 export default function CloudOauthSettings({ initialProviders, canAdmin }: Props) {
@@ -173,14 +243,38 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               <strong>{providers.onedrive.clientIdMasked ?? "Non configuré"}</strong>
             </div>
             <div className="row-line">
+              <span>Source</span>
+              <strong>{formatProviderSource(providers.onedrive.source)}</strong>
+            </div>
+            <div className="row-line">
               <span>Authority</span>
               <strong>{providers.onedrive.authority ?? "consumers"}</strong>
+            </div>
+            <div className="row-line">
+              <span>Expiration secret</span>
+              <strong>{formatDateOnly(providers.onedrive.secretExpiresAt)}</strong>
+            </div>
+            <div className="row-line">
+              <span>Etat secret</span>
+              <strong>
+                <span className={`inventory-badge ${getSecretExpiryBadge(providers.onedrive).className}`}>
+                  {getSecretExpiryBadge(providers.onedrive).label}
+                </span>
+              </strong>
             </div>
             <div className="row-line">
               <span>Dernière mise à jour</span>
               <strong>{formatUpdatedAt(providers.onedrive.updatedAt)}</strong>
             </div>
           </div>
+          {providers.onedrive.configured ? (
+            <div className="hint-box">
+              <p className="muted">{getSecretExpiryText("Le secret Microsoft", providers.onedrive)}</p>
+              {providers.onedrive.source === "local-file" ? (
+                <p className="muted">Un fichier local serveur pilote cette configuration et reste prioritaire sur l’interface.</p>
+              ) : null}
+            </div>
+          ) : null}
           {canAdmin ? (
             <>
               <div className="provision-grid">
@@ -217,6 +311,9 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
                 <p className="muted">
                   Callback OneDrive: <strong>/api/backups/oauth/onedrive/callback</strong>
                 </p>
+                {providers.onedrive.source === "local-file" ? (
+                  <p className="muted">Le fichier local serveur reste prioritaire tant qu’il est présent.</p>
+                ) : null}
               </div>
               <div className="setup-actions">
                 <button
@@ -253,10 +350,34 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               <strong>{providers.gdrive.clientIdMasked ?? "Non configuré"}</strong>
             </div>
             <div className="row-line">
+              <span>Source</span>
+              <strong>{formatProviderSource(providers.gdrive.source)}</strong>
+            </div>
+            <div className="row-line">
+              <span>Expiration secret</span>
+              <strong>{formatDateOnly(providers.gdrive.secretExpiresAt)}</strong>
+            </div>
+            <div className="row-line">
+              <span>Etat secret</span>
+              <strong>
+                <span className={`inventory-badge ${getSecretExpiryBadge(providers.gdrive).className}`}>
+                  {getSecretExpiryBadge(providers.gdrive).label}
+                </span>
+              </strong>
+            </div>
+            <div className="row-line">
               <span>Dernière mise à jour</span>
               <strong>{formatUpdatedAt(providers.gdrive.updatedAt)}</strong>
             </div>
           </div>
+          {providers.gdrive.configured ? (
+            <div className="hint-box">
+              <p className="muted">{getSecretExpiryText("Le secret Google", providers.gdrive)}</p>
+              {providers.gdrive.source === "local-file" ? (
+                <p className="muted">Un fichier local serveur pilote cette configuration et reste prioritaire sur l’interface.</p>
+              ) : null}
+            </div>
+          ) : null}
           {canAdmin ? (
             <>
               <div className="provision-grid">
@@ -284,6 +405,9 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
                 <p className="muted">
                   Callback Google Drive: <strong>/api/backups/oauth/gdrive/callback</strong>
                 </p>
+                {providers.gdrive.source === "local-file" ? (
+                  <p className="muted">Le fichier local serveur reste prioritaire tant qu’il est présent.</p>
+                ) : null}
               </div>
               <div className="setup-actions">
                 <button
