@@ -1884,6 +1884,10 @@ code {
   grid-column: span 2;
 }
 
+.provision-field-span-full {
+  grid-column: 1 / -1;
+}
+
 .provision-field-label {
   display: grid;
   gap: 0.14rem;
@@ -1951,6 +1955,23 @@ select.inventory-node-filter option {
   display: grid;
   grid-template-columns: 1fr 1fr;
   gap: 0.5rem;
+}
+
+.provision-media-block {
+  display: grid;
+  gap: 0.6rem;
+  padding: 0.72rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.025), transparent 75%),
+    rgba(8, 12, 26, 0.36);
+}
+
+.provision-media-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.6rem;
 }
 
 .provision-inline-vmid {
@@ -4843,6 +4864,104 @@ select.inventory-node-filter option {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.observability-trend-shell {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.observability-range-tabs {
+  flex-wrap: wrap;
+}
+
+.observability-trend-grid {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.observability-trend-card {
+  display: grid;
+  gap: 0.75rem;
+}
+
+.observability-trend-meta {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.45rem;
+}
+
+.observability-trend-stat {
+  display: grid;
+  gap: 0.12rem;
+  padding: 0.6rem 0.7rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.observability-trend-stat span {
+  color: var(--muted);
+  font-size: 0.74rem;
+}
+
+.observability-trend-stat strong {
+  font-size: 0.98rem;
+}
+
+.observability-trend-graph {
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.05);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 75%),
+    rgba(8, 12, 28, 0.42);
+  padding: 0.6rem;
+}
+
+.observability-trend-graph svg {
+  display: block;
+  width: 100%;
+  height: 92px;
+}
+
+.observability-trend-gridline {
+  fill: none;
+  stroke: rgba(255, 255, 255, 0.07);
+  stroke-width: 1;
+}
+
+.observability-trend-line {
+  fill: none;
+  stroke-width: 3;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+.observability-trend-line.tone-blue {
+  stroke: #67c3ff;
+}
+
+.observability-trend-line.tone-orange {
+  stroke: #ffb85f;
+}
+
+.observability-trend-line.tone-green {
+  stroke: #56d79e;
+}
+
+.observability-trend-line.tone-purple {
+  stroke: #b79cff;
+}
+
+.observability-trend-line.tone-red {
+  stroke: #ff8e8e;
+}
+
+.observability-trend-foot {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+
 .settings-block {
   display: grid;
   gap: 0.7rem;
@@ -5291,6 +5410,18 @@ select.inventory-node-filter option {
   .workload-header-copy h1 {
     font-size: 1.32rem;
     line-height: 1.1;
+  }
+
+  .observability-trend-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .observability-trend-meta {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .provision-media-grid {
+    grid-template-columns: 1fr;
   }
 
   .inventory-breadcrumb {

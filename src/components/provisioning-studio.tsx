@@ -916,7 +916,7 @@ export default function ProvisioningStudio({
           )}
 
           {isQemu ? (
-            <>
+            <div className="provision-media-block provision-field-span-full">
               <FieldRow label="Source ISO">
                 <div className="provision-segment">
                   <button
@@ -963,7 +963,7 @@ export default function ProvisioningStudio({
                   ) : null}
                 </FieldRow>
               ) : (
-                <>
+                <div className="provision-media-grid">
                   <FieldRow
                     label="URL du fichier ISO"
                     hint="HTTPS direct, sans query, terminée par .iso"
@@ -1000,13 +1000,13 @@ export default function ProvisioningStudio({
                   </FieldRow>
 
                   {draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl) ? (
-                    <p className="provision-inline-hint warning-text">
+                    <p className="provision-inline-hint warning-text provision-field-span-2">
                       URL refusée: seuls les liens HTTPS directs, sans querystring, vers un fichier se terminant par <code>.iso</code> sont acceptés.
                     </p>
                   ) : null}
-                </>
+                </div>
               )}
-            </>
+            </div>
           ) : (
             <FieldRow label="Mot de passe root (optionnel)">
               <input

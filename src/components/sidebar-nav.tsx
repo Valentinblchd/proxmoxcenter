@@ -13,9 +13,7 @@ import {
 } from "@/lib/navigation/menu";
 import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
 
-const SIDEBAR_EXPANDED_STORAGE_KEY = "proxcenter_sidebar_expanded";
 const SIDEBAR_SECTIONS_STORAGE_KEY = "proxcenter_sidebar_sections";
-const HOVER_EXPAND_DELAY_MS = 1200;
 
 function MenuIcon({ itemId }: { itemId: string }) {
   const commonProps = {
@@ -349,24 +347,17 @@ export default function SidebarNav({
     [visibleAccountSection, visibleMainSections],
   );
   const [isExpanded, setIsExpanded] = useState(false);
-  const [hoverExpanded, setHoverExpanded] = useState(false);
   const [logoutConfirmOpen, setLogoutConfirmOpen] = useState(false);
   const [prefLoaded, setPrefLoaded] = useState(false);
   const [sectionOpenState, setSectionOpenState] = useState<Record<string, boolean>>(
     () => getDefaultSectionOpenState(visibleSections),
   );
   const logoutFormRef = useRef<HTMLFormElement | null>(null);
-  const hoverTimerRef = useRef<number | null>(null);
-  const sidebarExpanded = isExpanded || hoverExpanded;
+  const sidebarExpanded = isExpanded;
   const allItems = visibleSections.flatMap((section) => section.items);
 
   useEffect(() => {
     try {
-      const stored = window.localStorage.getItem(SIDEBAR_EXPANDED_STORAGE_KEY);
-      if (stored === "1") {
-        setIsExpanded(true);
-      }
-
       const storedSections = window.localStorage.getItem(SIDEBAR_SECTIONS_STORAGE_KEY);
       if (storedSections) {
         const parsed = JSON.parse(storedSections) as Record<string, unknown>;
@@ -392,17 +383,13 @@ export default function SidebarNav({
 
     try {
       window.localStorage.setItem(
-        SIDEBAR_EXPANDED_STORAGE_KEY,
-        isExpanded ? "1" : "0",
-      );
-      window.localStorage.setItem(
         SIDEBAR_SECTIONS_STORAGE_KEY,
         JSON.stringify(sectionOpenState),
       );
     } catch {
       // Ignore storage access failures.
     }
-  }, [isExpanded, prefLoaded, sectionOpenState]);
+  }, [prefLoaded, sectionOpenState]);
 
   useEffect(() => {
     if (!logoutConfirmOpen) return;
@@ -418,15 +405,6 @@ export default function SidebarNav({
       window.removeEventListener("keydown", onKeyDown);
     };
   }, [logoutConfirmOpen]);
-
-  useEffect(
-    () => () => {
-      if (hoverTimerRef.current !== null) {
-        window.clearTimeout(hoverTimerRef.current);
-      }
-    },
-    [],
-  );
 
   const toggleLabel = sidebarExpanded ? "Réduire le menu" : "Agrandir le menu";
 
@@ -459,31 +437,6 @@ export default function SidebarNav({
     onRequestClose?.();
   }
 
-  function canUseHoverExpand() {
-    if (typeof window === "undefined") return false;
-    return window.matchMedia("(min-width: 780px) and (hover: hover) and (pointer: fine)").matches;
-  }
-
-  function handleSidebarMouseEnter() {
-    if (isExpanded) return;
-    if (!canUseHoverExpand()) return;
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current);
-    }
-    hoverTimerRef.current = window.setTimeout(() => {
-      setHoverExpanded(true);
-      hoverTimerRef.current = null;
-    }, HOVER_EXPAND_DELAY_MS);
-  }
-
-  function handleSidebarMouseLeave() {
-    if (hoverTimerRef.current !== null) {
-      window.clearTimeout(hoverTimerRef.current);
-      hoverTimerRef.current = null;
-    }
-    setHoverExpanded(false);
-  }
-
   function openLogoutConfirm() {
     setLogoutConfirmOpen(true);
   }
@@ -502,8 +455,6 @@ export default function SidebarNav({
     <>
       <aside
         className={`sidebar${sidebarExpanded ? " is-expanded" : ""}${mobileOpen ? " is-mobile-open" : ""}`}
-        onMouseEnter={handleSidebarMouseEnter}
-        onMouseLeave={handleSidebarMouseLeave}
       >
         <div className="sidebar-top">
           <div className="sidebar-header-row">

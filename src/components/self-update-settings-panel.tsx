@@ -179,7 +179,7 @@ export default function SelfUpdateSettingsPanel() {
 
   const canStart = useMemo(() => {
     if (!overview?.enabled) return false;
-    if (!overview.prerequisites.dockerCliAvailable || !overview.prerequisites.dockerSocketAvailable) return false;
+    if (!overview.prerequisites.dockerSocketAvailable) return false;
     if (overview.availability.status === "up-to-date") return false;
     return overview.current?.status !== "running" && !busy;
   }, [busy, overview]);

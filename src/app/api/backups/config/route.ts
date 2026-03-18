@@ -285,7 +285,11 @@ function buildPayloadWithSpace(
   };
 }
 
-function validatePlan(input: PlanInput, config: RuntimeBackupConfig) {
+function validatePlan(
+  input: PlanInput,
+  config: RuntimeBackupConfig,
+  localStorages: LocalBackupStorageMetrics[],
+) {
   const now = new Date().toISOString();
   const existingId = asNonEmptyString(input.id, 120);
   const existing = existingId
@@ -360,6 +364,18 @@ function validatePlan(input: PlanInput, config: RuntimeBackupConfig) {
     throw new Error("Cible cloud introuvable.");
   }
 
+  const backupStorage = asNonEmptyString(input.backupStorage, 120);
+  if (!backupStorage) {
+    throw new Error(
+      targetMode === "cloud"
+        ? "Choisis d’abord le stockage Proxmox qui sert de staging avant l’envoi cloud."
+        : "Choisis un stockage backup Proxmox.",
+    );
+  }
+  if (localStorages.length > 0 && !localStorages.some((item) => item.storage === backupStorage)) {
+    throw new Error("Le stockage choisi n’est pas disponible pour les backups Proxmox.");
+  }
+
   return {
     id: existing?.id ?? randomUUID(),
     name,
@@ -371,7 +387,7 @@ function validatePlan(input: PlanInput, config: RuntimeBackupConfig) {
     recurrenceEvery,
     recurrenceUnit,
     preferredTime,
-    backupStorage: asNonEmptyString(input.backupStorage, 120),
+    backupStorage,
     retentionMode,
     retentionDays,
     retentionWeeks,
@@ -554,7 +570,14 @@ export async function POST(request: NextRequest) {
     }
 
     if (action === "save-plan") {
-      const plan = validatePlan((body.plan ?? {}) as PlanInput, config);
+      const localStorageSnapshot = await readLocalBackupStorageMetrics().catch(() => ({
+        storages: [] as LocalBackupStorageMetrics[],
+      }));
+      const plan = validatePlan(
+        (body.plan ?? {}) as PlanInput,
+        config,
+        localStorageSnapshot.storages ?? [],
+      );
       const existingPlan = config.plans.find((item) => item.id === plan.id) ?? null;
       config.plans = [
         ...config.plans.filter((item) => item.id !== plan.id),

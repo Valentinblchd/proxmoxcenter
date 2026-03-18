@@ -22,7 +22,6 @@ type BackupCloudProvider = "onedrive" | "gdrive" | "aws-s3" | "azure-blob";
 type BackupCloudProviderChoice = "" | BackupCloudProvider;
 type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
 type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
-type PlanDeliveryMode = "local" | "cloud" | "local-cloud";
 
 type BackupPlan = {
   id: string;
@@ -198,6 +197,8 @@ type BackupPlannerPanelProps = {
   initialTab?: BackupWorkspaceTab;
   canOperate?: boolean;
 };
+
+type LocalStorageOption = NonNullable<BackupConfigResponse["localStorages"]>[number];
 
 type CloudOauthMessage = {
   type?: unknown;
@@ -471,7 +472,7 @@ function defaultPlanForm(): PlanFormState {
     recurrenceEvery: 1,
     recurrenceUnit: "week",
     preferredTime: "01:00",
-    backupStorage: "local",
+    backupStorage: "",
     retentionMode: "auto",
     retentionDays: retention.days,
     retentionWeeks: retention.weeks,
@@ -508,32 +509,8 @@ function defaultRestoreForm(): RestoreFormState {
   };
 }
 
-function inferPlanDeliveryMode(form: PlanFormState): PlanDeliveryMode {
-  if (form.targetMode === "local") return "local";
-  return form.backupStorage.trim() ? "local-cloud" : "cloud";
-}
-
-function applyPlanDeliveryMode(form: PlanFormState, mode: PlanDeliveryMode): PlanFormState {
-  if (mode === "local") {
-    return {
-      ...form,
-      targetMode: "local",
-      cloudTargetId: "",
-      backupStorage: form.backupStorage.trim() || "local",
-    };
-  }
-  if (mode === "cloud") {
-    return {
-      ...form,
-      targetMode: "cloud",
-      backupStorage: "",
-    };
-  }
-  return {
-    ...form,
-    targetMode: "cloud",
-    backupStorage: form.backupStorage.trim() || "local",
-  };
+function pickDefaultLocalStorage(localStorages?: LocalStorageOption[]) {
+  return localStorages?.[0]?.storage ?? "";
 }
 
 function formatBytes(value: number | null) {
@@ -1474,7 +1451,10 @@ export default function BackupPlannerPanel({
   }, [canOperate]);
 
   function resetPlanForm() {
-    setPlanForm(defaultPlanForm());
+    setPlanForm({
+      ...defaultPlanForm(),
+      backupStorage: pickDefaultLocalStorage(config?.localStorages),
+    });
   }
 
   function resetTargetForm() {
@@ -1491,14 +1471,19 @@ export default function BackupPlannerPanel({
   }
 
   function chooseLocalStorageForPlan(storageName: string) {
-    setPlanForm((current) => ({
-      ...current,
-      backupStorage: storageName,
-      targetMode: "local",
-      cloudTargetId: "",
-    }));
+    const nextMode = planForm.targetMode;
+    setPlanForm((current) => {
+      return {
+        ...current,
+        backupStorage: storageName,
+      };
+    });
     setActiveTab("plans");
-    setNotice(`Stockage local ${storageName} sélectionné pour le prochain plan.`);
+    setNotice(
+      nextMode === "cloud"
+        ? `Stockage Proxmox ${storageName} sélectionné comme staging cloud.`
+        : `Stockage Proxmox ${storageName} sélectionné pour le prochain plan.`,
+    );
     setError(null);
   }
 
@@ -1506,6 +1491,7 @@ export default function BackupPlannerPanel({
     setPlanForm((current) => ({
       ...current,
       targetMode: "cloud",
+      backupStorage: current.backupStorage || pickDefaultLocalStorage(config?.localStorages),
       cloudTargetId: targetId,
     }));
     setActiveTab("plans");
@@ -2425,10 +2411,16 @@ export default function BackupPlannerPanel({
   const restoreStorageOptions = Array.from(new Set(localStorages.map((item) => item.storage))).sort((a, b) =>
     a.localeCompare(b),
   );
+  const planStorageOptions = Array.from(
+    new Map(localStorages.map((item) => [item.storage, item])),
+  ).map(([, item]) => item).sort((a, b) => a.storage.localeCompare(b.storage));
   const selectedPbsGroup = pbsGroups.find((item) => item.path === pbsSelectedGroup) ?? null;
   const selectedPbsSnapshot = pbsSnapshots.find((item) => item.path === pbsSelectedSnapshot) ?? null;
   const selectedPbsFile = pbsFiles.find((item) => item.archiveName === pbsSelectedArchive) ?? null;
-  const planDeliveryMode = inferPlanDeliveryMode(planForm);
+  const selectedPlanStorage =
+    planStorageOptions.find((item) => item.storage === planForm.backupStorage) ?? null;
+  const selectedPlanCloudTarget =
+    selectableCloudTargets.find((item) => item.id === planForm.cloudTargetId) ?? null;
   const retentionPreset = inferRetentionPreset(
     planForm.retentionMode,
     {
@@ -2779,42 +2771,41 @@ export default function BackupPlannerPanel({
           </div>
 
           <div className="hint-box">
-            <div className="item-title">Créer un plan</div>
-            <div className="item-subtitle">1) Type  2) Horaire  3) VM/CT  4) Rétention</div>
-            <div className="provision-segment" role="group" aria-label="Type de plan rapide">
+            <div className="item-title">Créer un plan lisible</div>
+            <div className="item-subtitle">1) Destination  2) Horaire  3) Périmètre  4) Rétention</div>
+            <div className="provision-segment" role="group" aria-label="Destination du plan">
               <button
                 type="button"
-                className={`provision-seg-btn${planDeliveryMode === "local" ? " is-active" : ""}`}
+                className={`provision-seg-btn${planForm.targetMode === "local" ? " is-active" : ""}`}
                 onClick={() =>
-                  setPlanForm((current) =>
-                    applyPlanDeliveryMode(current, "local"),
-                  )
+                  setPlanForm((current) => ({
+                    ...current,
+                    targetMode: "local",
+                    cloudTargetId: "",
+                    backupStorage: current.backupStorage || pickDefaultLocalStorage(config?.localStorages),
+                  }))
                 }
               >
-                Local
+                Local uniquement
               </button>
               <button
                 type="button"
-                className={`provision-seg-btn${planDeliveryMode === "cloud" ? " is-active" : ""}`}
+                className={`provision-seg-btn${planForm.targetMode === "cloud" ? " is-active" : ""}`}
                 onClick={() =>
-                  setPlanForm((current) =>
-                    applyPlanDeliveryMode(current, "cloud"),
-                  )
+                  setPlanForm((current) => ({
+                    ...current,
+                    targetMode: "cloud",
+                    backupStorage: current.backupStorage || pickDefaultLocalStorage(config?.localStorages),
+                  }))
                 }
               >
-                Cloud
+                Sync cloud
               </button>
-              <button
-                type="button"
-                className={`provision-seg-btn${planDeliveryMode === "local-cloud" ? " is-active" : ""}`}
-                onClick={() =>
-                  setPlanForm((current) =>
-                    applyPlanDeliveryMode(current, "local-cloud"),
-                  )
-                }
-              >
-                Local + Cloud
-              </button>
+            </div>
+            <div className="item-subtitle">
+              {planForm.targetMode === "cloud"
+                ? "Le backup est écrit sur un stockage Proxmox, puis synchronisé vers la cible cloud."
+                : "Le backup reste uniquement sur le stockage Proxmox choisi."}
             </div>
           </div>
 
@@ -2967,12 +2958,37 @@ export default function BackupPlannerPanel({
               </div>
             </div>
 
-            {planDeliveryMode !== "cloud" ? (
-              <label className="provision-field">
-                <span className="provision-field-label">
-                  Stockage backup local
-                  <small>Ex: local, pbs, ceph-backup</small>
-                </span>
+            <label className="provision-field provision-field-span-full">
+              <span className="provision-field-label">
+                {planForm.targetMode === "cloud" ? "Stockage Proxmox de staging" : "Stockage backup Proxmox"}
+                <small>
+                  {planForm.targetMode === "cloud"
+                    ? "Le fichier backup est d’abord créé ici avant l’envoi vers le cloud."
+                    : "Stockage où Proxmox écrit le backup local."}
+                </small>
+              </span>
+              {planStorageOptions.length > 0 ? (
+                <select
+                  className="provision-input"
+                  value={planForm.backupStorage}
+                  onChange={(event) =>
+                    setPlanForm((current) => ({
+                      ...current,
+                      backupStorage: event.target.value,
+                    }))
+                  }
+                  required
+                >
+                  <option value="">Sélectionner un stockage backup</option>
+                  {planStorageOptions.map((storage) => (
+                    <option key={storage.id} value={storage.storage}>
+                      {storage.storage}
+                      {storage.node ? ` • ${storage.node}` : ""}
+                      {storage.freeBytes !== null ? ` • ${formatBytes(storage.freeBytes)} libres` : ""}
+                    </option>
+                  ))}
+                </select>
+              ) : (
                 <input
                   className="provision-input"
                   value={planForm.backupStorage}
@@ -2982,31 +2998,59 @@ export default function BackupPlannerPanel({
                       backupStorage: event.target.value,
                     }))
                   }
-                  placeholder="local"
+                  placeholder="local, HDD4to, pbs-backup..."
                   required
                 />
-              </label>
-            ) : null}
+              )}
+            </label>
 
-            {planDeliveryMode !== "local" ? (
-              <label className="provision-field">
-                <span className="provision-field-label">Cible cloud</span>
-                <select
-                  className="provision-input"
-                  value={planForm.cloudTargetId}
-                  onChange={(event) =>
-                    setPlanForm((current) => ({ ...current, cloudTargetId: event.target.value }))
-                  }
-                  required
-                >
-                  <option value="">Sélectionner une cible cloud</option>
-                  {selectableCloudTargets.map((target) => (
-                    <option key={target.id} value={target.id}>
-                      {target.name} ({PROVIDER_LABEL[target.provider]})
-                    </option>
-                  ))}
-                </select>
-              </label>
+            <div className="hint-box">
+              <div className="row-line">
+                <span>Stockage retenu</span>
+                <strong>{planForm.backupStorage || "À choisir"}</strong>
+              </div>
+              <div className="item-subtitle">
+                {selectedPlanStorage
+                  ? `${selectedPlanStorage.node ? `${selectedPlanStorage.node} • ` : ""}${formatBytes(selectedPlanStorage.usedBytes)} utilisés • ${formatBytes(selectedPlanStorage.freeBytes)} libres`
+                  : planStorageOptions.length > 0
+                    ? "Choisis le stockage Proxmox qui doit héberger les fichiers backup."
+                    : "Aucun stockage backup détecté automatiquement: saisis le nom exact d’un stockage Proxmox acceptant le contenu backup."}
+              </div>
+            </div>
+
+            {planForm.targetMode === "cloud" ? (
+              <>
+                <label className="provision-field provision-field-span-full">
+                  <span className="provision-field-label">Cible cloud</span>
+                  <select
+                    className="provision-input"
+                    value={planForm.cloudTargetId}
+                    onChange={(event) =>
+                      setPlanForm((current) => ({ ...current, cloudTargetId: event.target.value }))
+                    }
+                    required
+                  >
+                    <option value="">Sélectionner une cible cloud</option>
+                    {selectableCloudTargets.map((target) => (
+                      <option key={target.id} value={target.id}>
+                        {target.name} ({PROVIDER_LABEL[target.provider]})
+                      </option>
+                    ))}
+                  </select>
+                </label>
+
+                <div className="hint-box">
+                  <div className="row-line">
+                    <span>Sync cloud</span>
+                    <strong>{selectedPlanCloudTarget ? selectedPlanCloudTarget.name : "À choisir"}</strong>
+                  </div>
+                  <div className="item-subtitle">
+                    {selectableCloudTargets.length > 0
+                      ? "Le backup restera traçable dans l’historique local puis sera envoyé vers cette cible cloud."
+                      : "Commence par créer une cible cloud dans l’onglet Cibles avant d’enregistrer un plan sync cloud."}
+                  </div>
+                </div>
+              </>
             ) : null}
 
             <div className="hint-box">
@@ -3281,7 +3325,7 @@ export default function BackupPlannerPanel({
                     className="action-btn"
                     onClick={() => chooseLocalStorageForPlan(storage.storage)}
                   >
-                    Utiliser pour un plan local
+                    Préremplir ce stockage
                   </button>
                 </article>
               ))

@@ -64,10 +64,21 @@ type DockerContainerInspect = {
   Id?: string;
   Name?: string;
   Image?: string;
+  ContainerConfig?: {
+    Image?: string;
+  };
   Config?: {
     Image?: string;
     Labels?: Record<string, unknown>;
   };
+};
+
+type DockerContainerSummary = {
+  Id?: string;
+  Image?: string;
+  ImageID?: string;
+  Names?: string[];
+  Labels?: Record<string, string>;
 };
 
 type DockerImageInspect = {
@@ -324,6 +335,21 @@ async function inspectDockerContainer(containerIdOrName: string) {
   return result.ok ? result.data : null;
 }
 
+async function listDockerContainers(filters?: Record<string, string[]>) {
+  const result = await dockerApiRequest<DockerContainerSummary[]>(
+    "GET",
+    "/containers/json",
+    {
+      query: {
+        all: "1",
+        filters: filters ? JSON.stringify(filters) : undefined,
+      },
+      timeoutMs: 10_000,
+    },
+  );
+  return result.ok && Array.isArray(result.data) ? result.data : [];
+}
+
 async function inspectDockerImage(imageRef: string) {
   const result = await dockerApiRequest<DockerImageInspect>(
     "GET",
@@ -355,7 +381,7 @@ async function pullDockerImage(imageRef: string) {
         "X-Registry-Auth": DOCKER_REGISTRY_AUTH,
       },
       parseJson: false,
-      timeoutMs: 90_000,
+      timeoutMs: 180_000,
     },
   );
 }
@@ -592,6 +618,87 @@ function shortenRef(value: string | null) {
   const trimmed = value.trim();
   if (trimmed.length <= 20) return trimmed;
   return trimmed.slice(0, 20);
+}
+
+function normalizeContainerName(value: string | null | undefined) {
+  if (!value) return null;
+  const trimmed = value.replace(/^\/+/u, "").trim();
+  return trimmed || null;
+}
+
+function resolveContainerImageRef(
+  inspect: DockerContainerInspect | null,
+  summary: DockerContainerSummary | null,
+  fallback: string | null,
+) {
+  const candidates = [
+    typeof inspect?.Config?.Image === "string" ? inspect.Config.Image : null,
+    typeof inspect?.ContainerConfig?.Image === "string" ? inspect.ContainerConfig.Image : null,
+    typeof summary?.Image === "string" ? summary.Image : null,
+    fallback,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+function resolveContainerImageId(
+  inspect: DockerContainerInspect | null,
+  summary: DockerContainerSummary | null,
+  fallback: string | null,
+) {
+  const candidates = [
+    typeof summary?.ImageID === "string" ? summary.ImageID : null,
+    typeof inspect?.Image === "string" ? inspect.Image : null,
+    fallback,
+  ];
+  for (const candidate of candidates) {
+    const trimmed = candidate?.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
+async function findComposeServiceContainer(
+  config: SelfUpdateConfig,
+  selfMetadata: SelfComposeMetadata,
+) {
+  const byService = await listDockerContainers({
+    label: [`com.docker.compose.service=${config.service}`],
+  });
+
+  if (byService.length > 0) {
+    const currentContainerId = selfMetadata.containerId;
+    if (currentContainerId) {
+      const current =
+        byService.find((item) => typeof item.Id === "string" && item.Id.startsWith(currentContainerId)) ?? null;
+      if (current) return current;
+    }
+    return byService[0] ?? null;
+  }
+
+  const fallbackNames = [selfMetadata.containerName, config.service]
+    .map((value) => normalizeContainerName(value))
+    .filter((value): value is string => Boolean(value));
+  if (fallbackNames.length === 0) return null;
+
+  const allContainers = await listDockerContainers();
+  return (
+    allContainers.find((item) =>
+      (item.Names ?? []).some((entry) => {
+        const normalized = normalizeContainerName(entry);
+        if (!normalized) return false;
+        return fallbackNames.some(
+          (candidate) =>
+            normalized === candidate ||
+            normalized.endsWith(`-${candidate}-1`) ||
+            normalized.endsWith(`_${candidate}_1`),
+        );
+      }),
+    ) ?? null
+  );
 }
 
 function getComposeFileInsideMountedHost(config: SelfUpdateConfig) {
@@ -898,18 +1005,22 @@ async function verifyGitAvailability(config: SelfUpdateConfig): Promise<SelfUpda
 
 async function verifyImageAvailability(config: SelfUpdateConfig): Promise<SelfUpdateAvailability> {
   const selfMetadata = await readSelfComposeMetadata();
-  const serviceContainer =
-    selfMetadata.containerId
-      ? await inspectDockerContainer(selfMetadata.containerId)
-      : await inspectDockerContainer(config.service);
-  const serviceImage =
-    typeof serviceContainer?.Config?.Image === "string"
-      ? serviceContainer.Config.Image.trim() || null
-      : config.fallbackRunnerImage;
-  const currentRef =
-    typeof serviceContainer?.Image === "string"
-      ? serviceContainer.Image.trim() || null
-      : selfMetadata.imageId;
+  const currentContainerInspect = selfMetadata.containerId ? await inspectDockerContainer(selfMetadata.containerId) : null;
+  const serviceContainerSummary = await findComposeServiceContainer(config, selfMetadata);
+  const serviceContainerInspect =
+    serviceContainerSummary?.Id
+      ? await inspectDockerContainer(serviceContainerSummary.Id)
+      : currentContainerInspect;
+  const serviceImage = resolveContainerImageRef(
+    serviceContainerInspect,
+    serviceContainerSummary,
+    selfMetadata.containerImage || config.fallbackRunnerImage,
+  );
+  const currentRef = resolveContainerImageId(
+    serviceContainerInspect,
+    serviceContainerSummary,
+    selfMetadata.imageId,
+  );
 
   if (!serviceImage) {
     const fallbackImage =
@@ -957,12 +1068,14 @@ async function verifyImageAvailability(config: SelfUpdateConfig): Promise<SelfUp
   }
 
   if (!pulled.ok) {
+    const rawError =
+      pulled.error?.split(/\r?\n/u).find(Boolean) ||
+      pullOutput.split(/\r?\n/u).find(Boolean) ||
+      "Impossible de vérifier l’image distante.";
+    const timeoutLike = /timeout|timed out|deadline exceeded|context canceled|socket hang up/i.test(rawError);
     return {
-      status: "error",
-      message:
-        pulled.error?.split(/\r?\n/u).find(Boolean) ||
-        pullOutput.split(/\r?\n/u).find(Boolean) ||
-        "Impossible de vérifier l’image distante.",
+      status: timeoutLike ? "unknown" : "error",
+      message: timeoutLike ? "La vérification distante a expiré. Réessaie dans quelques secondes." : rawError,
       checkedAt: timestamp(),
       currentRef: shortenRef(currentRef || before),
       availableRef: shortenRef(after),
@@ -1184,9 +1297,6 @@ export async function startSelfUpdate(requestedBy: string | null) {
   }
 
   const prereq = checkPrerequisites();
-  if (!prereq.dockerCliAvailable) {
-    throw new Error("Docker CLI indisponible dans le conteneur ProxmoxCenter.");
-  }
   if (!prereq.dockerSocketAvailable) {
     throw new Error("Docker socket non monté (/var/run/docker.sock). Mise à jour UI impossible.");
   }

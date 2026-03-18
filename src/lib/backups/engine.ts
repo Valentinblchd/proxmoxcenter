@@ -356,6 +356,19 @@ async function executePlan(plan: RuntimeBackupPlan, slotAt: Date) {
         ? readRuntimeBackupConfig().cloudTargets.find((target) => target.id === plan.cloudTargetId) ?? null
         : null;
 
+    if (!plan.backupStorage) {
+      updateExecution(executionId, (execution) => ({
+        ...execution,
+        status: "failed",
+        endedAt: new Date().toISOString(),
+        summary:
+          plan.targetMode === "cloud"
+            ? "Plan cloud invalide: aucun stockage Proxmox de staging n’est défini."
+            : "Plan invalide: aucun stockage backup Proxmox n’est défini.",
+      }));
+      return;
+    }
+
     for (const workload of selectedWorkloads) {
       if (isExecutionCancellationRequested(executionId)) {
         markExecutionCancelled(executionId);

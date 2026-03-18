@@ -4,6 +4,7 @@ import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
 import GreenItHistoryChart from "@/components/greenit-history-chart";
 import HardwareMonitorStatusPanel from "@/components/hardware-monitor-status-panel";
+import ObservabilityTrendPanel from "@/components/observability-trend-panel";
 import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
 import { resolveGreenItElectricityPricing } from "@/lib/greenit/edf-tariff";
@@ -14,6 +15,10 @@ import { readRuntimeHardwareSnapshotState } from "@/lib/hardware/runtime-snapsho
 import { buildGreenItAdvisor, buildSecurityAdvisor } from "@/lib/insights/advisor";
 import { readRuntimeGreenItConfig } from "@/lib/greenit/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
+import {
+  OBSERVABILITY_HISTORY_RANGES,
+  readClusterObservabilityHistory,
+} from "@/lib/proxmox/observability-history";
 import { proxmoxRequest } from "@/lib/proxmox/client";
 import { formatBytes, formatPercent, formatRelativeTime } from "@/lib/ui/format";
 
@@ -26,7 +31,7 @@ type ObservabilityPageProps = {
 const TABS = [
   { id: "overview", label: "Vue" },
   { id: "health", label: "Santé" },
-  { id: "greenit", label: "GreenIT" },
+  { id: "greenit", label: "Énergie" },
 ] as const;
 
 type DiskHealthRow = {
@@ -278,6 +283,13 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
   const snapshot = await getDashboardSnapshot();
   const hasLiveData = snapshot.mode === "live";
+  const historySeries = hasLiveData
+    ? await readClusterObservabilityHistory(snapshot.nodes.map((node) => node.name), readString(params.range))
+    : {
+        range: OBSERVABILITY_HISTORY_RANGES[1],
+        points: [],
+        summary: null,
+      };
   const security = buildSecurityAdvisor(snapshot);
   const greenitSettings = readRuntimeGreenItConfig();
   const electricityPricing = await resolveGreenItElectricityPricing(greenitSettings);
@@ -367,12 +379,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       <header className="topbar">
         <div>
           <p className="eyebrow">Observabilité</p>
-          <h1>Santé, GreenIT et recommandations</h1>
-          <p className="muted">Vue globale du cluster, sondes nœuds et impact énergétique, sans noyer la page principale.</p>
+          <h1>Supervision, sonde serveur et énergie</h1>
+          <p className="muted">Supervision cluster, sonde serveur et énergie dans une vue lisible, avec historique Proxmox et focus matériel.</p>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
-          <InventoryRefreshButton auto intervalMs={12000} />
+          <InventoryRefreshButton auto intervalMs={5000} />
         </div>
       </header>
 
@@ -414,6 +426,69 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           <div className="stat-subtle">API/connexion</div>
         </article>
       </section>
+
+      {activeTab !== "greenit" ? (
+        <section className="panel observability-trend-shell">
+          <div className="panel-head">
+            <h2>Supervision cluster</h2>
+            <span className="muted">Fenêtre active: {historySeries.range.label}</span>
+          </div>
+          <div className="hub-tabs observability-range-tabs">
+            {OBSERVABILITY_HISTORY_RANGES.map((range) => (
+              <Link
+                key={range.id}
+                href={`/observability?tab=${encodeURIComponent(activeTab)}&range=${encodeURIComponent(range.id)}`}
+                className={`hub-tab${historySeries.range.id === range.id ? " is-active" : ""}`}
+              >
+                {range.label}
+              </Link>
+            ))}
+          </div>
+          <p className="muted">
+            Historique agrégé Proxmox sur tous les nœuds pour CPU, RAM, réseau, disque système et IO wait.
+          </p>
+          <div className="content-grid observability-trend-grid">
+            <ObservabilityTrendPanel
+              title="CPU cluster"
+              subtitle="Charge agrégée"
+              points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.cpuRatio }))}
+              mode="percent"
+              toneClass="tone-blue"
+            />
+            <ObservabilityTrendPanel
+              title="RAM cluster"
+              subtitle="Mémoire utilisée"
+              points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.memoryRatio }))}
+              mode="percent"
+              toneClass="tone-orange"
+            />
+            <ObservabilityTrendPanel
+              title="Réseau"
+              subtitle="Trafic total in + out"
+              points={historySeries.points.map((point) => ({
+                timestamp: point.timestamp,
+                value: point.networkBytesPerSecond,
+              }))}
+              mode="network"
+              toneClass="tone-green"
+            />
+            <ObservabilityTrendPanel
+              title="Disque système"
+              subtitle="Occupation rootfs"
+              points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.diskRatio }))}
+              mode="percent"
+              toneClass="tone-purple"
+            />
+            <ObservabilityTrendPanel
+              title="IO wait"
+              subtitle="Attente disque"
+              points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.ioWaitRatio }))}
+              mode="percent"
+              toneClass="tone-red"
+            />
+          </div>
+        </section>
+      ) : null}
 
       {activeTab === "overview" ? (
         <>
@@ -464,7 +539,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Contexte GreenIT</h2>
+              <h2>Rapport énergétique</h2>
               <span className="muted">{greenit.metrics.powerSourceLabel}</span>
             </div>
             <div className="stack-sm">
@@ -495,7 +570,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             </div>
             <div className="quick-actions">
               <Link href="/observability?tab=greenit" className="action-btn">
-                Ouvrir GreenIT
+                Ouvrir le rapport énergétique
               </Link>
             </div>
           </section>
@@ -845,7 +920,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               <p className="muted">
                 {hardwareMonitorConfig?.enabled
                   ? "Le BMC/iLO est configuré mais aucune métrique n’a pu être lue depuis Redfish."
-                  : "Configure un endpoint BMC/iLO Redfish dans Paramètres pour récupérer température, CPU, RAM et disques du serveur physique."}
+                  : "Configure la sonde serveur dans Paramètres → Proxmox → Sonde serveur avec l’hôte iLO/Redfish, un compte lecture seule, le mot de passe et le nœud associé pour remonter automatiquement température, CPU, RAM, disques et power meter."}
               </p>
               <div className="quick-actions">
                 <Link href="/settings?tab=proxmox" className="action-btn">
@@ -864,7 +939,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="greenit-hero">
               <div className="greenit-hero-left">
                 <div>
-                  <h2>Calcul GreenIT</h2>
+                  <h2>Rapport énergétique</h2>
                   <div className="muted">{greenit.metrics.powerSourceLabel}</div>
                 </div>
               </div>
@@ -917,12 +992,44 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.powerSourceLabel}</strong>
               </div>
               <div className="row-line">
-                <span>Tarif énergie</span>
-                <strong>
-                  {electricityPricing.pricePerKwh.toFixed(4)} €/kWh
-                  {electricityPricing.mode === "edf-standard" ? " • EDF standard auto" : " • manuel"}
-                </strong>
+                <span>CO2 annuel</span>
+                <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
+              <div className="row-line">
+                <span>Conso projetée</span>
+                <strong>{dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
+              </div>
+            </div>
+            <p className="muted">
+              Lecture rapide: quand un power meter serveur est disponible via iLO/Redfish, GreenIT l’utilise en priorité.
+              Sinon l’app retombe sur la calibration locale ou l’estimation Proxmox.
+            </p>
+          </section>
+
+          <section className="panel">
+            <div className="panel-head">
+              <h2>Tarif & coût</h2>
+              <span className="muted">{electricityPricing.mode === "edf-standard" ? "EDF standard auto" : "Tarif manuel"}</span>
+            </div>
+            <div className="advisor-kpi-grid hardware-kpi-grid">
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Tarif actif</span>
+                <strong>{electricityPricing.pricePerKwh.toFixed(4)} €/kWh</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Coût / jour</span>
+                <strong>{dailyCost} €</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Coût / mois</span>
+                <strong>{monthlyCost} €</strong>
+              </article>
+              <article className="advisor-kpi-card">
+                <span className="stat-label">Coût / an</span>
+                <strong>{greenit.metrics.annualCost} €</strong>
+              </article>
+            </div>
+            <div className="stack-sm">
               <div className="row-line">
                 <span>Mode coût</span>
                 <strong>
@@ -931,10 +1038,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                     ? ` • abonnement ${greenit.config.annualSubscriptionEur.toFixed(2)} €/an`
                     : ""}
                 </strong>
-              </div>
-              <div className="row-line">
-                <span>CO2 annuel</span>
-                <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
               <div className="row-line">
                 <span>Conso actuelle</span>
@@ -950,8 +1053,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </div>
             </div>
             <p className="muted">
-              Lecture rapide: quand un power meter serveur est disponible via iLO/Redfish, GreenIT l’utilise en priorité.
-              Sinon l’app retombe sur la calibration locale ou l’estimation Proxmox.
+              Si aucun tarif manuel n’est saisi, ProxmoxCenter reprend automatiquement le tarif EDF standard du jour.
             </p>
           </section>
 
