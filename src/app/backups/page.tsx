@@ -27,12 +27,13 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
   const requestedTab = readString(params.tab);
   const initialTab =
     requestedTab === "overview" ||
-    requestedTab === "plans" ||
-    requestedTab === "targets" ||
+    requestedTab === "config" ||
     requestedTab === "history" ||
     requestedTab === "restore" ||
     requestedTab === "pbs"
       ? requestedTab
+      : requestedTab === "plans" || requestedTab === "targets"
+        ? "config"
       : "overview";
 
   const snapshot = await getDashboardSnapshot();
@@ -47,7 +48,7 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
         <div>
           <p className="eyebrow">Sauvegardes</p>
           <h1>Backups locaux / cloud</h1>
-          <p className="muted">Les cibles, les plans, l’historique et la restauration sont maintenant séparés clairement.</p>
+          <p className="muted">Pilotage des runs, configuration locale/cloud, exécutions et restauration.</p>
         </div>
         <div className="topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}

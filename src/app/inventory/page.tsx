@@ -57,6 +57,24 @@ type NodeRuntime = {
   uptimeSeconds: number;
 };
 
+type NodeStatusPayload = {
+  cpu?: unknown;
+  uptime?: unknown;
+  memory?: {
+    used?: unknown;
+    total?: unknown;
+  };
+  rootfs?: {
+    used?: unknown;
+    total?: unknown;
+  };
+};
+
+type NodeHistoryPoint = {
+  netin?: unknown;
+  netout?: unknown;
+};
+
 type HaResource = {
   sid: string;
   state: string;
@@ -150,6 +168,19 @@ function clamp01(value: number) {
   return Math.max(0, Math.min(value, 1));
 }
 
+function formatCapacityPair(used: number, total: number) {
+  if (!Number.isFinite(total) || total <= 0) {
+    if (!Number.isFinite(used) || used <= 0) return "—";
+    return `${formatBytes(used)} / —`;
+  }
+  return `${formatBytes(used)} / ${formatBytes(total)}`;
+}
+
+function formatRatePair(value: number) {
+  if (!Number.isFinite(value) || value <= 0) return "0 B/s";
+  return `${formatBytes(value)}/s`;
+}
+
 function toInventoryRows(snapshot: Awaited<ReturnType<typeof getDashboardSnapshot>>): InventoryRow[] {
   return snapshot.workloads
     .map((item) => ({
@@ -189,16 +220,28 @@ function buildNodeHref(node: string) {
 
 async function fetchNodeRuntime(node: string): Promise<NodeRuntime | null> {
   try {
-    const payload = await proxmoxRequest<Record<string, unknown>>(`nodes/${encodeURIComponent(node)}/status`);
+    const encodedNode = encodeURIComponent(node);
+    const [statusResult, historyResult] = await Promise.allSettled([
+      proxmoxRequest<NodeStatusPayload>(`nodes/${encodedNode}/status`),
+      proxmoxRequest<NodeHistoryPoint[]>(`nodes/${encodedNode}/rrddata?timeframe=hour&cf=AVERAGE`),
+    ]);
+    if (statusResult.status !== "fulfilled") {
+      return null;
+    }
+    const payload = statusResult.value;
+    const historyPoints = historyResult.status === "fulfilled" ? historyResult.value : [];
+    const lastPoint = [...historyPoints]
+      .reverse()
+      .find((point) => typeof point.netin === "number" || typeof point.netout === "number");
     return {
       node,
       cpuLoad: clamp01(asNumber(payload.cpu)),
-      memoryUsed: asNumber(payload.mem),
-      memoryTotal: asNumber(payload.maxmem),
-      rootfsUsed: asNumber(payload.disk),
-      rootfsTotal: asNumber(payload.maxdisk),
-      netIn: asNumber(payload.netin),
-      netOut: asNumber(payload.netout),
+      memoryUsed: asNumber(payload.memory?.used),
+      memoryTotal: asNumber(payload.memory?.total),
+      rootfsUsed: asNumber(payload.rootfs?.used),
+      rootfsTotal: asNumber(payload.rootfs?.total),
+      netIn: asNumber(lastPoint?.netin),
+      netOut: asNumber(lastPoint?.netout),
       uptimeSeconds: asNumber(payload.uptime),
     };
   } catch {
@@ -377,7 +420,8 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
   const selectedNodeRuntime = nodeRuntimeList.find((item) => item.node === selectedNode) ?? null;
 
   const haResources = hasLiveData && activeTab === "ha" ? await fetchHaResources() : [];
-  const backupJobs = hasLiveData && activeTab === "backups" ? await fetchBackupJobs() : [];
+  const backupJobs =
+    hasLiveData && (activeTab === "backups" || activeTab === "summary") ? await fetchBackupJobs() : [];
   const snapshotHints = hasLiveData && activeTab === "snapshots" ? await fetchSnapshotHints(filteredRows) : [];
   const workloadNotes = hasLiveData && activeTab === "notes" ? await fetchWorkloadNotes(filteredRows) : [];
   const storageViews = hasLiveData && activeTab === "storage" ? await fetchStorages(nodeNames) : [];
@@ -512,9 +556,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                 <UsageBar value={selectedNodeRuntime.cpuLoad} tone="green" />
                 <div className="mini-summary">
                   <span className="mini-label">RAM</span>
-                  <strong>
-                    {formatBytes(selectedNodeRuntime.memoryUsed)} / {formatBytes(Math.max(1, selectedNodeRuntime.memoryTotal))}
-                  </strong>
+                  <strong>{formatCapacityPair(selectedNodeRuntime.memoryUsed, selectedNodeRuntime.memoryTotal)}</strong>
                 </div>
                 <UsageBar
                   value={selectedNodeRuntime.memoryTotal > 0 ? selectedNodeRuntime.memoryUsed / selectedNodeRuntime.memoryTotal : 0}
@@ -522,18 +564,16 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                 />
                 <div className="mini-summary">
                   <span className="mini-label">Stockage nœud</span>
-                  <strong>
-                    {formatBytes(selectedNodeRuntime.rootfsUsed)} / {formatBytes(Math.max(1, selectedNodeRuntime.rootfsTotal))}
-                  </strong>
+                  <strong>{formatCapacityPair(selectedNodeRuntime.rootfsUsed, selectedNodeRuntime.rootfsTotal)}</strong>
                 </div>
                 <UsageBar
                   value={selectedNodeRuntime.rootfsTotal > 0 ? selectedNodeRuntime.rootfsUsed / selectedNodeRuntime.rootfsTotal : 0}
                   tone="orange"
                 />
                 <div className="mini-summary">
-                  <span className="mini-label">Réseau (cumul)</span>
+                  <span className="mini-label">Réseau instantané</span>
                   <strong>
-                    In {formatBytes(selectedNodeRuntime.netIn)} • Out {formatBytes(selectedNodeRuntime.netOut)}
+                    In {formatRatePair(selectedNodeRuntime.netIn)} • Out {formatRatePair(selectedNodeRuntime.netOut)}
                   </strong>
                 </div>
                 <div className="mini-summary">
@@ -566,7 +606,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                       <div>
                         <div className="item-title">{node.node}</div>
                         <div className="item-subtitle">
-                          CPU {formatPercent(node.cpuLoad)} • RAM {formatBytes(node.memoryUsed)} / {formatBytes(node.memoryTotal)}
+                          CPU {formatPercent(node.cpuLoad)} • RAM {formatCapacityPair(node.memoryUsed, node.memoryTotal)}
                         </div>
                       </div>
                       <div className="item-metric">
@@ -601,7 +641,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                   <div>
                     <div className="item-title">{node.node}</div>
                     <div className="item-subtitle">
-                      CPU {formatPercent(node.cpuLoad)} • RAM {formatBytes(node.memoryUsed)} / {formatBytes(node.memoryTotal)}
+                      CPU {formatPercent(node.cpuLoad)} • RAM {formatCapacityPair(node.memoryUsed, node.memoryTotal)}
                     </div>
                   </div>
                   <div className="item-metric">{node.uptimeSeconds > 0 ? formatUptime(node.uptimeSeconds) : "—"}</div>
@@ -696,7 +736,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                               <span className="tone-orange" style={{ width: `${Math.round(clamp01(memoryRatio) * 100)}%` }} />
                             </div>
                             <strong>
-                              {formatBytes(row.memoryUsed)} / {formatBytes(Math.max(1, row.memoryTotal))}
+                              {formatCapacityPair(row.memoryUsed, row.memoryTotal)}
                             </strong>
                           </div>
                         </td>
@@ -707,7 +747,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                               <span className="tone-orange" style={{ width: `${Math.round(clamp01(diskRatio) * 100)}%` }} />
                             </div>
                             <strong>
-                              {formatBytes(row.diskUsed)} / {formatBytes(Math.max(1, row.diskTotal))}
+                              {formatCapacityPair(row.diskUsed, row.diskTotal)}
                             </strong>
                           </div>
                         </td>
@@ -890,7 +930,7 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
                     </div>
                   </div>
                   <div className="item-metric">
-                    {formatBytes(storage.used)} / {formatBytes(Math.max(1, storage.total))}
+                    {formatCapacityPair(storage.used, storage.total)}
                   </div>
                 </Link>
               ))}

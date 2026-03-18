@@ -24,7 +24,7 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
   const preset = readString(params.preset);
 
   return (
-    <section className="content">
+    <section className="content content-wide">
       <header className="topbar">
         <div>
           <p className="eyebrow">Création</p>

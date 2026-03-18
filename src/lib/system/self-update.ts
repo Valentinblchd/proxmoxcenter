@@ -1124,7 +1124,10 @@ async function resolveAvailability(config: SelfUpdateConfig, options?: { refresh
   }
 
   const byGit = await verifyGitAvailability(config);
-  const availability = byGit ?? (await verifyImageAvailability(config));
+  const availability =
+    byGit && byGit.status !== "error"
+      ? byGit
+      : await verifyImageAvailability(config);
   writeAvailability(availability);
   return availability;
 }

@@ -1,5 +1,5 @@
 import Link from "next/link";
-import ErrorStateScreen from "@/components/error-state-screen";
+import BrandLogo from "@/components/brand-logo";
 import { sanitizeNextPath } from "@/lib/auth/session";
 
 type UnauthorizedPageProps = {
@@ -13,36 +13,32 @@ function readString(value: string | string[] | undefined) {
 export default async function UnauthorizedPage({ searchParams }: UnauthorizedPageProps) {
   const params = searchParams ? await searchParams : {};
   const nextPath = sanitizeNextPath(readString(params.next));
+  const loginHref =
+    nextPath && nextPath !== "/" ? `/login?next=${encodeURIComponent(nextPath)}` : "/login";
 
   return (
-    <ErrorStateScreen
-      eyebrow="Erreur 401"
-      code="401"
-      title="Authentification requise"
-      description={
-        nextPath && nextPath !== "/"
-          ? `Cette page ou cette action demande une session valide avant d’ouvrir ${nextPath}.`
-          : "Cette page ou cette action demande une session valide. Connecte-toi puis réessaie."
-      }
-      diagnostics={[
-        { label: "Statut", value: "Session requise", tone: "warn" },
-        { label: "Cause probable", value: "Session expirée ou absente" },
-        { label: "Suite", value: "Reconnexion locale ou LDAP" },
-        ...(nextPath && nextPath !== "/" ? [{ label: "Page demandée", value: nextPath }] : []),
-      ]}
-      actions={
-        <>
-          <Link
-            href={nextPath && nextPath !== "/" ? `/login?next=${encodeURIComponent(nextPath)}` : "/login"}
-            className="action-btn primary"
-          >
-            Ouvrir login
+    <main className="login-shell">
+      <div className="login-glow" aria-hidden="true" />
+
+      <section className="login-card login-card-compact">
+        <div className="login-brand">
+          <div className="brand" aria-hidden="true">
+            <span className="brand-logo-wrap">
+              <BrandLogo className="brand-logo" />
+            </span>
+          </div>
+          <div>
+            <p className="eyebrow">Session</p>
+            <h1>Vous avez été déconnecté.</h1>
+          </div>
+        </div>
+
+        <div className="quick-actions">
+          <Link href={loginHref} className="action-btn primary">
+            Retour au login
           </Link>
-          <Link href="/" className="action-btn">
-            Retour accueil
-          </Link>
-        </>
-      }
-    />
+        </div>
+      </section>
+    </main>
   );
 }

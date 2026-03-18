@@ -20,7 +20,7 @@ type BackupScopeMode = "all" | "selected";
 type BackupTargetMode = "local" | "cloud";
 type BackupCloudProvider = "onedrive" | "gdrive" | "aws-s3" | "azure-blob";
 type BackupCloudProviderChoice = "" | BackupCloudProvider;
-type BackupWorkspaceTab = "overview" | "plans" | "targets" | "history" | "restore" | "pbs";
+type BackupWorkspaceTab = "overview" | "config" | "history" | "restore" | "pbs";
 type BackupHistoryFilter = "all" | "running" | "queued" | "failed" | "cancelled";
 
 type BackupPlan = {
@@ -986,9 +986,13 @@ export default function BackupPlannerPanel({
   const [confirmRequest, setConfirmRequest] = useState<ConfirmRequest | null>(null);
   const selectedTargetProvider = targetProviderSelection || null;
 
-  const loadConfig = useCallback(async function loadConfig() {
-    setLoading(true);
-    setError(null);
+  const loadConfig = useCallback(async function loadConfig(options?: { silent?: boolean }) {
+    if (!options?.silent) {
+      setLoading(true);
+    }
+    if (!options?.silent) {
+      setError(null);
+    }
     try {
       const response = await fetch("/api/backups/config", {
         method: "GET",
@@ -1005,7 +1009,9 @@ export default function BackupPlannerPanel({
     } catch (fetchError) {
       setError(fetchError instanceof Error ? fetchError.message : "Erreur de chargement.");
     } finally {
-      setLoading(false);
+      if (!options?.silent) {
+        setLoading(false);
+      }
     }
   }, []);
 
@@ -1118,6 +1124,21 @@ export default function BackupPlannerPanel({
     void loadConfig();
     void loadPbsStatus();
   }, [loadConfig, loadPbsStatus]);
+
+  useEffect(() => {
+    const shouldPoll =
+      Boolean(config?.engine?.running) ||
+      Boolean(config?.state?.executions?.some((execution) => execution.status === "running" || execution.status === "queued"));
+    if (!shouldPoll) return;
+
+    const timer = window.setInterval(() => {
+      void loadConfig({ silent: true });
+    }, 3000);
+
+    return () => {
+      window.clearInterval(timer);
+    };
+  }, [config?.engine?.running, config?.state?.executions, loadConfig]);
 
   useEffect(() => {
     setActiveTab(initialTab);
@@ -1478,7 +1499,7 @@ export default function BackupPlannerPanel({
         backupStorage: storageName,
       };
     });
-    setActiveTab("plans");
+    setActiveTab("config");
     setNotice(
       nextMode === "cloud"
         ? `Stockage Proxmox ${storageName} sélectionné comme staging cloud.`
@@ -1494,7 +1515,7 @@ export default function BackupPlannerPanel({
       backupStorage: current.backupStorage || pickDefaultLocalStorage(config?.localStorages),
       cloudTargetId: targetId,
     }));
-    setActiveTab("plans");
+    setActiveTab("config");
     setNotice("Cible cloud liée au prochain plan.");
     setError(null);
   }
@@ -2358,6 +2379,25 @@ export default function BackupPlannerPanel({
   const runningExecution =
     executions.find((item) => item.status === "running" || item.status === "queued") ?? null;
   const lastExecution = executions[0] ?? null;
+  const runningExecutionStats = runningExecution
+    ? runningExecution.steps.reduce(
+        (acc, step) => {
+          acc.total += 1;
+          if (step.status === "success") acc.success += 1;
+          if (step.status === "failed" || step.status === "partial" || step.sync.status === "failed") acc.failed += 1;
+          if (step.status === "running" || step.sync.status === "running") acc.running += 1;
+          if (step.status === "queued" || step.sync.status === "pending") acc.pending += 1;
+          return acc;
+        },
+        { total: 0, success: 0, failed: 0, running: 0, pending: 0 },
+      )
+    : null;
+  const runningExecutionProgress =
+    runningExecutionStats && runningExecutionStats.total > 0
+      ? (runningExecutionStats.success + runningExecutionStats.failed) / runningExecutionStats.total
+      : 0;
+  const runningExecutionCurrentStep =
+    runningExecution?.steps.find((step) => step.status === "running" || step.sync.status === "running") ?? null;
   const localUsage = aggregateUsage(localStorages);
   const cloudUsage = aggregateUsage(
     cloudTargets
@@ -2440,22 +2480,18 @@ export default function BackupPlannerPanel({
     return execution.status === historyFilter;
   });
   const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> = [
-    { id: "overview", label: "Vue globale" },
-    { id: "targets", label: "Cibles" },
-    { id: "plans", label: "Plans & rétention" },
-    { id: "history", label: "Historique" },
+    { id: "overview", label: "Pilotage" },
+    { id: "config", label: "Configuration" },
+    { id: "history", label: "Exécutions" },
     { id: "restore", label: "Restauration" },
     ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
   ];
-  const showTargetsPanel = activeTab === "targets";
-  const showPlansPanel = activeTab === "plans";
+  const showConfigPanel = activeTab === "config";
   const tabIntro =
     activeTab === "overview"
-      ? "Vue rapide des plans, des exécutions en cours et des prochains passages."
-      : activeTab === "targets"
-        ? "Sépare ici les stockages locaux et les cibles cloud avant d’attacher un plan."
-        : activeTab === "plans"
-          ? "Définis la portée, la fréquence et la rétention au même endroit."
+      ? "Vue rapide pour suivre les runs, relancer un backup et voir ce qui tourne maintenant."
+      : activeTab === "config"
+        ? "Configure ici le stockage local, les cibles cloud et les plans de rétention."
           : activeTab === "history"
             ? "Historique d’exécution, erreurs et détail des workloads traités."
             : activeTab === "restore"
@@ -2463,11 +2499,9 @@ export default function BackupPlannerPanel({
               : "Navigation directe dans PBS si la connexion est disponible.";
   const tabChips =
     activeTab === "overview"
-      ? ["Vue rapide", "Runs en cours", "Prochains passages"]
-      : activeTab === "targets"
-        ? ["Stockage local", "Cloud", "Secrets chiffrés"]
-        : activeTab === "plans"
-          ? ["Portée", "Fréquence", "Rétention"]
+      ? ["Runs en cours", "Prochains passages", "Relance manuelle"]
+      : activeTab === "config"
+        ? ["Stockage local", "Cloud", "Plans & rétention"]
           : activeTab === "history"
             ? ["Tri", "Erreurs", "Détail runs"]
             : activeTab === "restore"
@@ -2604,7 +2638,7 @@ export default function BackupPlannerPanel({
                     : "Capacité locale non remontée"}
                 </div>
                 <div className="quick-actions">
-                  <button type="button" className="action-btn" onClick={() => setActiveTab("targets")}>
+                  <button type="button" className="action-btn" onClick={() => setActiveTab("config")}>
                     Ouvrir la configuration
                   </button>
                 </div>
@@ -2621,7 +2655,7 @@ export default function BackupPlannerPanel({
                     : "Aucun quota cloud remonté"}
                 </div>
                 <div className="quick-actions">
-                  <button type="button" className="action-btn" onClick={() => setActiveTab("targets")}>
+                  <button type="button" className="action-btn" onClick={() => setActiveTab("config")}>
                     Gérer local + cloud
                   </button>
                 </div>
@@ -2665,6 +2699,25 @@ export default function BackupPlannerPanel({
                         {runningExecution.summary ? (
                           <div className="item-subtitle">{runningExecution.summary}</div>
                         ) : null}
+                        {runningExecutionCurrentStep ? (
+                          <div className="item-subtitle">
+                            En cours: {runningExecutionCurrentStep.workloadId} • sync {runningExecutionCurrentStep.sync.status}
+                          </div>
+                        ) : null}
+                        {runningExecutionStats ? (
+                          <>
+                            <div className="inventory-progress inventory-progress-wide">
+                              <span
+                                className="tone-green"
+                                style={{ width: `${Math.round(Math.max(8, runningExecutionProgress * 100))}%` }}
+                              />
+                            </div>
+                            <div className="item-subtitle">
+                              {runningExecutionStats.success} ok • {runningExecutionStats.running} en cours •{" "}
+                              {runningExecutionStats.pending} en attente • {runningExecutionStats.failed} erreur
+                            </div>
+                          </>
+                        ) : null}
                       </div>
                       <div className="backup-plan-actions">
                         <button
@@ -2690,7 +2743,7 @@ export default function BackupPlannerPanel({
                 {upcomingRuns.length === 0 ? (
                   <div className="backup-empty-note">
                     <p className="muted">Aucun plan actif.</p>
-                    <button type="button" className="action-btn" onClick={() => setActiveTab("plans")}>
+                    <button type="button" className="action-btn" onClick={() => setActiveTab("config")}>
                       Créer un plan
                     </button>
                   </div>
@@ -2718,7 +2771,7 @@ export default function BackupPlannerPanel({
                 {localStorages.length === 0 ? (
                   <div className="backup-empty-note">
                     <p className="muted">Aucun stockage backup local détecté.</p>
-                    <button type="button" className="action-btn" onClick={() => setActiveTab("targets")}>
+                    <button type="button" className="action-btn" onClick={() => setActiveTab("config")}>
                       Configurer local/cloud
                     </button>
                   </div>
@@ -2762,7 +2815,7 @@ export default function BackupPlannerPanel({
         ) : null}
       </section>
 
-      {showPlansPanel ? (
+      {showConfigPanel ? (
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
@@ -3047,7 +3100,7 @@ export default function BackupPlannerPanel({
                   <div className="item-subtitle">
                     {selectableCloudTargets.length > 0
                       ? "Le backup restera traçable dans l’historique local puis sera envoyé vers cette cible cloud."
-                      : "Commence par créer une cible cloud dans l’onglet Cibles avant d’enregistrer un plan sync cloud."}
+                      : "Commence par créer une cible cloud dans Configuration avant d’enregistrer un plan sync cloud."}
                   </div>
                 </div>
               </>
@@ -3281,7 +3334,7 @@ export default function BackupPlannerPanel({
       </section>
       ) : null}
 
-      {showTargetsPanel ? (
+      {showConfigPanel ? (
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
@@ -3297,7 +3350,7 @@ export default function BackupPlannerPanel({
               1) Choisis un stockage local ci-dessous • 2) Crée le plan • 3) Vérifie l’historique des runs.
             </div>
             <div className="quick-actions">
-              <button type="button" className="action-btn" onClick={() => setActiveTab("plans")}>
+              <button type="button" className="action-btn" onClick={() => setActiveTab("config")}>
                 Créer un plan local
               </button>
             </div>

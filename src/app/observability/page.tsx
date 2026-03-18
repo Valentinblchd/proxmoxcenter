@@ -2,7 +2,7 @@ import { cookies } from "next/headers";
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
-import GreenItHistoryChart from "@/components/greenit-history-chart";
+import GreenItHistoryExplorer from "@/components/greenit-history-explorer";
 import HardwareMonitorStatusPanel from "@/components/hardware-monitor-status-panel";
 import ObservabilityTrendPanel from "@/components/observability-trend-panel";
 import PlatformStateAlerts from "@/components/platform-state-alerts";
@@ -368,19 +368,16 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
     representativeServerTemp !== null && outsideTemp !== null
       ? representativeServerTemp - outsideTemp
       : null;
-  const recent7Days = greenitHistory.days.slice(-7);
-  const recent30Days = greenitHistory.days.slice(-30);
-
   const topRecommendations = [...security.recommendations, ...greenit.recommendations].slice(0, 8);
   const priorityRecommendations = topRecommendations.slice(0, 4);
 
   return (
-    <section className="content">
+    <section className="content content-wide">
       <header className="topbar">
         <div>
           <p className="eyebrow">Observabilité</p>
           <h1>Supervision, sonde serveur et énergie</h1>
-          <p className="muted">Supervision cluster, sonde serveur et énergie dans une vue lisible, avec historique Proxmox et focus matériel.</p>
+          <p className="muted">CPU, RAM, IO, sonde matérielle et coût électrique au même endroit.</p>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
@@ -444,9 +441,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </Link>
             ))}
           </div>
-          <p className="muted">
-            Historique agrégé Proxmox sur tous les nœuds pour CPU, RAM, réseau, disque système et IO wait.
-          </p>
           <div className="content-grid observability-trend-grid">
             <ObservabilityTrendPanel
               title="CPU cluster"
@@ -939,7 +933,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="greenit-hero">
               <div className="greenit-hero-left">
                 <div>
-                  <h2>Rapport énergétique</h2>
+                  <h2>Puissance & impact</h2>
                   <div className="muted">{greenit.metrics.powerSourceLabel}</div>
                 </div>
               </div>
@@ -992,6 +986,10 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.powerSourceLabel}</strong>
               </div>
               <div className="row-line">
+                <span>Lecture actuelle</span>
+                <strong>{hourlyKwh} kWh/h • {Math.round(greenit.metrics.effectivePowerWatts)} W</strong>
+              </div>
+              <div className="row-line">
                 <span>CO2 annuel</span>
                 <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
@@ -1000,10 +998,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
               </div>
             </div>
-            <p className="muted">
-              Lecture rapide: quand un power meter serveur est disponible via iLO/Redfish, GreenIT l’utilise en priorité.
-              Sinon l’app retombe sur la calibration locale ou l’estimation Proxmox.
-            </p>
           </section>
 
           <section className="panel">
@@ -1052,14 +1046,11 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{dailyCo2} kg/j</strong>
               </div>
             </div>
-            <p className="muted">
-              Si aucun tarif manuel n’est saisi, ProxmoxCenter reprend automatiquement le tarif EDF standard du jour.
-            </p>
           </section>
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Thermique & environnement</h2>
+              <h2>Thermique & sonde</h2>
               <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
             </div>
             <div className="advisor-kpi-grid hardware-kpi-grid">
@@ -1097,10 +1088,17 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <span>Delta thermique</span>
                 <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "Indisponible"}</strong>
               </div>
+              <div className="row-line">
+                <span>Sonde serveur</span>
+                <strong>
+                  {hardwareSnapshot
+                    ? hardwareSnapshot.label ?? hardwareSnapshot.host
+                    : hardwareMonitorConfig?.enabled
+                      ? "Configurée mais non remontée"
+                      : "À configurer dans Paramètres > Proxmox"}
+                </strong>
+              </div>
             </div>
-            <p className="muted">
-              La température serveur priorise la sonde matérielle BMC/iLO quand elle existe, puis les sondes nœud Proxmox, puis la valeur calibrée.
-            </p>
           </section>
         </section>
       ) : null}
@@ -1108,8 +1106,8 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       {activeTab === "greenit" ? (
         <section className="panel">
           <div className="panel-head">
-            <h2>Historique & projection</h2>
-            <span className="muted">{greenitHistory.days.length} jour(s) suivis</span>
+            <h2>Projection mensuelle</h2>
+            <span className="muted">{greenitHistory.days.length} archive(s) disponibles</span>
           </div>
 
           <div className="advisor-kpi-grid hardware-kpi-grid">
@@ -1137,54 +1135,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
           {greenitHistory.days.length === 0 ? (
             <p className="muted">L’historique journalier commencera à se remplir automatiquement avec les prochaines lectures GreenIT.</p>
-          ) : (
-            <div className="mini-list">
-              {greenitHistory.days.slice(-14).reverse().map((day) => (
-                <article key={day.date} className="mini-list-item">
-                  <div>
-                    <div className="item-title">{day.date}</div>
-                    <div className="item-subtitle">
-                      {day.kwh.toFixed(2)} kWh • suivi {day.trackedHours.toFixed(1)} h
-                    </div>
-                  </div>
-                  <div className="item-metric">
-                    <div>{day.costEur.toFixed(2)} €</div>
-                    <div className="item-subtitle">
-                      {Math.round(day.averageEffectivePowerWatts)} W moy • pic {Math.round(day.maxEffectivePowerWatts)} W
-                    </div>
-                  </div>
-                </article>
-              ))}
-            </div>
-          )}
-
-          <p className="muted">
-            {greenit.config.electricityBillingMode === "full-bill"
-              ? "Le coût journalier inclut l’énergie effective (avec PUE) et la part abonnement répartie au fil des jours."
-              : "Le coût journalier est calculé sur l’énergie effective (avec PUE), sans ajouter l’abonnement fixe."}
-          </p>
+          ) : null}
         </section>
       ) : null}
 
       {activeTab === "greenit" ? (
-        <section className="content-grid">
-          <GreenItHistoryChart
-            title="Puissance moyenne 7 jours"
-            subtitle="W effectifs / jour"
-            days={recent7Days}
-            metric={(day) => day.averageEffectivePowerWatts}
-            suffix="W"
-            colorClass="tone-green"
-          />
-          <GreenItHistoryChart
-            title="Coût 30 jours"
-            subtitle="€ / jour"
-            days={recent30Days}
-            metric={(day) => day.costEur}
-            suffix="€"
-            colorClass="tone-orange"
-          />
-        </section>
+        <GreenItHistoryExplorer days={greenitHistory.days} updatedAt={greenitHistory.updatedAt} />
       ) : null}
 
       {activeTab === "greenit" ? (

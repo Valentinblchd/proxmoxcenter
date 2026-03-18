@@ -2,7 +2,7 @@ import "server-only";
 import fs from "node:fs";
 import path from "node:path";
 
-const HISTORY_RETENTION_DAYS = 180;
+const HISTORY_RETENTION_DAYS = 370;
 const MAX_SAMPLE_GAP_MS = 12 * 60 * 60 * 1000;
 const HISTORY_TIME_ZONE = process.env.PROXCENTER_TIMEZONE?.trim() || "Europe/Paris";
 
@@ -281,7 +281,7 @@ export function readGreenItHistorySummary() {
   return {
     updatedAt: state.updatedAt,
     lastSample: state.lastSample,
-    days: days.slice(-31).map((entry) => ({
+    days: days.map((entry) => ({
       ...entry,
       averageItPowerWatts: entry.trackedHours > 0 ? entry.itWattHours / entry.trackedHours : 0,
       averageEffectivePowerWatts: entry.trackedHours > 0 ? entry.effectiveWattHours / entry.trackedHours : 0,

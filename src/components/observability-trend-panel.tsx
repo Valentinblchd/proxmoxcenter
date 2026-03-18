@@ -14,6 +14,14 @@ function formatTrendValue(mode: TrendMode, value: number) {
   return `${formatBytes(value)}/s`;
 }
 
+function buildScaleValues(mode: TrendMode, maxValue: number) {
+  if (mode === "percent") {
+    return [1, 0.5, 0];
+  }
+  const safeMax = maxValue > 0 ? maxValue : 1;
+  return [safeMax, safeMax / 2, 0];
+}
+
 function formatTrendLabel(timestamp: string, totalPoints: number) {
   const date = new Date(timestamp);
   if (Number.isNaN(date.getTime())) return timestamp;
@@ -56,6 +64,7 @@ export default function ObservabilityTrendPanel({
   const average = points.length > 0 ? points.reduce((sum, point) => sum + point.value, 0) / points.length : 0;
   const latest = points.at(-1)?.value ?? 0;
   const linePath = buildLinePath(points, 240, 74);
+  const scaleValues = buildScaleValues(mode, maxValue);
 
   return (
     <section className="panel observability-trend-card">
@@ -83,18 +92,28 @@ export default function ObservabilityTrendPanel({
             </article>
           </div>
 
-          <div className="observability-trend-graph">
-            <svg viewBox="0 0 240 74" role="img" aria-label={title}>
-              <path className="observability-trend-gridline" d="M 0 18 H 240" />
-              <path className="observability-trend-gridline" d="M 0 37 H 240" />
-              <path className="observability-trend-gridline" d="M 0 56 H 240" />
-              <path className={`observability-trend-line ${toneClass}`} d={linePath} />
-            </svg>
+          <div className="observability-trend-chart-shell">
+            <div className="observability-trend-scale" aria-hidden="true">
+              {scaleValues.map((value, index) => (
+                <span key={`${title}-scale-${index}`}>{formatTrendValue(mode, value)}</span>
+              ))}
+            </div>
+            <div className="observability-trend-graph">
+              <svg viewBox="0 0 240 74" role="img" aria-label={title}>
+                <path className="observability-trend-gridline" d="M 0 18 H 240" />
+                <path className="observability-trend-gridline" d="M 0 37 H 240" />
+                <path className="observability-trend-gridline" d="M 0 56 H 240" />
+                <path className={`observability-trend-line ${toneClass}`} d={linePath} />
+              </svg>
+            </div>
           </div>
 
           <div className="observability-trend-foot">
             <span>{formatTrendLabel(points[0].timestamp, points.length)}</span>
-            <span>{formatTrendLabel(points.at(-1)?.timestamp ?? points[0].timestamp, points.length)}</span>
+            <span>
+              {mode === "percent" ? "Unite: %" : "Unite: octets/s"} •{" "}
+              {formatTrendLabel(points.at(-1)?.timestamp ?? points[0].timestamp, points.length)}
+            </span>
           </div>
         </>
       )}

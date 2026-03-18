@@ -73,13 +73,12 @@ export default function InventoryRemoteAccess({
       <div className="inventory-remote-head">
         <div>
           <strong>Accès distant</strong>
-          <div className="muted">
-            {osLabel ?? (kind === "qemu" ? "VM" : "Conteneur")} • {reason}
-          </div>
+          <div className="muted">{osLabel ?? (kind === "qemu" ? "VM" : "Conteneur")}</div>
         </div>
         <div className="inventory-tag-list">
           {bridge ? <span className="inventory-tag">{bridge}</span> : null}
           {vlanTag ? <span className="inventory-tag">VLAN {vlanTag}</span> : null}
+          <span className={`inventory-tag ${running ? "" : "status-bad"}`}>{running ? "En marche" : reason}</span>
         </div>
       </div>
 
@@ -156,11 +155,6 @@ export default function InventoryRemoteAccess({
 
           {feedback ? <div className="inventory-action-hint">{feedback}</div> : null}
         </div>
-      </div>
-
-      <div className="inventory-remote-inline-meta">
-        <span className="muted">Mode conseillé: {osFamily === "windows" ? "RDP" : "SSH"}</span>
-        <span className="muted">État: {running ? "En marche" : "Arrêtée"}</span>
       </div>
     </section>
   );

@@ -34,6 +34,17 @@ function asText(value: unknown) {
   return typeof value === "string" ? value : "";
 }
 
+function presentUpdateError(raw: string) {
+  const text = raw.trim();
+  if (/guest agent is not running/i.test(text)) {
+    return "Le guest agent n’est pas actif dans cette VM.";
+  }
+  if (/401|403|forbidden|unauthorized/i.test(text)) {
+    return "Le scan a été refusé par Proxmox.";
+  }
+  return text;
+}
+
 export default function InventoryUpdateStatus({
   live,
   node,
@@ -60,7 +71,7 @@ export default function InventoryUpdateStatus({
     const payload = (await response.json().catch(() => ({}))) as UpdateScanResponse;
 
     if (!response.ok || payload.ok === false) {
-      throw new Error(payload.error || payload.message || `Scan impossible (${response.status}).`);
+      throw new Error(presentUpdateError(payload.error || payload.message || `Scan impossible (${response.status}).`));
     }
 
     return payload;
@@ -76,7 +87,7 @@ export default function InventoryUpdateStatus({
       const payload = await requestScan(node, vmid, kind);
       setResult(payload);
     } catch (scanError) {
-      setError(scanError instanceof Error ? scanError.message : "Erreur de scan MAJ.");
+      setError(scanError instanceof Error ? presentUpdateError(scanError.message) : "Erreur de scan MAJ.");
     } finally {
       setLoading(false);
     }
@@ -106,7 +117,7 @@ export default function InventoryUpdateStatus({
         setResult(payload);
       } catch (scanError) {
         if (!cancelled) {
-          setError(scanError instanceof Error ? scanError.message : "Erreur de scan MAJ.");
+          setError(scanError instanceof Error ? presentUpdateError(scanError.message) : "Erreur de scan MAJ.");
         }
       } finally {
         if (!cancelled) {
@@ -121,18 +132,18 @@ export default function InventoryUpdateStatus({
   }, [canScan, kind, live, node, scopeKey, status, vmid]);
 
   let tone: ViewTone = "neutral";
-  let title = "Mises à jour non scannées";
-  let message = "Lance un scan pour vérifier les updates invitées.";
+  let title = "Scan non lancé";
+  let message = "Lance un scan pour vérifier les mises à jour de l’OS.";
 
   if (!live) {
     title = "Connexion Proxmox requise";
-    message = "Configure la connexion Proxmox pour interroger les updates VM.";
+    message = "Configure Proxmox pour interroger l’OS invité.";
   } else if (!hasTarget) {
     title = "Aucune VM sélectionnée";
-    message = "Sélectionne une VM dans la liste pour vérifier ses mises à jour.";
+    message = "Sélectionne une VM pour vérifier son OS.";
   } else if (status !== "running") {
     title = kind === "lxc" ? "CT arrêté" : "VM arrêtée";
-    message = `Démarre ${kind === "lxc" ? "le conteneur" : "la VM"} puis relance le scan des mises à jour.`;
+    message = `Démarre ${kind === "lxc" ? "le conteneur" : "la VM"} puis relance le scan.`;
   } else if (loading) {
     title = "Scan en cours";
     message = "Interrogation guest-agent en cours…";
@@ -144,8 +155,8 @@ export default function InventoryUpdateStatus({
     const pending = typeof result.pendingCount === "number" ? result.pendingCount : null;
     if (result.scanMode === "manual-shell") {
       tone = "warn";
-      title = kind === "lxc" ? "MAJ CT via console" : "MAJ Linux via console";
-      message = asText(result.message) || "Ouvre la console invitée pour vérifier les mises à jour.";
+      title = "Scan manuel requis";
+      message = asText(result.message) || "Passe par la console invité pour vérifier les mises à jour.";
     } else if (result.supported === false) {
       title = "Scan indisponible";
       message = asText(result.message) || "Cette VM ne permet pas le scan automatique.";
@@ -159,7 +170,7 @@ export default function InventoryUpdateStatus({
       message = "Aucune mise à jour détectée.";
     } else {
       title = "Scan terminé";
-      message = asText(result.message) || "Résultat de scan non détaillé.";
+      message = asText(result.message) || "Le scan s’est terminé sans détail supplémentaire.";
     }
   }
 
@@ -173,8 +184,8 @@ export default function InventoryUpdateStatus({
     <section className="inventory-update-panel" aria-live="polite">
       <div className="inventory-update-head">
         <div className="inventory-update-title">
-          <span className="muted">Mises à jour invité</span>
-          <strong>{kind === "lxc" ? "CT / LXC" : "VM invitée"}</strong>
+          <span className="muted">Mises à jour OS</span>
+          <strong>{kind === "lxc" ? "CT / LXC" : "VM"}</strong>
         </div>
         <div className="inventory-update-actions">
           {shellHref && result?.scanMode === "manual-shell" ? (
@@ -190,7 +201,7 @@ export default function InventoryUpdateStatus({
             }}
             disabled={!canScan || loading}
           >
-            {loading ? "Scan..." : "Scanner MAJ OS"}
+            {loading ? "Scan..." : "Scanner"}
           </button>
         </div>
       </div>
@@ -210,13 +221,6 @@ export default function InventoryUpdateStatus({
           {asText(result?.osLabel) ? <span>OS: {result?.osLabel}</span> : null}
           {checkedAtText ? <span>Dernier scan: {checkedAtText}</span> : null}
         </div>
-        {result?.commands?.length ? (
-          <div className="inventory-update-log">
-            {result.commands.map((command) => (
-              <code key={command}>{command}</code>
-            ))}
-          </div>
-        ) : null}
       </div>
     </section>
   );
