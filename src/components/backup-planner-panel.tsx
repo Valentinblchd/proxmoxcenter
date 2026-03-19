@@ -671,7 +671,7 @@ function formatRestorePhase(phase: RestoreJobItem["phase"]) {
     case "importing-to-storage":
       return "Import vers stockage";
     case "restoring-workload":
-      return "Restauration workload";
+      return "Restauration VM/CT";
     case "completed":
       return "Terminé";
     case "cancelled":
@@ -717,6 +717,70 @@ function formatExecutionState(
     default:
       return state;
   }
+}
+
+type ExecutionStepSummary = {
+  total: number;
+  success: number;
+  running: number;
+  pending: number;
+  failed: number;
+  cancelled: number;
+  completed: number;
+  progress: number;
+  currentStep: string | null;
+  currentSync: string | null;
+};
+
+function summarizeExecution(
+  execution:
+    | {
+        steps: Array<{
+          workloadId: string;
+          status: "queued" | "running" | "success" | "partial" | "failed" | "cancelled";
+          sync: {
+            status: "pending" | "running" | "success" | "failed" | "skipped" | "cancelled";
+            provider: string | null;
+          };
+        }>;
+      }
+    | null,
+): ExecutionStepSummary | null {
+  if (!execution) return null;
+
+  const summary = execution.steps.reduce<ExecutionStepSummary>(
+    (acc, step) => {
+      acc.total += 1;
+      if (step.status === "success") acc.success += 1;
+      if (step.status === "failed" || step.status === "partial" || step.sync.status === "failed") acc.failed += 1;
+      if (step.status === "running" || step.sync.status === "running") {
+        acc.running += 1;
+        acc.currentStep = step.workloadId;
+        acc.currentSync = step.sync.provider ? `${step.sync.provider} • ${step.sync.status}` : step.sync.status;
+      }
+      if (step.status === "queued" || step.sync.status === "pending") acc.pending += 1;
+      if (step.status === "cancelled" || step.sync.status === "cancelled") acc.cancelled += 1;
+      if (step.status === "success" || step.status === "failed" || step.status === "partial" || step.status === "cancelled") {
+        acc.completed += 1;
+      }
+      return acc;
+    },
+    {
+      total: 0,
+      success: 0,
+      running: 0,
+      pending: 0,
+      failed: 0,
+      cancelled: 0,
+      completed: 0,
+      progress: 0,
+      currentStep: null,
+      currentSync: null,
+    },
+  );
+
+  summary.progress = summary.total > 0 ? summary.completed / summary.total : 0;
+  return summary;
 }
 
 function getExecutionBadgeClass(
@@ -2386,32 +2450,46 @@ export default function BackupPlannerPanel({
   const hasConfiguration = plans.length > 0 || cloudTargets.length > 0;
   const now = new Date();
   const upcomingRuns = computeUpcomingRuns(plans, planCursors, now).slice(0, 8);
-  const recentExecutions = executions.slice(0, 12);
-  const successRuns = recentExecutions.filter((item) => item.status === "success").length;
-  const failedRuns = recentExecutions.filter((item) => item.status === "failed").length;
-  const partialRuns = recentExecutions.filter((item) => item.status === "partial").length;
+  const nextUpcomingRun = upcomingRuns[0] ?? null;
+  const executionStatusCounts = executions.reduce(
+    (acc, execution) => {
+      acc.total += 1;
+      switch (execution.status) {
+        case "queued":
+          acc.queued += 1;
+          break;
+        case "running":
+          acc.running += 1;
+          break;
+        case "success":
+          acc.success += 1;
+          break;
+        case "partial":
+          acc.partial += 1;
+          break;
+        case "failed":
+          acc.failed += 1;
+          break;
+        case "cancelled":
+          acc.cancelled += 1;
+          break;
+      }
+      return acc;
+    },
+    {
+      total: 0,
+      queued: 0,
+      running: 0,
+      success: 0,
+      partial: 0,
+      failed: 0,
+      cancelled: 0,
+    },
+  );
   const runningExecution =
     executions.find((item) => item.status === "running" || item.status === "queued") ?? null;
   const lastExecution = executions[0] ?? null;
-  const runningExecutionStats = runningExecution
-    ? runningExecution.steps.reduce(
-        (acc, step) => {
-          acc.total += 1;
-          if (step.status === "success") acc.success += 1;
-          if (step.status === "failed" || step.status === "partial" || step.sync.status === "failed") acc.failed += 1;
-          if (step.status === "running" || step.sync.status === "running") acc.running += 1;
-          if (step.status === "queued" || step.sync.status === "pending") acc.pending += 1;
-          return acc;
-        },
-        { total: 0, success: 0, failed: 0, running: 0, pending: 0 },
-      )
-    : null;
-  const runningExecutionProgress =
-    runningExecutionStats && runningExecutionStats.total > 0
-      ? (runningExecutionStats.success + runningExecutionStats.failed) / runningExecutionStats.total
-      : 0;
-  const runningExecutionCurrentStep =
-    runningExecution?.steps.find((step) => step.status === "running" || step.sync.status === "running") ?? null;
+  const runningExecutionSummary = summarizeExecution(runningExecution);
   const localUsage = aggregateUsage(localStorages);
   const cloudUsage = aggregateUsage(
     cloudTargets
@@ -2475,6 +2553,7 @@ export default function BackupPlannerPanel({
     planStorageOptions.find((item) => item.storage === planForm.backupStorage) ?? null;
   const selectedPlanCloudTarget =
     selectableCloudTargets.find((item) => item.id === planForm.cloudTargetId) ?? null;
+  const selectedPlanRecurrence = formatRecurrenceLabel(planForm.recurrenceEvery, planForm.recurrenceUnit);
   const retentionPreset = inferRetentionPreset(
     planForm.retentionMode,
     {
@@ -2495,7 +2574,7 @@ export default function BackupPlannerPanel({
   });
   const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> = [
     { id: "overview", label: "Pilotage" },
-    { id: "config", label: "Configuration" },
+    { id: "config", label: "Cibles & plans" },
     { id: "history", label: "Exécutions" },
     { id: "restore", label: "Restauration" },
     ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
@@ -2505,27 +2584,27 @@ export default function BackupPlannerPanel({
   const showPlansPanel = showConfigPanel && configTab === "plans";
   const tabIntro =
     activeTab === "overview"
-      ? "Vue rapide pour suivre les runs, relancer un backup et voir ce qui tourne maintenant."
+      ? "Vue rapide pour voir ce qui tourne, le prochain passage et l’état des stockages."
       : activeTab === "config"
         ? configTab === "targets"
-          ? "Configure ici le stockage local et les cibles cloud."
-          : "Définis ici les plans, la fréquence et la rétention."
+          ? "Configure les cibles locales, cloud et les secrets liés aux connexions."
+          : "Définis les plans, la fréquence, la portée et la rétention."
           : activeTab === "history"
-            ? "Historique d’exécution, erreurs et détail des workloads traités."
+            ? "Historique des exécutions avec progression, erreurs et détail des workloads."
             : activeTab === "restore"
               ? "Téléchargement, restauration Proxmox et imports directs depuis le cloud."
               : "Navigation directe dans PBS si la connexion est disponible.";
   const tabChips =
     activeTab === "overview"
-      ? ["Runs en cours", "Prochains passages", "Relance manuelle"]
+      ? ["Run actif", "Prochain passage", "État des stockages"]
       : activeTab === "config"
         ? configTab === "targets"
-          ? ["Stockage local", "Cloud", "Secrets chiffrés"]
+          ? ["Local", "Cloud", "Secrets chiffrés"]
           : ["Portée", "Fréquence", "Rétention"]
           : activeTab === "history"
-            ? ["Tri", "Erreurs", "Détail runs"]
+            ? ["Progression", "Erreurs", "États"]
             : activeTab === "restore"
-              ? ["Objets cloud", "Restore Proxmox", "Import PBS"]
+              ? ["Objet cloud", "Restore Proxmox", "Import PBS"]
               : ["Namespaces", "Groupes", "Snapshots"];
 
   return (
@@ -2579,6 +2658,37 @@ export default function BackupPlannerPanel({
               Plans & rétention
             </button>
           </div>
+        ) : null}
+
+        {showConfigPanel ? (
+          <section className="stats-grid" style={{ marginTop: "0.75rem" }}>
+            <article className="stat-tile">
+              <div className="stat-label">Cibles locales</div>
+              <div className="stat-value">{localStorages.length}</div>
+              <div className="stat-subtle">Stockages Proxmox détectés</div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Cibles cloud</div>
+              <div className="stat-value">{cloudTargets.length}</div>
+              <div className="stat-subtle">
+                {selectableCloudTargets.length} activée{selectableCloudTargets.length > 1 ? "s" : ""}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Plans actifs</div>
+              <div className="stat-value">{plans.filter((plan) => plan.enabled).length}</div>
+              <div className="stat-subtle">
+                {plans.length} plan{plans.length > 1 ? "s" : ""} configuré{plans.length > 1 ? "s" : ""}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Mode cloud</div>
+              <div className="stat-value">{cloudOauthMode === "central" ? "CENTRAL" : "LOCAL"}</div>
+              <div className="stat-subtle">
+                {cloudOauthBrokerAvailable ? "Broker disponible" : "Broker indisponible"}
+              </div>
+            </article>
+          </section>
         ) : null}
 
         {!hasConfiguration || config?.warnings?.length || error || notice || !canOperate ? (
@@ -2635,41 +2745,49 @@ export default function BackupPlannerPanel({
                   {lastExecution ? lastExecution.status.toUpperCase() : "AUCUNE"}
                 </div>
                 <div className="stat-subtle">
-                  {lastExecution ? formatScheduleDate(lastExecution.startedAt) : "Aucune exécution"}
+                  {lastExecution
+                    ? `${lastExecution.planName} • ${formatScheduleDate(lastExecution.startedAt)}`
+                    : "Aucune exécution"}
                 </div>
               </article>
               <article className="stat-tile">
-                <div className="stat-label">Runs récents</div>
+                <div className="stat-label">Exécution en cours</div>
                 <div className="stat-value">
-                  {successRuns} OK / {failedRuns + partialRuns} KO
+                  {runningExecutionSummary
+                    ? `${Math.round(runningExecutionSummary.progress * 100)} %`
+                    : "AUCUNE"}
                 </div>
-                <div className="stat-subtle">Derniers {recentExecutions.length} runs</div>
-              </article>
-              <article className="stat-tile">
-                <div className="stat-label">Stockage local</div>
-                <div className="stat-value">{formatBytes(localUsage.usedBytes)}</div>
                 <div className="stat-subtle">
-                  {localUsage.totalBytes !== null
-                    ? `${formatBytes(localUsage.freeBytes)} libre`
-                    : "Capacité non remontée"}
+                  {runningExecutionSummary
+                    ? `${runningExecutionSummary.completed}/${runningExecutionSummary.total} étapes complétées`
+                    : "Aucun run actif"}
                 </div>
               </article>
               <article className="stat-tile">
-                <div className="stat-label">Stockage cloud</div>
-                <div className="stat-value">{formatBytes(cloudUsage.usedBytes)}</div>
+                <div className="stat-label">Prochain passage</div>
+                <div className="stat-value">{nextUpcomingRun ? "PRÉVU" : "AUCUN"}</div>
                 <div className="stat-subtle">
-                  {cloudUsage.totalBytes !== null
-                    ? `${formatBytes(cloudUsage.freeBytes)} libre`
-                    : "Quota total non défini"}
+                  {nextUpcomingRun ? `${nextUpcomingRun.planName} • ${formatScheduleDate(nextUpcomingRun.scheduledAt)}` : "Aucun plan actif"}
+                </div>
+              </article>
+              <article className="stat-tile">
+                <div className="stat-label">Configuration</div>
+                <div className="stat-value">
+                  {plans.length} plan{plans.length > 1 ? "s" : ""} • {cloudTargets.length} cible{cloudTargets.length > 1 ? "s" : ""}
+                </div>
+                <div className="stat-subtle">
+                  {localStorages.length > 0
+                    ? `${localStorages.length} stockage(s) local(aux) • ${cloudTargets.filter((target) => target.enabled).length} cible(s) actives`
+                    : "Aucun stockage local détecté"}
                 </div>
               </article>
             </section>
 
             <div className="content-grid backup-overview-grid">
               <section className="hint-box backup-overview-card">
-                <h3 className="subsection-title">1. Stockage local</h3>
+                <h3 className="subsection-title">Stockage local</h3>
                 <div className="item-title">
-                  {localStorages.length > 0 ? `${localStorages.length} stockage(s) détecté(s)` : "Aucun stockage détecté"}
+                  {localStorages.length > 0 ? `${localStorages.length} stockages détectés` : "Aucun stockage détecté"}
                 </div>
                 <div className="item-subtitle">
                   {localUsage.totalBytes !== null
@@ -2691,7 +2809,7 @@ export default function BackupPlannerPanel({
               </section>
 
               <section className="hint-box backup-overview-card">
-                <h3 className="subsection-title">2. Extension cloud</h3>
+                <h3 className="subsection-title">Stockage cloud</h3>
                 <div className="item-title">
                   {cloudTargets.length > 0 ? `${cloudTargets.length} cible(s) cloud` : "Aucune cible cloud"}
                 </div>
@@ -2715,9 +2833,9 @@ export default function BackupPlannerPanel({
               </section>
 
               <section className="hint-box backup-overview-card">
-                <h3 className="subsection-title">3. Restore</h3>
+                <h3 className="subsection-title">Restauration</h3>
                 <div className="item-title">
-                  {restoreHistory.length > 0 ? `${restoreHistory.length} job(s) restore` : "Aucun restore lancé"}
+                  {restoreHistory.length > 0 ? `${restoreHistory.length} restauration(s)` : "Aucune restauration lancée"}
                 </div>
                 <div className="item-subtitle">
                   {restoreJob ? formatRestorePhase(restoreJob.phase) : "Accès direct aux restores cloud"}
@@ -2749,25 +2867,39 @@ export default function BackupPlannerPanel({
                         <div className="item-subtitle">
                           Démarré {formatScheduleDate(runningExecution.startedAt)} • {runningExecution.steps.length} étape(s)
                         </div>
+                        {runningExecutionSummary ? (
+                          <div className="backup-target-meta">
+                            <span className="inventory-badge status-running">
+                              {runningExecutionSummary.completed}/{runningExecutionSummary.total} complétées
+                            </span>
+                            <span className="inventory-badge status-pending">
+                              {runningExecutionSummary.pending} en attente
+                            </span>
+                            <span className="inventory-badge status-stopped">
+                              {runningExecutionSummary.failed} erreur
+                            </span>
+                          </div>
+                        ) : null}
                         {runningExecution.summary ? (
                           <div className="item-subtitle">{runningExecution.summary}</div>
                         ) : null}
-                        {runningExecutionCurrentStep ? (
+                        {runningExecutionSummary?.currentStep ? (
                           <div className="item-subtitle">
-                            En cours: {runningExecutionCurrentStep.workloadId} • sync {runningExecutionCurrentStep.sync.status}
+                            Étape active: <strong>{runningExecutionSummary.currentStep}</strong>
+                            {runningExecutionSummary.currentSync ? ` • ${runningExecutionSummary.currentSync}` : ""}
                           </div>
                         ) : null}
-                        {runningExecutionStats ? (
+                        {runningExecutionSummary ? (
                           <>
                             <div className="inventory-progress inventory-progress-wide">
                               <span
                                 className="tone-green"
-                                style={{ width: `${Math.round(Math.max(8, runningExecutionProgress * 100))}%` }}
+                                style={{ width: `${Math.round(Math.max(8, runningExecutionSummary.progress * 100))}%` }}
                               />
                             </div>
                             <div className="item-subtitle">
-                              {runningExecutionStats.success} ok • {runningExecutionStats.running} en cours •{" "}
-                              {runningExecutionStats.pending} en attente • {runningExecutionStats.failed} erreur
+                              {runningExecutionSummary.success} ok • {runningExecutionSummary.running} en cours •{" "}
+                              {runningExecutionSummary.pending} en attente • {runningExecutionSummary.failed} erreur
                             </div>
                           </>
                         ) : null}
@@ -2787,6 +2919,11 @@ export default function BackupPlannerPanel({
                 ) : (
                   <div className="backup-empty-note">
                     <p className="muted">Aucun run backup en cours.</p>
+                    <div className="item-subtitle">
+                      {nextUpcomingRun
+                        ? `Prochain passage: ${nextUpcomingRun.planName} • ${formatScheduleDate(nextUpcomingRun.scheduledAt)}`
+                        : "Aucun plan actif pour le moment."}
+                    </div>
                   </div>
                 )}
               </section>
@@ -2827,7 +2964,7 @@ export default function BackupPlannerPanel({
               </section>
 
               <section className="hint-box backup-overview-card">
-                <h3 className="subsection-title">Stockages backup locaux</h3>
+                <h3 className="subsection-title">Stockages locaux de sauvegarde</h3>
                 {localStorages.length === 0 ? (
                   <div className="backup-empty-note">
                     <p className="muted">Aucun stockage backup local détecté.</p>
@@ -2839,7 +2976,7 @@ export default function BackupPlannerPanel({
                         setConfigTab("targets");
                       }}
                     >
-                      Configurer local/cloud
+                      Configurer le stockage local et le cloud
                     </button>
                   </div>
                 ) : (
@@ -2886,7 +3023,7 @@ export default function BackupPlannerPanel({
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
-            <h2>{planForm.id ? "Modifier un plan" : "Nouveau plan backup"}</h2>
+            <h2>{planForm.id ? "Modifier un plan" : "Nouveau plan de sauvegarde"}</h2>
             <span className="muted">{formatRecurrenceLabel(planForm.recurrenceEvery, planForm.recurrenceUnit)}</span>
           </div>
 
@@ -2926,6 +3063,25 @@ export default function BackupPlannerPanel({
               {planForm.targetMode === "cloud"
                 ? "Le backup est écrit sur un stockage Proxmox, puis synchronisé vers la cible cloud."
                 : "Le backup reste uniquement sur le stockage Proxmox choisi."}
+            </div>
+            <div className="backup-target-meta" style={{ marginTop: "0.75rem" }}>
+              <span className="inventory-badge status-running">
+                {planForm.targetMode === "cloud" ? "Sauvegarde + sync cloud" : "Sauvegarde locale"}
+              </span>
+              <span className="inventory-badge status-template">{selectedPlanRecurrence}</span>
+              <span className="inventory-badge status-pending">
+                {planForm.scope === "all"
+                  ? "Toutes les VM/CT"
+                  : `${planForm.workloadIds.length} sélectionnée(s)`}
+              </span>
+              <span className="inventory-badge status-stopped">
+                {planForm.backupStorage || "Stockage backup à choisir"}
+              </span>
+              {planForm.targetMode === "cloud" ? (
+                <span className="inventory-badge status-template">
+                  {selectedPlanCloudTarget?.name ?? "Aucune cible cloud"}
+                </span>
+              ) : null}
             </div>
           </div>
 
@@ -3372,6 +3528,28 @@ export default function BackupPlannerPanel({
                     )}
                     {plan.backupStorage ? ` • storage ${plan.backupStorage}` : ""}
                   </div>
+                  <div className="backup-target-meta" style={{ marginTop: "0.5rem" }}>
+                    <span className={`inventory-badge ${plan.targetMode === "cloud" ? "status-running" : "status-template"}`}>
+                      {plan.targetMode === "cloud" ? "Sync cloud" : "Local uniquement"}
+                    </span>
+                    <span className="inventory-badge status-pending">
+                      {formatRecurrenceLabel(plan.recurrenceEvery, plan.recurrenceUnit)}
+                    </span>
+                    <span className="inventory-badge status-stopped">
+                      {formatRetentionPolicy(
+                        {
+                          days: plan.retentionDays,
+                          weeks: plan.retentionWeeks,
+                          months: plan.retentionMonths,
+                          years: plan.retentionYears,
+                        },
+                        plan.retentionMode,
+                      )}
+                    </span>
+                    <span className="inventory-badge status-template">
+                      {plan.scope === "all" ? "Toutes les VM/CT" : `${plan.workloadIds.length} sélectionnée(s)`}
+                    </span>
+                  </div>
                 </div>
                 <div className="backup-plan-actions">
                   <button
@@ -3462,7 +3640,7 @@ export default function BackupPlannerPanel({
 
         <section className="panel">
           <div className="panel-head">
-            <h2>Extension cloud backup</h2>
+            <h2>Stockage cloud</h2>
             <span className="muted">Secrets chiffrés au repos</span>
           </div>
 
@@ -3599,7 +3777,7 @@ export default function BackupPlannerPanel({
                   </button>
                 </div>
                 {!canOperate ? (
-                  <p className="item-subtitle">Mode lecture: OAuth cloud et choix du dossier sont verrouillés.</p>
+                  <p className="item-subtitle">Mode lecture: connexion cloud et choix du dossier sont verrouillés.</p>
                 ) : null}
                 {currentCloudOauthStatus ? (
                   <p className="item-subtitle">
@@ -3865,6 +4043,32 @@ export default function BackupPlannerPanel({
             {filteredExecutions.length} affiché(s) / {executions.length}
           </span>
         </div>
+        <section className="stats-grid" style={{ marginBottom: "0.75rem" }}>
+          <article className="stat-tile">
+            <div className="stat-label">En cours / file</div>
+            <div className="stat-value">
+              {executionStatusCounts.running} / {executionStatusCounts.queued}
+            </div>
+            <div className="stat-subtle">Exécutions actives ou à venir</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Succès</div>
+            <div className="stat-value">{executionStatusCounts.success}</div>
+            <div className="stat-subtle">Runs validés</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Partiels / erreurs</div>
+            <div className="stat-value">
+              {executionStatusCounts.partial + executionStatusCounts.failed}
+            </div>
+            <div className="stat-subtle">À reprendre ou corriger</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Total</div>
+            <div className="stat-value">{executionStatusCounts.total}</div>
+            <div className="stat-subtle">Tous les runs conservés</div>
+          </article>
+        </section>
         <div className="provision-segment">
           <button
             type="button"
@@ -3903,45 +4107,83 @@ export default function BackupPlannerPanel({
           </button>
         </div>
         <div className="mini-list">
-          {filteredExecutions.slice(0, 15).map((execution) => (
-            <article key={execution.id} className="mini-list-item">
-              <div>
-                <div className="item-title">
-                  {execution.planName}
-                  <span className={`inventory-badge ${getExecutionBadgeClass(execution.status)}`}>
-                    {formatExecutionState(execution.status)}
-                  </span>
-                  {execution.cancelRequested ? (
-                    <span className="inventory-badge status-template">Annulation demandée</span>
+          {filteredExecutions.slice(0, 15).map((execution) => {
+            const summary = summarizeExecution(execution);
+
+            return (
+              <article key={execution.id} className="mini-list-item">
+                <div>
+                  <div className="item-title">
+                    {execution.planName}
+                    <span className={`inventory-badge ${getExecutionBadgeClass(execution.status)}`}>
+                      {formatExecutionState(execution.status)}
+                    </span>
+                    {execution.cancelRequested ? (
+                      <span className="inventory-badge status-template">Annulation demandée</span>
+                    ) : null}
+                  </div>
+                  <div className="item-subtitle">
+                    Planifié: {formatScheduleDate(execution.scheduledAt)} • Étapes: {execution.steps.length}
+                  </div>
+                  {execution.startedAt ? (
+                    <div className="item-subtitle">
+                      Démarré: {formatScheduleDate(execution.startedAt)}
+                      {execution.endedAt ? ` • Terminé: ${formatScheduleDate(execution.endedAt)}` : ""}
+                    </div>
+                  ) : null}
+                  {execution.summary ? <div className="item-subtitle">{execution.summary}</div> : null}
+                  {summary ? (
+                    <>
+                      <div className="inventory-progress inventory-progress-wide">
+                        <span
+                          className={
+                            execution.status === "failed" || execution.status === "cancelled"
+                              ? "tone-orange"
+                              : "tone-green"
+                          }
+                          style={{ width: `${Math.round(Math.max(8, summary.progress * 100))}%` }}
+                        />
+                      </div>
+                      <div className="backup-target-meta" style={{ marginTop: "0.5rem" }}>
+                        <span className="inventory-badge status-running">
+                          {summary.completed}/{summary.total} complétées
+                        </span>
+                        <span className="inventory-badge status-pending">{summary.running} en cours</span>
+                        <span className="inventory-badge status-stopped">{summary.failed} erreur</span>
+                        <span className="inventory-badge status-template">{summary.pending} en attente</span>
+                      </div>
+                      {summary.currentStep ? (
+                        <div className="item-subtitle">
+                          Étape active: <strong>{summary.currentStep}</strong>
+                          {summary.currentSync ? ` • ${summary.currentSync}` : ""}
+                        </div>
+                      ) : null}
+                    </>
+                  ) : null}
+                  <div className="backup-target-meta">
+                    {execution.steps.slice(0, 3).map((step) => (
+                      <span key={`${execution.id}-${step.workloadId}`} className="inventory-tag">
+                        {step.workloadId} • {step.status}
+                        {step.sync.provider ? ` • cloud ${step.sync.status}` : ""}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+                <div className="backup-plan-actions">
+                  {execution.status === "running" || execution.status === "queued" ? (
+                    <button
+                      type="button"
+                      className="action-btn"
+                      onClick={() => void onCancelExecution(execution.id)}
+                      disabled={!canOperate || busy || execution.cancelRequested}
+                    >
+                      {execution.cancelRequested ? "Annulation..." : "Annuler"}
+                    </button>
                   ) : null}
                 </div>
-                <div className="item-subtitle">
-                  Planifié: {formatScheduleDate(execution.scheduledAt)} • Étapes: {execution.steps.length}
-                </div>
-                {execution.summary ? <div className="item-subtitle">{execution.summary}</div> : null}
-              </div>
-              <div className="backup-plan-actions">
-                {(execution.status === "running" || execution.status === "queued") ? (
-                  <button
-                    type="button"
-                    className="action-btn"
-                    onClick={() => void onCancelExecution(execution.id)}
-                    disabled={!canOperate || busy || execution.cancelRequested}
-                  >
-                    {execution.cancelRequested ? "Annulation..." : "Annuler"}
-                  </button>
-                ) : null}
-              </div>
-              <div className="backup-target-meta">
-                {execution.steps.slice(0, 3).map((step) => (
-                  <span key={`${execution.id}-${step.workloadId}`} className="inventory-tag">
-                    {step.workloadId} • {step.status}
-                    {step.sync.provider ? ` • cloud ${step.sync.status}` : ""}
-                  </span>
-                ))}
-              </div>
-            </article>
-          ))}
+              </article>
+            );
+          })}
           {filteredExecutions.length === 0 ? (
             <div className="hint-box">
               <p className="muted">Aucune exécution pour ce filtre.</p>
@@ -3955,7 +4197,7 @@ export default function BackupPlannerPanel({
       <section className="content-grid">
         <section className="panel">
           <div className="panel-head">
-            <h2>Restauration depuis le cloud</h2>
+            <h2>Restauration cloud</h2>
             <span className="muted">Téléchargement, restore Proxmox ou import direct PBS</span>
           </div>
 
@@ -3965,6 +4207,43 @@ export default function BackupPlannerPanel({
               1) Choisis une cible cloud • 2) Sélectionne un objet • 3) Lance la restauration vers Proxmox ou PBS.
             </div>
           </div>
+
+          <section className="stats-grid" style={{ margin: "0.75rem 0" }}>
+            <article className="stat-tile">
+              <div className="stat-label">Cible</div>
+              <div className="stat-value">{restoreTarget ? restoreTarget.name : "AUCUNE"}</div>
+              <div className="stat-subtle">
+                {restoreTarget ? PROVIDER_LABEL[restoreTarget.provider] : "Sélectionne une cible cloud"}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Objet choisi</div>
+              <div className="stat-value">{restoreSelectedObject ? restoreSelectedObject.name : "AUCUN"}</div>
+              <div className="stat-subtle">
+                {restoreSelectedObject ? formatBytes(restoreSelectedObject.sizeBytes) : "Sélectionne un backup"}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Destination</div>
+              <div className="stat-value">
+                {restoreForm.destination === "pbs" ? "PBS" : "PROXMOX"}
+              </div>
+              <div className="stat-subtle">
+                {restoreForm.destination === "pbs"
+                  ? "Import dans PBS ou stockage backup"
+                  : "Restaurer vers une VM ou un CT"}
+              </div>
+            </article>
+            <article className="stat-tile">
+              <div className="stat-label">Job actif</div>
+              <div className="stat-value">
+                {restoreJob ? formatRestoreState(restoreJob.state).toUpperCase() : "AUCUN"}
+              </div>
+              <div className="stat-subtle">
+                {restoreJob ? formatRestorePhase(restoreJob.phase) : "Aucune restauration en cours"}
+              </div>
+            </article>
+          </section>
 
           {restoreError ? (
             <div className="backup-alert error">
@@ -4128,7 +4407,7 @@ export default function BackupPlannerPanel({
           <div className="provision-grid">
             {restoreForm.destination === "proxmox" ? (
               <label className="provision-field">
-                <span className="provision-field-label">Type restore</span>
+                <span className="provision-field-label">Type de restauration</span>
                 <select
                   className="provision-input"
                   value={restoreForm.kind}
@@ -4278,20 +4557,44 @@ export default function BackupPlannerPanel({
 
               <div className="backup-job-grid">
                 <article className="hint-box">
-                  <div className="item-title">{formatRestorePhase(restoreJob.phase)}</div>
+                  <div className="item-title">Phase</div>
+                  <div className="item-subtitle">{formatRestorePhase(restoreJob.phase)}</div>
                   <div className="item-subtitle">{restoreJob.message ?? "Traitement en cours."}</div>
                 </article>
                 <article className="hint-box">
-                  <div className="item-title">Objet</div>
+                  <div className="item-title">État</div>
+                  <div className="item-subtitle">{formatRestoreState(restoreJob.state)}</div>
+                  <div className="item-subtitle">
+                    {restoreJob.cancelRequested ? "Annulation demandée" : "Suivi actif"}
+                  </div>
+                </article>
+                <article className="hint-box">
+                  <div className="item-title">Import</div>
                   <div className="item-subtitle">{restoreJob.filename ?? restoreJob.objectName ?? "—"}</div>
+                  <div className="inventory-progress inventory-progress-wide" aria-hidden>
+                    <span
+                      className="tone-orange"
+                      style={{
+                        width: `${restoreJob.importTask.progressPercent ?? (restoreJob.importTask.status === "success" ? 100 : 8)}%`,
+                      }}
+                    />
+                  </div>
                 </article>
                 <article className="hint-box">
-                  <div className="item-title">Stockage</div>
+                  <div className="item-title">Restore</div>
                   <div className="item-subtitle">{restoreJob.backupStorage}</div>
-                </article>
-                <article className="hint-box">
-                  <div className="item-title">Job</div>
-                  <div className="item-subtitle">{restoreJob.id}</div>
+                  {restoreJob.destination === "proxmox" ? (
+                    <div className="inventory-progress inventory-progress-wide" aria-hidden>
+                      <span
+                        className="tone-green"
+                        style={{
+                          width: `${restoreJob.restoreTask.progressPercent ?? (restoreJob.restoreTask.status === "success" ? 100 : 8)}%`,
+                        }}
+                      />
+                    </div>
+                  ) : (
+                    <div className="item-subtitle">{restoreJob.destination === "pbs" ? "Import PBS direct" : "Restauration complète"}</div>
+                  )}
                 </article>
               </div>
 
@@ -4355,7 +4658,7 @@ export default function BackupPlannerPanel({
 
           <div className="backup-job-history">
             <div className="panel-head">
-              <h2>Historique complet des jobs restore</h2>
+              <h2>Historique complet des restaurations</h2>
               <span className="muted">{restoreHistory.length} job(s)</span>
             </div>
             <div className="mini-list">
