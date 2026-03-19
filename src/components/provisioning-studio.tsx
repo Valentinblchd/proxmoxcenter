@@ -656,6 +656,7 @@ export default function ProvisioningStudio({
     { id: "review", label: "Validation", hint: "Résumé et création" },
   ];
   const currentWizardIndex = wizardSteps.findIndex((step) => step.id === wizardStep);
+  const activeWizardStep = wizardSteps[currentWizardIndex] ?? wizardSteps[0];
   const canMoveNext =
     currentWizardIndex < wizardSteps.length - 1 && stepStatus[wizardSteps[currentWizardIndex]?.id ?? "base"];
 
@@ -717,99 +718,114 @@ export default function ProvisioningStudio({
         </section>
       ) : null}
 
-      <section className="panel provision-panel provision-panel-compact">
+      <section className="panel provision-panel provision-panel-compact provision-master-panel">
         <div className="panel-head">
-          <h2>Création VM / LXC</h2>
+          <h2>Création guidée</h2>
           {!options?.configured ? <span className="muted">Connexion requise</span> : null}
         </div>
 
-        <div className="provision-toolbar">
-          <div className="provision-segment">
-            <button
-              type="button"
-              className={`provision-seg-btn${draft.kind === "qemu" ? " is-active" : ""}`}
-              onClick={() => setKind("qemu")}
-            >
-              VM (QEMU)
-            </button>
-            <button
-              type="button"
-              className={`provision-seg-btn${draft.kind === "lxc" ? " is-active" : ""}`}
-              onClick={() => setKind("lxc")}
-            >
-              LXC
-            </button>
+        <div className="provision-stage-hero">
+          <div className="provision-stage-head">
+            <div className="provision-stage-copy">
+              <span className="eyebrow">Parcours guidé</span>
+              <strong>
+                Étape {currentWizardIndex + 1}/{wizardSteps.length} • {activeWizardStep.label}
+              </strong>
+              <small>{activeWizardStep.hint}</small>
+            </div>
+            <span className={`pill${options?.configured ? " live" : ""}`}>
+              {options?.configured ? "Options Proxmox live" : "Configuration requise"}
+            </span>
           </div>
 
-          <div className="provision-toolbar-right">
-            <button
-              type="button"
-              className="inventory-mini-toggle"
-              onClick={() => window.location.reload()}
-            >
-              Recharger options
-            </button>
-          </div>
-        </div>
-
-        {isLoadingOptions ? (
-          <p className="muted">Chargement des options de création...</p>
-        ) : null}
-
-        {optionsError ? <p className="warning">{optionsError}</p> : null}
-
-        {!options?.configured ? (
-          <div className="hint-box">
-            <p className="muted">
-              Connexion Proxmox requise pour créer. Ouvre{" "}
-              <Link href="/settings?tab=proxmox">Paramètres → Proxmox</Link>.
-            </p>
-          </div>
-        ) : null}
-
-        {options?.configured ? (
-          <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
-            <article className="provision-overview-chip">
-              <span>Nœuds</span>
-              <strong>{nodeOptions.length}</strong>
-            </article>
-            <article className="provision-overview-chip">
-              <span>Stockages</span>
-              <strong>{storageOptions.length}</strong>
-            </article>
-            <article className="provision-overview-chip">
-              <span>Bridges</span>
-              <strong>{bridgeOptions.length || "0"}</strong>
-            </article>
-            {isQemu ? (
-              <article className="provision-overview-chip">
-                <span>ISO</span>
-                <strong>{isoVolumeOptions.length}</strong>
-              </article>
-            ) : null}
-          </section>
-        ) : null}
-
-        <section className="provision-stepper" aria-label="Étapes de création">
-          {wizardSteps.map((step, index) => {
-            const isActive = step.id === wizardStep;
-            const isDone = stepStatus[step.id];
-            return (
+          <div className="provision-toolbar">
+            <div className="provision-segment">
               <button
-                key={step.id}
                 type="button"
-                className={`provision-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`}
-                onClick={() => setWizardStep(step.id)}
+                className={`provision-seg-btn${draft.kind === "qemu" ? " is-active" : ""}`}
+                onClick={() => setKind("qemu")}
               >
-                <span className="provision-step-index">{index + 1}</span>
-                <span className="provision-step-copy">
-                  <strong>{step.label}</strong>
-                  <small>{step.hint}</small>
-                </span>
+                VM (QEMU)
               </button>
-            );
-          })}
-        </section>
+              <button
+                type="button"
+                className={`provision-seg-btn${draft.kind === "lxc" ? " is-active" : ""}`}
+                onClick={() => setKind("lxc")}
+              >
+                LXC
+              </button>
+            </div>
+
+            <div className="provision-toolbar-right">
+              <button
+                type="button"
+                className="inventory-mini-toggle"
+                onClick={() => window.location.reload()}
+              >
+                Recharger options
+              </button>
+            </div>
+          </div>
+
+          {isLoadingOptions ? (
+            <p className="muted">Chargement des options de création...</p>
+          ) : null}
+
+          {optionsError ? <p className="warning">{optionsError}</p> : null}
+
+          {!options?.configured ? (
+            <div className="hint-box">
+              <p className="muted">
+                Connexion Proxmox requise pour créer. Ouvre{" "}
+                <Link href="/settings?tab=proxmox">Paramètres → Proxmox</Link>.
+              </p>
+            </div>
+          ) : null}
+
+          {options?.configured ? (
+            <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
+              <article className="provision-overview-chip">
+                <span>Nœuds</span>
+                <strong>{nodeOptions.length}</strong>
+              </article>
+              <article className="provision-overview-chip">
+                <span>Stockages</span>
+                <strong>{storageOptions.length}</strong>
+              </article>
+              <article className="provision-overview-chip">
+                <span>Bridges</span>
+                <strong>{bridgeOptions.length || "0"}</strong>
+              </article>
+              {isQemu ? (
+                <article className="provision-overview-chip">
+                  <span>ISO</span>
+                  <strong>{isoVolumeOptions.length}</strong>
+                </article>
+              ) : null}
+            </section>
+          ) : null}
+
+          <section className="provision-stepper" aria-label="Étapes de création">
+            {wizardSteps.map((step, index) => {
+              const isActive = step.id === wizardStep;
+              const isDone = stepStatus[step.id];
+              return (
+                <button
+                  key={step.id}
+                  type="button"
+                  className={`provision-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`}
+                  onClick={() => setWizardStep(step.id)}
+                >
+                  <span className="provision-step-index">{index + 1}</span>
+                  <span className="provision-step-copy">
+                    <strong>{step.label}</strong>
+                    <small>{step.hint}</small>
+                  </span>
+                </button>
+              );
+            })}
+          </section>
+        </div>
 
         {wizardStep === "base" ? (
           <section className="provision-step-panel">

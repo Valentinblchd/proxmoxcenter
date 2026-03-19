@@ -373,23 +373,29 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const priorityRecommendations = topRecommendations.slice(0, 4);
 
   return (
-    <section className="content content-wide">
-      <header className="topbar">
-        <div>
-          <p className="eyebrow">Observabilité</p>
-          <h1>Supervision, sonde serveur et énergie</h1>
-          <p className="muted">CPU, RAM, IO, sonde matérielle et coût électrique au même endroit.</p>
-        </div>
-        <div className="topbar-meta">
-          {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
-          <InventoryRefreshButton auto intervalMs={5000} />
-        </div>
-      </header>
+    <section className="content content-wide observability-page">
 
       <PlatformStateAlerts live={hasLiveData} warnings={snapshot.warnings} />
 
-      <section className="panel">
-        <div className="hub-tabs">
+      <section className="panel observability-hero-shell">
+        <div className="observability-hero-top">
+          <div className="observability-hero-copy">
+            <p className="eyebrow">Observabilité</p>
+            <h1>Supervision, sonde serveur et énergie</h1>
+            <p className="muted">CPU, RAM, IO, sonde matérielle et coût électrique au même endroit.</p>
+            <div className="observability-hero-chips" aria-label="Points clés observabilité">
+              <span className="inventory-tag">Cluster live</span>
+              <span className="inventory-tag">Sonde serveur</span>
+              <span className="inventory-tag">Historique & coût</span>
+            </div>
+          </div>
+          <div className="observability-hero-meta">
+            {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
+            <InventoryRefreshButton auto intervalMs={5000} />
+          </div>
+        </div>
+
+        <div className="hub-tabs observability-hero-tabs">
           {TABS.map((tab) => (
             <Link
               key={tab.id}
@@ -400,33 +406,40 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             </Link>
           ))}
         </div>
-      </section>
 
-      <section className="stats-grid">
-        <article className="stat-tile">
-          <div className="stat-label">Nœuds</div>
-          <div className="stat-value">{snapshot.summary.nodes}</div>
-          <div className="stat-subtle">Cluster</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">CPU moyen</div>
-          <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
-          <div className="stat-subtle">Tous nœuds</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">RAM moyenne</div>
-          <div className="stat-value">{hasLiveData ? formatPercent(avgMem) : "—"}</div>
-          <div className="stat-subtle">Tous nœuds</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">Alertes brutes</div>
-          <div className="stat-value">{warningCount}</div>
-          <div className="stat-subtle">API/connexion</div>
-        </article>
+        <section className="stats-grid observability-hero-stats">
+          <article className="stat-tile">
+            <div className="stat-label">Nœuds</div>
+            <div className="stat-value">{snapshot.summary.nodes}</div>
+            <div className="stat-subtle">Cluster</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">CPU moyen</div>
+            <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
+            <div className="stat-subtle">Tous nœuds</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">RAM moyenne</div>
+            <div className="stat-value">{hasLiveData ? formatPercent(avgMem) : "—"}</div>
+            <div className="stat-subtle">Tous nœuds</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Source énergie</div>
+            <div className="stat-value">{greenit.metrics.powerSourceLabel}</div>
+            <div className="stat-subtle">
+              {greenit.metrics.effectivePowerWatts} W effectifs
+            </div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Alertes brutes</div>
+            <div className="stat-value">{warningCount}</div>
+            <div className="stat-subtle">API/connexion</div>
+          </article>
+        </section>
       </section>
 
       {activeTab !== "greenit" ? (
-        <section className="panel observability-trend-shell">
+        <section className="panel observability-trend-shell observability-surface-card">
           <div className="panel-head">
             <h2>Supervision cluster</h2>
             <span className="muted">Fenêtre active: {historySeries.range.label}</span>
@@ -489,7 +502,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       {activeTab === "overview" ? (
         <>
         <section className="content-grid observability-overview-grid">
-          <section className="panel">
+          <section className="panel observability-focus-card">
             <div className="panel-head">
               <h2>Résumé santé</h2>
               <span className="muted">Lecture rapide</span>
@@ -533,7 +546,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             </div>
           </section>
 
-          <section className="panel">
+          <section className="panel observability-focus-card">
             <div className="panel-head">
               <h2>Rapport énergétique</h2>
               <span className="muted">{greenit.metrics.powerSourceLabel}</span>
@@ -570,7 +583,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </Link>
             </div>
           </section>
-          <section className="panel">
+          <section className="panel observability-focus-card">
             <div className="panel-head">
               <h2>Priorités</h2>
               <span className="muted">{priorityRecommendations.length}</span>

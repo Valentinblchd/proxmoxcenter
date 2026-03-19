@@ -46,17 +46,48 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
   const canOperate = hasRuntimeCapability(session?.role, "operate");
 
   return (
-    <section className="content backups-page">
-      <header className="topbar">
-        <div>
+    <section className="content content-wide backups-page">
+      <header className="topbar backup-page-hero">
+        <div className="backup-page-hero-copy">
           <p className="eyebrow">Sauvegardes</p>
           <h1>Sauvegardes locales et cloud</h1>
           <p className="muted">Configuration, suivi des exécutions, historique et restauration au même endroit.</p>
+          <div className="backup-page-hero-chips" aria-label="Points clés sauvegardes">
+            <span className="inventory-tag">Runs en direct</span>
+            <span className="inventory-tag">Local + cloud</span>
+            <span className="inventory-tag">Restauration guidée</span>
+          </div>
         </div>
-        <div className="topbar-meta" style={{ display: "flex", flexWrap: "wrap", gap: "0.5rem", justifyContent: "flex-end" }}>
+        <div className="topbar-meta backup-page-topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
           <span className="pill">{canOperate ? "Mode opérateur" : "Lecture seule"}</span>
         </div>
+        <section className="stats-grid backup-page-hero-grid">
+          <article className="stat-tile">
+            <div className="stat-label">Environnement</div>
+            <div className="stat-value">{snapshot.mode === "live" ? "LIVE" : "OFF"}</div>
+            <div className="stat-subtle">
+              {snapshot.mode === "live" ? "Connexion Proxmox active" : "Instance hors ligne"}
+            </div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Accès</div>
+            <div className="stat-value">{canOperate ? "WRITE" : "READ"}</div>
+            <div className="stat-subtle">
+              {canOperate ? "Pilotage et restauration autorisés" : "Consultation uniquement"}
+            </div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Alertes plateforme</div>
+            <div className="stat-value">{snapshot.warnings.length}</div>
+            <div className="stat-subtle">Blocages et avertissements à traiter</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Parcours</div>
+            <div className="stat-value">4 vues</div>
+            <div className="stat-subtle">Configurer, suivre, historiser, restaurer</div>
+          </article>
+        </section>
       </header>
 
       <PlatformStateAlerts live={snapshot.mode === "live"} warnings={snapshot.warnings} />

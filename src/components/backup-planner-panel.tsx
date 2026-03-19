@@ -2609,7 +2609,7 @@ export default function BackupPlannerPanel({
 
   return (
     <section className="backup-planner-shell">
-      <section className="panel">
+      <section className="panel backup-workspace-panel">
         <div className="panel-head">
           <h2>Sauvegardes</h2>
           <span className="muted">
@@ -2617,48 +2617,50 @@ export default function BackupPlannerPanel({
           </span>
         </div>
 
-        <div className="hub-tabs">
-          {backupTabs.map((tab) => (
-            <button
-              key={tab.id}
-              type="button"
-              className={`hub-tab${activeTab === tab.id ? " is-active" : ""}`}
-              onClick={() => setActiveTab(tab.id)}
-            >
-              {tab.label}
-            </button>
-          ))}
-        </div>
-
-        <div className="backup-intro">
-          <p className="backup-intro-text muted">{tabIntro}</p>
-          <div className="backup-intro-chips">
-            {tabChips.map((chip) => (
-              <span key={chip} className="inventory-tag">
-                {chip}
-              </span>
+        <div className="backup-nav-shell">
+          <div className="hub-tabs">
+            {backupTabs.map((tab) => (
+              <button
+                key={tab.id}
+                type="button"
+                className={`hub-tab${activeTab === tab.id ? " is-active" : ""}`}
+                onClick={() => setActiveTab(tab.id)}
+              >
+                {tab.label}
+              </button>
             ))}
           </div>
-        </div>
 
-        {showConfigPanel ? (
-          <div className="hub-tabs backup-config-subtabs">
-            <button
-              type="button"
-              className={`hub-tab${configTab === "targets" ? " is-active" : ""}`}
-              onClick={() => setConfigTab("targets")}
-            >
-              Local & cloud
-            </button>
-            <button
-              type="button"
-              className={`hub-tab${configTab === "plans" ? " is-active" : ""}`}
-              onClick={() => setConfigTab("plans")}
-            >
-              Plans & rétention
-            </button>
+          <div className="backup-intro">
+            <p className="backup-intro-text muted">{tabIntro}</p>
+            <div className="backup-intro-chips">
+              {tabChips.map((chip) => (
+                <span key={chip} className="inventory-tag">
+                  {chip}
+                </span>
+              ))}
+            </div>
           </div>
-        ) : null}
+
+          {showConfigPanel ? (
+            <div className="hub-tabs backup-config-subtabs">
+              <button
+                type="button"
+                className={`hub-tab${configTab === "targets" ? " is-active" : ""}`}
+                onClick={() => setConfigTab("targets")}
+              >
+                Local & cloud
+              </button>
+              <button
+                type="button"
+                className={`hub-tab${configTab === "plans" ? " is-active" : ""}`}
+                onClick={() => setConfigTab("plans")}
+              >
+                Plans & rétention
+              </button>
+            </div>
+          ) : null}
+        </div>
 
         {showConfigPanel ? (
           <section className="stats-grid" style={{ marginTop: "0.75rem" }}>
@@ -4036,7 +4038,7 @@ export default function BackupPlannerPanel({
       ) : null}
 
       {activeTab === "history" ? (
-      <section className="panel">
+      <section className="panel backup-command-panel">
         <div className="panel-head">
           <h2>Historique d’exécution</h2>
           <span className="muted">
