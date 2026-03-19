@@ -1779,7 +1779,7 @@ code {
 .provision-shell {
   display: grid;
   gap: 0.9rem;
-  max-width: 1680px;
+  max-width: none;
   margin-inline: auto;
 }
 
@@ -1794,8 +1794,8 @@ code {
 }
 
 .provision-panel-compact .provision-grid {
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.4rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.55rem;
 }
 
 .provision-panel-compact .provision-input,
@@ -1874,8 +1874,8 @@ code {
 
 .provision-grid {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 0.65rem;
 }
 
 .provision-field {
@@ -1975,8 +1975,8 @@ select.inventory-node-filter option {
 
 .provision-media-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.6rem;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 0.65rem;
   align-items: start;
 }
 
@@ -5661,10 +5661,14 @@ select.inventory-node-filter option {
 
 @media (min-width: 1081px) and (max-width: 1360px) {
   .provision-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
+    grid-template-columns: repeat(3, minmax(0, 1fr));
   }
 
   .provision-panel-compact .provision-grid {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .provision-media-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }

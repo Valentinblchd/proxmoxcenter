@@ -28,6 +28,10 @@ function buildStorageHref(node: string, storage: string) {
   return `/inventory/storage/${encodeURIComponent(node)}/${encodeURIComponent(storage)}`;
 }
 
+function formatRate(value: number) {
+  return `${formatBytes(value)}/s`;
+}
+
 export async function generateMetadata({ params }: NodePageProps): Promise<Metadata> {
   const resolved = await readParams(params);
   return {
@@ -163,6 +167,12 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           <div className="inventory-metric-card">
             <span className="muted">Disque</span>
             <strong>{formatBytes(detail.diskUsed)} / {formatBytes(detail.diskTotal)}</strong>
+          </div>
+          <div className="inventory-metric-card">
+            <span className="muted">Réseau</span>
+            <strong>
+              In {formatRate(detail.networkInBytesPerSecond)} • Out {formatRate(detail.networkOutBytesPerSecond)}
+            </strong>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Stockages</span>

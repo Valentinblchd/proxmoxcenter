@@ -45,6 +45,11 @@ type ProxmoxNodeStorage = {
   avail?: number;
 };
 
+type ProxmoxNodeRrdPoint = {
+  netin?: number;
+  netout?: number;
+};
+
 export type NodeHostedWorkload = {
   kind: WorkloadKind;
   vmid: number;
@@ -90,6 +95,8 @@ export type NodeDetail = {
   memoryTotal: number;
   diskUsed: number;
   diskTotal: number;
+  networkInBytesPerSecond: number;
+  networkOutBytesPerSecond: number;
   uptimeSeconds: number;
   summary: {
     workloads: number;
@@ -197,6 +204,20 @@ function parseNodeStorages(payload: unknown) {
     .sort((a, b) => a.name.localeCompare(b.name, undefined, { numeric: true }));
 }
 
+async function readLatestNodeNetworkRates(nodeName: string) {
+  const history = await proxmoxRequest<ProxmoxNodeRrdPoint[]>(
+    `nodes/${encodeURIComponent(nodeName)}/rrddata?timeframe=hour&cf=AVERAGE`,
+  ).catch(() => []);
+  const point = Array.isArray(history)
+    ? [...history].reverse().find((entry) => typeof entry.netin === "number" || typeof entry.netout === "number")
+    : null;
+
+  return {
+    netIn: point && typeof point.netin === "number" && Number.isFinite(point.netin) ? Math.max(0, point.netin) : 0,
+    netOut: point && typeof point.netout === "number" && Number.isFinite(point.netout) ? Math.max(0, point.netout) : 0,
+  };
+}
+
 export async function getNodeDetailByName(nodeName: string): Promise<NodeDetail | null> {
   const resources = await proxmoxRequest<ProxmoxClusterResource[]>("cluster/resources");
   const nodeResources = resources
@@ -234,9 +255,10 @@ export async function getNodeDetailByName(nodeName: string): Promise<NodeDetail 
     }))
     .sort((a, b) => a.vmid - b.vmid);
 
-  const [networkResult, storageResult] = await Promise.all([
+  const [networkResult, storageResult, latestNetworkRates] = await Promise.all([
     proxmoxRequest<ProxmoxNodeNetwork[]>(`nodes/${encodeURIComponent(nodeName)}/network`).catch(() => []),
     proxmoxRequest<ProxmoxNodeStorage[]>(`nodes/${encodeURIComponent(nodeName)}/storage`).catch(() => []),
+    readLatestNodeNetworkRates(nodeName),
   ]);
 
   return {
@@ -247,6 +269,8 @@ export async function getNodeDetailByName(nodeName: string): Promise<NodeDetail 
     memoryTotal: asNumber(resource.maxmem),
     diskUsed: asNumber(resource.disk),
     diskTotal: asNumber(resource.maxdisk),
+    networkInBytesPerSecond: latestNetworkRates.netIn,
+    networkOutBytesPerSecond: latestNetworkRates.netOut,
     uptimeSeconds: asNumber(resource.uptime),
     summary: {
       workloads: workloads.length,

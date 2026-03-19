@@ -58,6 +58,10 @@ function buildWorkloadConsoleHref(kind: WorkloadKind, vmid: number, mode?: "cons
   return `/console/workload/lxc/${vmid}`;
 }
 
+function formatRate(value: number) {
+  return `${formatBytes(value)}/s`;
+}
+
 export async function generateMetadata({ params }: WorkloadPageProps): Promise<Metadata> {
   const resolved = await readParams(params);
   return {
@@ -257,6 +261,12 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
                 }}
               />
             </div>
+          </div>
+          <div className="inventory-metric-card">
+            <span className="muted">Réseau</span>
+            <strong>
+              In {formatRate(detail.networkInBytesPerSecond)} • Out {formatRate(detail.networkOutBytesPerSecond)}
+            </strong>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Uptime</span>

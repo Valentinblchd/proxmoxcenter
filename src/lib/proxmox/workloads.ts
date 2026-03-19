@@ -22,6 +22,11 @@ type ProxmoxClusterResource = {
   template?: number;
 };
 
+type ProxmoxRrdPoint = {
+  netin?: number;
+  netout?: number;
+};
+
 const WORKLOAD_DETAIL_TIMEOUT_MS = 2200;
 const WORKLOAD_GUEST_TIMEOUT_MS = 1600;
 
@@ -99,6 +104,8 @@ export type WorkloadDetail = {
   memoryTotal: number;
   diskUsed: number;
   diskTotal: number;
+  networkInBytesPerSecond: number;
+  networkOutBytesPerSecond: number;
   uptimeSeconds: number;
   tags: string[];
   bios: string | null;
@@ -411,6 +418,23 @@ function parseSnapshots(payload: unknown) {
     .filter((item): item is WorkloadSnapshotDetail => item !== null);
 }
 
+async function readLatestWorkloadNetworkRates(node: string, kind: WorkloadKind, vmid: number) {
+  const history = await withTimeout(
+    proxmoxRequest<ProxmoxRrdPoint[]>(
+      `nodes/${encodeURIComponent(node)}/${kind}/${vmid}/rrddata?timeframe=hour&cf=AVERAGE`,
+    ).catch(() => []),
+    WORKLOAD_DETAIL_TIMEOUT_MS,
+  );
+  const point = Array.isArray(history)
+    ? [...history].reverse().find((entry) => typeof entry.netin === "number" || typeof entry.netout === "number")
+    : null;
+
+  return {
+    netIn: point && typeof point.netin === "number" && Number.isFinite(point.netin) ? Math.max(0, point.netin) : 0,
+    netOut: point && typeof point.netout === "number" && Number.isFinite(point.netout) ? Math.max(0, point.netout) : 0,
+  };
+}
+
 export async function getWorkloadDetailById(options: {
   kind: WorkloadKind;
   vmid: number;
@@ -464,6 +488,7 @@ export async function getWorkloadDetailById(options: {
     prefetchedConfig: configResult,
     prefetchedCurrent: currentResult,
   });
+  const networkRates = await readLatestWorkloadNetworkRates(node, options.kind, options.vmid);
 
   const config = configResult;
   const navigationIndex = navigationItems.findIndex(
@@ -487,6 +512,8 @@ export async function getWorkloadDetailById(options: {
     memoryTotal: asNumber(resource.maxmem),
     diskUsed: asNumber(resource.disk),
     diskTotal: asNumber(resource.maxdisk),
+    networkInBytesPerSecond: networkRates.netIn,
+    networkOutBytesPerSecond: networkRates.netOut,
     uptimeSeconds: asNumber(resource.uptime),
     tags: [options.kind === "qemu" ? "qemu" : "lxc"],
     bios: asString(config?.bios) ?? null,

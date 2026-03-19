@@ -967,7 +967,7 @@ export default function ProvisioningStudio({
                   <FieldRow
                     label="URL du fichier ISO"
                     hint="HTTPS direct, sans query, terminée par .iso"
-                    className="provision-field-span-2"
+                    className="provision-field-span-full"
                   >
                     <input
                       className="provision-input"
@@ -1000,7 +1000,7 @@ export default function ProvisioningStudio({
                   </FieldRow>
 
                   {draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl) ? (
-                    <p className="provision-inline-hint warning-text provision-field-span-2">
+                    <p className="provision-inline-hint warning-text provision-field-span-full">
                       URL refusée: seuls les liens HTTPS directs, sans querystring, vers un fichier se terminant par <code>.iso</code> sont acceptés.
                     </p>
                   ) : null}
