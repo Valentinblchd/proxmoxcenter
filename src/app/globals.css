@@ -1218,6 +1218,10 @@ code {
   gap: 0.35rem;
 }
 
+.backup-config-subtabs {
+  margin-top: 0.15rem;
+}
+
 .backup-alert-stack {
   display: grid;
   gap: 0.45rem;
@@ -4169,6 +4173,10 @@ select.inventory-node-filter option {
   grid-template-columns: repeat(3, minmax(0, 1fr));
 }
 
+.workload-support-grid {
+  grid-template-columns: minmax(0, 1.2fr) minmax(320px, 0.8fr);
+}
+
 .sync-alert-tray {
   position: fixed;
   left: max(16px, env(safe-area-inset-left, 0px) + 16px);
@@ -4911,6 +4919,34 @@ select.inventory-node-filter option {
   gap: 0.8rem;
 }
 
+.observability-history-explorer {
+  display: grid;
+  gap: 0.8rem;
+}
+
+.observability-history-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.8rem;
+  flex-wrap: wrap;
+}
+
+.observability-history-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.45rem;
+}
+
+.observability-history-kpis {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.observability-history-list {
+  max-height: 560px;
+  overflow: auto;
+}
+
 .observability-range-tabs {
   flex-wrap: wrap;
 }
@@ -5452,6 +5488,7 @@ select.inventory-node-filter option {
   }
 
   .workload-hero,
+  .workload-support-grid,
   .workload-grid,
   .theme-background-grid,
   .theme-grid {
@@ -5511,6 +5548,10 @@ select.inventory-node-filter option {
 
   .greenit-history-kpis {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .observability-history-kpis {
+    grid-template-columns: 1fr;
   }
 
   .provision-media-grid {

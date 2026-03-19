@@ -282,32 +282,34 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </div>
       </section>
 
-      <section className="panel">
-        <InventoryRemoteAccess
-          key={detail.id}
-          kind={detail.kind}
-          osFamily={detail.remoteAccess.osFamily}
-          osLabel={detail.remoteAccess.osLabel}
-          primaryIp={detail.remoteAccess.primaryIp}
-          guestIps={detail.remoteAccess.guestIps}
-          bridge={detail.remoteAccess.bridge}
-          vlanTag={detail.remoteAccess.vlanTag}
-          running={detail.remoteAccess.running}
-          reason={detail.remoteAccess.reason}
-          consoleHref={consoleHref}
-          consoleOptions={consoleOptions}
-        />
-      </section>
+      <section className="content-grid workload-support-grid">
+        <section className="panel">
+          <InventoryRemoteAccess
+            key={detail.id}
+            kind={detail.kind}
+            osFamily={detail.remoteAccess.osFamily}
+            osLabel={detail.remoteAccess.osLabel}
+            primaryIp={detail.remoteAccess.primaryIp}
+            guestIps={detail.remoteAccess.guestIps}
+            bridge={detail.remoteAccess.bridge}
+            vlanTag={detail.remoteAccess.vlanTag}
+            running={detail.remoteAccess.running}
+            reason={detail.remoteAccess.reason}
+            consoleHref={consoleHref}
+            consoleOptions={consoleOptions}
+          />
+        </section>
 
-      <section className="panel">
-        <InventoryUpdateStatus
-          live={true}
-          node={detail.node}
-          vmid={detail.vmid}
-          kind={detail.kind}
-          status={detail.status === "running" ? "running" : "stopped"}
-          shellHref={updateShellHref}
-        />
+        <section className="panel">
+          <InventoryUpdateStatus
+            live={true}
+            node={detail.node}
+            vmid={detail.vmid}
+            kind={detail.kind}
+            status={detail.status === "running" ? "running" : "stopped"}
+            shellHref={updateShellHref}
+          />
+        </section>
       </section>
 
       <InventoryWorkloadConfigEditor

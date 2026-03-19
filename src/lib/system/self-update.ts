@@ -112,7 +112,7 @@ const DEFAULT_AVAILABILITY: SelfUpdateAvailability = {
   serviceImage: null,
 };
 
-const AVAILABILITY_TTL_MS = 15 * 60_000;
+const AVAILABILITY_TTL_MS = 10 * 60_000;
 const DOCKER_SOCKET_PATH = "/var/run/docker.sock";
 const DOCKER_REGISTRY_AUTH = Buffer.from("{}", "utf8").toString("base64");
 

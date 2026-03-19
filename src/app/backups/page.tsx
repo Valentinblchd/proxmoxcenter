@@ -30,11 +30,14 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
     requestedTab === "config" ||
     requestedTab === "history" ||
     requestedTab === "restore" ||
-    requestedTab === "pbs"
-      ? requestedTab
-      : requestedTab === "plans" || requestedTab === "targets"
+    requestedTab === "pbs" ||
+    requestedTab === "plans" ||
+    requestedTab === "targets"
+      ? requestedTab === "plans" || requestedTab === "targets"
         ? "config"
+        : requestedTab
       : "overview";
+  const initialConfigTab = requestedTab === "plans" ? "plans" : "targets";
 
   const snapshot = await getDashboardSnapshot();
   const cookieStore = await cookies();
@@ -57,7 +60,7 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
 
       <PlatformStateAlerts live={snapshot.mode === "live"} warnings={snapshot.warnings} />
 
-      <BackupPlannerPanel initialTab={initialTab} canOperate={canOperate} />
+      <BackupPlannerPanel initialTab={initialTab} initialConfigTab={initialConfigTab} canOperate={canOperate} />
     </section>
   );
 }

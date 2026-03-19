@@ -49,6 +49,7 @@ type UpdateOverview = {
 };
 
 const EXPECTED_CONFIRM = "UPDATE PROXMOXCENTER";
+const AUTO_UPDATE_CHECK_MS = 10 * 60_000;
 
 function statusLabel(status: UpdateStatus | null | undefined) {
   switch (status) {
@@ -159,10 +160,10 @@ export default function SelfUpdateSettingsPanel() {
     }
 
     const timer = window.setInterval(() => {
-      void loadOverview().catch((requestError) => {
+      void loadOverview(true).catch((requestError) => {
         setError(requestError instanceof Error ? requestError.message : "Erreur update.");
       });
-    }, 5 * 60_000);
+    }, AUTO_UPDATE_CHECK_MS);
     return () => {
       window.clearInterval(timer);
     };
@@ -288,6 +289,10 @@ export default function SelfUpdateSettingsPanel() {
                 ? new Date(overview.availability.checkedAt).toLocaleString()
                 : "Jamais"}
             </strong>
+          </div>
+          <div className="row-line">
+            <span>Check auto</span>
+            <strong>Toutes les 10 min</strong>
           </div>
           {overview.availability.serviceImage ? (
             <div className="row-line">

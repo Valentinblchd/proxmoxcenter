@@ -4,6 +4,7 @@ import InventoryRefreshButton from "@/components/inventory-refresh-button";
 import GreenItCalibrationPanel from "@/components/greenit-calibration-panel";
 import GreenItHistoryExplorer from "@/components/greenit-history-explorer";
 import HardwareMonitorStatusPanel from "@/components/hardware-monitor-status-panel";
+import ObservabilityHistoryExplorer from "@/components/observability-history-explorer";
 import ObservabilityTrendPanel from "@/components/observability-trend-panel";
 import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
@@ -481,6 +482,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               toneClass="tone-red"
             />
           </div>
+          <ObservabilityHistoryExplorer points={historySeries.points} rangeLabel={historySeries.range.label} />
         </section>
       ) : null}
 
@@ -911,11 +913,19 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             </>
           ) : (
             <div className="stack-sm">
-              <p className="muted">
-                {hardwareMonitorConfig?.enabled
-                  ? "Le BMC/iLO est configuré mais aucune métrique n’a pu être lue depuis Redfish."
-                  : "Configure la sonde serveur dans Paramètres → Proxmox → Sonde serveur avec l’hôte iLO/Redfish, un compte lecture seule, le mot de passe et le nœud associé pour remonter automatiquement température, CPU, RAM, disques et power meter."}
-              </p>
+              {hardwareMonitorConfig?.enabled ? (
+                <p className="muted">Le BMC/iLO est configuré mais aucune métrique Redfish n’a pu être lue.</p>
+              ) : (
+                <div className="hint-box">
+                  <div className="item-title">Activer la sonde serveur</div>
+                  <div className="item-subtitle">
+                    Paramètres → Proxmox → Sonde serveur
+                  </div>
+                  <div className="item-subtitle">
+                    Renseigne l’hôte iLO/Redfish, un compte lecture seule, le mot de passe et le nœud associé.
+                  </div>
+                </div>
+              )}
               <div className="quick-actions">
                 <Link href="/settings?tab=proxmox" className="action-btn">
                   Ouvrir Paramètres
