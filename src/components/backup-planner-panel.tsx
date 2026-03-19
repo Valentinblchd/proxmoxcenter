@@ -3015,8 +3015,17 @@ export default function BackupPlannerPanel({
         </div>
 
         {loading ? (
-          <div className="hint-box">
-            <p className="muted">Chargement de la configuration backup...</p>
+          <div className="empty-state-card" role="status" aria-live="polite">
+            <p className="empty-state-title">Chargement des sauvegardes</p>
+            <p className="empty-state-description">
+              Lecture de la configuration, de l’historique et des exécutions en cours.
+            </p>
+            <div className="inline-loader">
+              <span className="inline-loader-dots" aria-hidden="true">
+                <span />
+              </span>
+              <span className="inline-loader-label">Synchronisation des données</span>
+            </div>
           </div>
         ) : null}
       </section>

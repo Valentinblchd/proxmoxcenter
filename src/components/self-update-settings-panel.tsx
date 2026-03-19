@@ -267,7 +267,14 @@ export default function SelfUpdateSettingsPanel() {
         </span>
       </div>
 
-      {loading ? <p className="muted">Chargement...</p> : null}
+      {loading ? (
+        <div className="inline-loader" role="status" aria-live="polite">
+          <span className="inline-loader-dots" aria-hidden="true">
+            <span />
+          </span>
+          <span className="inline-loader-label">Chargement de l’état de mise à jour</span>
+        </div>
+      ) : null}
 
       {!loading && overview ? (
         <>

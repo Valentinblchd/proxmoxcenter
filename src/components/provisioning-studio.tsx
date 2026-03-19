@@ -768,7 +768,12 @@ export default function ProvisioningStudio({
           </div>
 
           {isLoadingOptions ? (
-            <p className="muted">Chargement des options de création...</p>
+            <div className="inline-loader" role="status" aria-live="polite">
+              <span className="inline-loader-dots" aria-hidden="true">
+                <span />
+              </span>
+              <span className="inline-loader-label">Chargement des options de création</span>
+            </div>
           ) : null}
 
           {optionsError ? <p className="warning">{optionsError}</p> : null}
