@@ -64,8 +64,9 @@ function formatRate(value: number) {
 
 export async function generateMetadata({ params }: WorkloadPageProps): Promise<Metadata> {
   const resolved = await readParams(params);
+  const label = resolved.kind === "qemu" ? "VM" : resolved.kind === "lxc" ? "Conteneur" : "Ressource";
   return {
-    title: `Workload ${resolved.kind}/${resolved.vmid} | ProxCenter`,
+    title: `${label} ${resolved.vmid} | ProxmoxCenter`,
   };
 }
 
@@ -94,11 +95,11 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             <nav className="inventory-breadcrumb" aria-label="Fil d’Ariane">
               <Link href="/inventory">Inventaire</Link>
               <span>›</span>
-              <span>Workload</span>
+              <span>VM / conteneur</span>
               <span>›</span>
               <span>Introuvable</span>
             </nav>
-            <h1>Workload indisponible</h1>
+            <h1>VM ou conteneur indisponible</h1>
           </div>
           <div className="topbar-meta">
             <span className="pill">Introuvable</span>
@@ -106,7 +107,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </header>
 
         <section className="panel">
-          <p className="muted">Impossible de charger cette VM/CT. Vérifie la connexion Proxmox ou le VMID.</p>
+          <p className="muted">Impossible de charger cette ressource. Vérifie la connexion Proxmox ou le VMID.</p>
         </section>
       </section>
     );
@@ -155,6 +156,27 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
     detail.kind === "lxc"
       ? buildWorkloadConsoleHref(detail.kind, detail.vmid)
       : buildWorkloadConsoleHref(detail.kind, detail.vmid, "console");
+  const workloadHeroStyle = {
+    gridTemplateColumns: "minmax(0, 0.98fr) minmax(0, 1.02fr)",
+    alignItems: "stretch",
+  };
+  const workloadHeroStatsStyle = {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  };
+  const workloadSupportStyle = {
+    gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 0.9fr)",
+  };
+  const workloadDetailGridStyle = {
+    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  };
+  const consoleSummary = detail.kind === "qemu" ? "noVNC / série / SPICE" : "xtermjs";
+  const networkSummary = [
+    detail.remoteAccess.primaryIp ? `IP ${detail.remoteAccess.primaryIp}` : null,
+    detail.remoteAccess.bridge ?? null,
+    detail.remoteAccess.vlanTag ? `VLAN ${detail.remoteAccess.vlanTag}` : null,
+  ]
+    .filter(Boolean)
+    .join(" • ");
 
   return (
     <section className="content content-wide workload-page">
@@ -204,29 +226,41 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </div>
       </header>
 
-      <section className="panel workload-hero">
+      <section className="panel workload-hero" style={workloadHeroStyle}>
         <div className="workload-hero-copy">
           <div className="row-line">
             <span>Nœud</span>
             <strong>{detail.node}</strong>
           </div>
           <div className="row-line">
+            <span>État</span>
+            <strong>{detail.status === "running" ? "En marche" : "Arrêtée"}</strong>
+          </div>
+          <div className="row-line">
             <span>OS</span>
             <strong>{detail.remoteAccess.osLabel ?? detail.ostype ?? "—"}</strong>
           </div>
           <div className="row-line">
-            <span>BIOS / Machine</span>
-            <strong>
-              {[detail.bios, detail.machine].filter(Boolean).join(" / ") || "—"}
-            </strong>
+            <span>Réseau principal</span>
+            <strong>{networkSummary || "Aucune IP détectée"}</strong>
           </div>
           <div className="row-line">
-            <span>CPU</span>
-            <strong>{formatPercent(detail.cpuLoad)}</strong>
+            <span>BIOS / Machine</span>
+            <strong>{[detail.bios, detail.machine].filter(Boolean).join(" / ") || "—"}</strong>
+          </div>
+          <div className="row-line">
+            <span>Uptime</span>
+            <strong>{detail.uptimeSeconds > 0 ? formatUptime(detail.uptimeSeconds) : "—"}</strong>
+          </div>
+          <div className="row-line">
+            <span>Agent invité</span>
+            <strong>
+              {detail.agentEnabled === null ? "—" : detail.agentEnabled ? "Actif" : "Inactif"}
+            </strong>
           </div>
         </div>
 
-        <div className="workload-hero-stats">
+        <div className="workload-hero-stats" style={workloadHeroStatsStyle}>
           <div className="inventory-metric-card">
             <span className="muted">CPU</span>
             <strong>{formatPercent(detail.cpuLoad)}</strong>
@@ -263,20 +297,14 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             </div>
           </div>
           <div className="inventory-metric-card">
-            <span className="muted">Réseau</span>
+            <span className="muted">Débit réseau</span>
             <strong>
               In {formatRate(detail.networkInBytesPerSecond)} • Out {formatRate(detail.networkOutBytesPerSecond)}
             </strong>
           </div>
           <div className="inventory-metric-card">
-            <span className="muted">Uptime</span>
-            <strong>{detail.uptimeSeconds > 0 ? formatUptime(detail.uptimeSeconds) : "—"}</strong>
-          </div>
-          <div className="inventory-metric-card">
-            <span className="muted">Guest agent</span>
-            <strong>
-              {detail.agentEnabled === null ? "—" : detail.agentEnabled ? "Actif" : "Inactif"}
-            </strong>
+            <span className="muted">Console</span>
+            <strong>{consoleSummary}</strong>
           </div>
         </div>
 
@@ -292,7 +320,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </div>
       </section>
 
-      <section className="content-grid workload-support-grid">
+      <section className="content-grid workload-support-grid" style={workloadSupportStyle}>
         <section className="panel">
           <InventoryRemoteAccess
             key={detail.id}
@@ -339,7 +367,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         diskSizeGb={diskSizeGb}
       />
 
-      <section className="workload-grid">
+      <section className="workload-grid" style={workloadDetailGridStyle}>
         <section className="panel">
           <div className="panel-head">
             <h2>Configuration</h2>
@@ -421,7 +449,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </section>
       </section>
 
-      <section className="panel">
+      <section className="panel" style={{ gridColumn: "1 / -1" }}>
         <div className="panel-head">
           <h2>Snapshots</h2>
           <span className="muted">{detail.snapshots.length}</span>
