@@ -226,7 +226,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const testOnly = asBoolean(body.testOnly, false);
@@ -282,7 +282,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: error instanceof Error ? error.message : "Failed to reach Proxmox API.",
+          error: error instanceof Error ? error.message : "Impossible de joindre l’API Proxmox.",
         },
         { status: 502 },
       );
@@ -313,7 +313,7 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         {
           ok: false,
-          error: error instanceof Error ? error.message : "Failed to save config.",
+          error: error instanceof Error ? error.message : "Impossible d’enregistrer la configuration.",
         },
         { status: 500 },
       );

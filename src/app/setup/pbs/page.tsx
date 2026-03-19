@@ -3,7 +3,7 @@ import Link from "next/link";
 import PbsConnectionForm from "@/components/pbs-connection-form";
 
 export const metadata: Metadata = {
-  title: "Connexion PBS | ProxCenter",
+  title: "Connexion PBS | ProxmoxCenter",
   description: "Configurer Proxmox Backup Server pour les imports directs depuis le cloud.",
 };
 

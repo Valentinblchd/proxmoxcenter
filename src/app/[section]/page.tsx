@@ -27,12 +27,12 @@ export async function generateMetadata({
 
   if (!config) {
     return {
-      title: "Page introuvable | ProxCenter",
+      title: "Page introuvable | ProxmoxCenter",
     };
   }
 
   return {
-    title: `${config.label} | ProxCenter`,
+    title: `${config.label} | ProxmoxCenter`,
     description: config.description,
   };
 }
@@ -99,7 +99,7 @@ export default async function SectionPage({ params }: SectionPageProps) {
               <strong>{snapshot.summary.cts}</strong>
             </div>
             <div className="row-line">
-              <span>Workloads actifs</span>
+              <span>VM et conteneurs actifs</span>
               <strong className={snapshot.summary.running > 0 ? "status-good" : undefined}>
                 {snapshot.summary.running}
               </strong>

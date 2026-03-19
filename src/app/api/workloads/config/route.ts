@@ -137,7 +137,7 @@ export async function POST(request: NextRequest) {
 
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Accès refusé." }, { status: 403 });
   }
 
   const gate = consumeRateLimit(`workloads:config:${getClientIp(request)}`, UPDATE_LIMIT);
@@ -156,7 +156,7 @@ export async function POST(request: NextRequest) {
   const kind = asNonEmptyString(body.kind, 16);
   const vmid = asInt(body.vmid);
   if (!node || !kind || vmid === null || !NODE_NAME_PATTERN.test(node) || !VALID_KINDS.has(kind) || vmid < 1 || vmid > 9_999_999) {
-    return NextResponse.json({ ok: false, error: "Workload invalide." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "VM ou conteneur invalide." }, { status: 400 });
   }
 
   const typedKind = kind as "qemu" | "lxc";

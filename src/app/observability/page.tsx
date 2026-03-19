@@ -943,7 +943,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="greenit-hero">
               <div className="greenit-hero-left">
                 <div>
-                  <h2>Puissance & impact</h2>
+                  <h2>Mesure en direct</h2>
                   <div className="muted">{greenit.metrics.powerSourceLabel}</div>
                 </div>
               </div>
@@ -981,7 +981,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.effectivePowerWatts} W</strong>
               </article>
               <article className="advisor-kpi-card">
-                <span className="stat-label">Conso annuelle</span>
+                <span className="stat-label">Consommation annuelle</span>
                 <strong>{greenit.metrics.annualKwh} kWh</strong>
               </article>
               <article className="advisor-kpi-card">
@@ -992,7 +992,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
             <div className="stack-sm">
               <div className="row-line">
-                <span>Source puissance</span>
+                <span>Source de mesure</span>
                 <strong>{greenit.metrics.powerSourceLabel}</strong>
               </div>
               <div className="row-line">
@@ -1004,7 +1004,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.annualCo2Kg} kg</strong>
               </div>
               <div className="row-line">
-                <span>Conso projetée</span>
+                <span>Projection</span>
                 <strong>{dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
               </div>
             </div>
@@ -1029,13 +1029,13 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{monthlyCost} €</strong>
               </article>
               <article className="advisor-kpi-card">
-                <span className="stat-label">Coût / an</span>
+                <span className="stat-label">Coût annuel</span>
                 <strong>{greenit.metrics.annualCost} €</strong>
               </article>
             </div>
             <div className="stack-sm">
               <div className="row-line">
-                <span>Mode coût</span>
+                <span>Mode de coût</span>
                 <strong>
                   {greenit.config.electricityBillingMode === "full-bill" ? "Facture complète" : "Énergie seule"}
                   {greenit.config.annualSubscriptionEur !== null
@@ -1060,12 +1060,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Thermique & sonde</h2>
+              <h2>Thermique et sonde</h2>
               <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
             </div>
             <div className="advisor-kpi-grid hardware-kpi-grid">
               <article className="advisor-kpi-card">
-                <span className="stat-label">Temp serveur</span>
+                <span className="stat-label">Température du serveur</span>
                 <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "—"}</strong>
               </article>
               <article className="advisor-kpi-card">
@@ -1077,7 +1077,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "—"}</strong>
               </article>
               <article className="advisor-kpi-card">
-                <span className="stat-label">Ambiant power meter</span>
+                <span className="stat-label">Sonde ambiante du serveur</span>
                 <strong>{hardwareSnapshot?.summary.ambientTemperatureC !== null && hardwareSnapshot?.summary.ambientTemperatureC !== undefined ? `${hardwareSnapshot.summary.ambientTemperatureC.toFixed(1)}°C` : "—"}</strong>
               </article>
             </div>
@@ -1116,7 +1116,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       {activeTab === "greenit" ? (
         <section className="panel">
           <div className="panel-head">
-            <h2>Projection mensuelle</h2>
+              <h2>Projection et archives</h2>
             <span className="muted">{greenitHistory.days.length} archive(s) disponibles</span>
           </div>
 

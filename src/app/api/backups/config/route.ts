@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { NextRequest, NextResponse } from "next/server";
-import { requireRequestCapability } from "@/lib/auth/authz";
+import { getSessionFromRequest, requireRequestCapability } from "@/lib/auth/authz";
+import { hasRuntimeCapability } from "@/lib/auth/rbac";
 import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
 import { getCentralCloudOauthProviderStatus } from "@/lib/backups/cloud-oauth-broker";
 import { getPublicCloudOauthAppStatus } from "@/lib/backups/oauth-app-config";
@@ -195,7 +196,7 @@ function readList(value: unknown) {
   return Array.isArray(value) ? value : [];
 }
 
-function toPublicTarget(target: RuntimeBackupCloudTarget) {
+function toPublicTarget(target: RuntimeBackupCloudTarget, includeSettings: boolean) {
   const secretState = Object.fromEntries(
     Object.keys(target.secrets).map((key) => [key, true]),
   ) as Record<string, boolean>;
@@ -205,7 +206,7 @@ function toPublicTarget(target: RuntimeBackupCloudTarget) {
     provider: target.provider,
     name: target.name,
     enabled: target.enabled,
-    settings: target.settings,
+    settings: includeSettings ? target.settings : {},
     secretState,
     createdAt: target.createdAt,
     updatedAt: target.updatedAt,
@@ -218,6 +219,7 @@ function buildPayload(
   mode: "offline" | "live",
   warnings: string[],
   localStorages: LocalBackupStorageMetrics[],
+  includeSensitive = true,
 ) {
   const runtimeState = readRuntimeBackupState();
   const brokerOauth = getCentralCloudOauthProviderStatus();
@@ -254,8 +256,8 @@ function buildPayload(
           brokerOauth.mode === "central" ? null : oauthApps.gdrive.daysUntilSecretExpiry,
       },
     },
-    plans: config.plans,
-    cloudTargets: config.cloudTargets.map((target) => toPublicTarget(target)),
+    plans: includeSensitive ? config.plans : [],
+    cloudTargets: config.cloudTargets.map((target) => toPublicTarget(target, includeSensitive)),
     workloads: workloads.map((item) => ({
       id: item.id,
       vmid: item.vmid,
@@ -265,8 +267,7 @@ function buildPayload(
       status: item.status,
     })),
     updatedAt: config.updatedAt,
-    engine: getBackupEngineStatus(),
-    state: runtimeState,
+    ...(includeSensitive ? { engine: getBackupEngineStatus(), state: runtimeState } : {}),
     localStorages,
   };
 }
@@ -278,10 +279,11 @@ function buildPayloadWithSpace(
   warnings: string[],
   localStorages: LocalBackupStorageMetrics[],
   spaceByTarget: Record<string, CloudTargetSpaceMetrics>,
+  includeSensitive = true,
 ) {
   return {
-    ...buildPayload(config, workloads, mode, warnings, localStorages),
-    spaceByTarget,
+    ...buildPayload(config, workloads, mode, warnings, localStorages, includeSensitive),
+    ...(includeSensitive ? { spaceByTarget } : { spaceByTarget: {} }),
   };
 }
 
@@ -467,7 +469,13 @@ function validateCloudTarget(input: CloudTargetInput, config: RuntimeBackupConfi
   } satisfies RuntimeBackupCloudTarget;
 }
 
-export async function GET() {
+export async function GET(request: NextRequest) {
+  const session = await getSessionFromRequest(request);
+  if (!session) {
+    return NextResponse.json({ ok: false, error: "Authentification requise." }, { status: 401 });
+  }
+
+  const includeSensitive = hasRuntimeCapability(session.role, "operate");
   ensureBackupEngineStarted();
   const config = readRuntimeBackupConfig();
   const snapshot = await getDashboardSnapshot();
@@ -483,6 +491,7 @@ export async function GET() {
       warnings,
       localStorageState.storages,
       spaceByTarget,
+      includeSensitive,
     ),
   );
 }
@@ -513,7 +522,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as ConfigBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const action = asAction(body.action);

@@ -28,7 +28,7 @@ export default async function HomePage() {
       <header className="topbar">
         <div>
           <p className="eyebrow">Accueil</p>
-          <h1>ProxCenter</h1>
+          <h1>ProxmoxCenter</h1>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
@@ -81,7 +81,7 @@ export default async function HomePage() {
               <strong>{snapshot.summary.cts}</strong>
             </div>
             <div className="row-line">
-              <span>Workloads actifs</span>
+              <span>VM et conteneurs actifs</span>
               <strong>{snapshot.summary.running}</strong>
             </div>
           </div>

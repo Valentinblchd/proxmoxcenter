@@ -30,7 +30,7 @@ export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
-      { error: "Forbidden", details: originCheck.reason },
+      { error: "Accès refusé.", details: originCheck.reason },
       { status: 403 },
     );
   }

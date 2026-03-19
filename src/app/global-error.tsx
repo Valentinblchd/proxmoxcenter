@@ -23,7 +23,7 @@ export default function GlobalError({
           standalone
           eyebrow="Erreur critique"
           code="500"
-          title="ProxCenter a dû s’arrêter ici"
+          title="ProxmoxCenter a dû s’arrêter ici"
           description="Une erreur plus large a empêché l’application de finir le rendu normalement."
           detail={
             error.digest ? (

@@ -91,9 +91,9 @@ export default function SelfUpdateSettingsPanel() {
   const previousStatusRef = useRef<UpdateStatus | null>(null);
   const currentStatusRef = useRef<UpdateStatus | null>(null);
 
-  const loadOverview = useCallback(async (refreshAvailability = false) => {
+  const loadOverview = useCallback(async () => {
     try {
-      const response = await fetch(`/api/system/self-update${refreshAvailability ? "?refresh=1" : ""}`, {
+      const response = await fetch("/api/system/self-update", {
         cache: "no-store",
       });
       const payload = (await response.json().catch(() => ({}))) as UpdateOverview;
@@ -113,12 +113,39 @@ export default function SelfUpdateSettingsPanel() {
     }
   }, []);
 
+  const refreshAvailability = useCallback(async () => {
+    try {
+      const response = await fetch("/api/system/self-update", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Accept: "application/json",
+        },
+        body: JSON.stringify({ action: "refresh" }),
+      });
+      const payload = (await response.json().catch(() => ({}))) as UpdateOverview;
+      if (!response.ok || payload.ok === false) {
+        throw new Error(payload.error || "Impossible de vérifier les mises à jour.");
+      }
+      setOverview(payload);
+      setError("");
+      setOfflineDuringRestart(false);
+      return payload;
+    } catch (requestError) {
+      if (currentStatusRef.current === "running") {
+        setOfflineDuringRestart(true);
+        return null;
+      }
+      throw requestError;
+    }
+  }, []);
+
   const currentStatus = overview?.current?.status ?? null;
 
   useEffect(() => {
     let disposed = false;
     setLoading(true);
-    loadOverview(true)
+    refreshAvailability()
       .catch((requestError) => {
         if (disposed) return;
         setError(requestError instanceof Error ? requestError.message : "Erreur de chargement.");
@@ -130,7 +157,7 @@ export default function SelfUpdateSettingsPanel() {
     return () => {
       disposed = true;
     };
-  }, [loadOverview]);
+  }, [refreshAvailability]);
 
   useEffect(() => {
     currentStatusRef.current = currentStatus;
@@ -160,14 +187,14 @@ export default function SelfUpdateSettingsPanel() {
     }
 
     const timer = window.setInterval(() => {
-      void loadOverview(true).catch((requestError) => {
+      void refreshAvailability().catch((requestError) => {
         setError(requestError instanceof Error ? requestError.message : "Erreur update.");
       });
     }, AUTO_UPDATE_CHECK_MS);
     return () => {
       window.clearInterval(timer);
     };
-  }, [currentStatus, loadOverview]);
+  }, [currentStatus, loadOverview, refreshAvailability]);
 
   useEffect(
     () => () => {
@@ -192,7 +219,7 @@ export default function SelfUpdateSettingsPanel() {
         ? "Déjà à jour"
         : "Mettre à jour";
 
-  async function postAction(action: "start" | "reset", confirmationText?: string) {
+  async function postAction(action: "start" | "reset" | "refresh", confirmationText?: string) {
     setBusy(true);
     setError("");
     try {
@@ -245,31 +272,11 @@ export default function SelfUpdateSettingsPanel() {
       {!loading && overview ? (
         <>
           <div className="row-line">
-            <span>Mode update UI</span>
+            <span>Mise à jour depuis l’interface</span>
             <strong>{overview.enabled ? "Activé" : "Désactivé"}</strong>
           </div>
           <div className="row-line">
-            <span>Docker socket</span>
-            <strong className={overview.prerequisites.dockerSocketAvailable ? "status-good" : "status-bad"}>
-              {overview.prerequisites.dockerSocketAvailable ? "Monté" : "Absent"}
-            </strong>
-          </div>
-          <div className="row-line">
-            <span>Docker CLI</span>
-            <strong className={overview.prerequisites.dockerCliAvailable ? "status-good" : "status-bad"}>
-              {overview.prerequisites.dockerCliAvailable ? "Disponible" : "Absent"}
-            </strong>
-          </div>
-          <div className="row-line">
-            <span>Branche</span>
-            <strong>{overview.config.branch}</strong>
-          </div>
-          <div className="row-line">
-            <span>Service compose</span>
-            <strong>{overview.config.service}</strong>
-          </div>
-          <div className="row-line">
-            <span>Détection updates</span>
+            <span>Détection des mises à jour</span>
             <strong
               className={
                 overview.availability.status === "update-available"
@@ -283,7 +290,7 @@ export default function SelfUpdateSettingsPanel() {
             </strong>
           </div>
           <div className="row-line">
-            <span>Dernier check</span>
+            <span>Dernière vérification</span>
             <strong>
               {overview.availability.checkedAt
                 ? new Date(overview.availability.checkedAt).toLocaleString()
@@ -291,15 +298,9 @@ export default function SelfUpdateSettingsPanel() {
             </strong>
           </div>
           <div className="row-line">
-            <span>Check auto</span>
+            <span>Vérification automatique</span>
             <strong>Toutes les 10 min</strong>
           </div>
-          {overview.availability.serviceImage ? (
-            <div className="row-line">
-              <span>Image service</span>
-              <strong>{overview.availability.serviceImage}</strong>
-            </div>
-          ) : null}
           {overview.availability.currentRef ? (
             <div className="row-line">
               <span>Version active</span>
@@ -308,20 +309,51 @@ export default function SelfUpdateSettingsPanel() {
           ) : null}
           {overview.availability.availableRef ? (
             <div className="row-line">
-              <span>Version dispo</span>
+              <span>Version disponible</span>
               <strong>{overview.availability.availableRef}</strong>
             </div>
           ) : null}
-
           <div className="backup-alert info">
-            <strong>Détection</strong>
+            <strong>État</strong>
             <p>{overview.availability.message}</p>
           </div>
+
+          <details className="self-update-log-wrap">
+            <summary>Diagnostic technique</summary>
+            <div className="stack-sm">
+              <div className="row-line">
+                <span>Docker socket</span>
+                <strong className={overview.prerequisites.dockerSocketAvailable ? "status-good" : "status-bad"}>
+                  {overview.prerequisites.dockerSocketAvailable ? "Monté" : "Absent"}
+                </strong>
+              </div>
+              <div className="row-line">
+                <span>Docker CLI</span>
+                <strong className={overview.prerequisites.dockerCliAvailable ? "status-good" : "status-bad"}>
+                  {overview.prerequisites.dockerCliAvailable ? "Disponible" : "Absent"}
+                </strong>
+              </div>
+              <div className="row-line">
+                <span>Branche</span>
+                <strong>{overview.config.branch}</strong>
+              </div>
+              <div className="row-line">
+                <span>Service Compose</span>
+                <strong>{overview.config.service}</strong>
+              </div>
+              {overview.availability.serviceImage ? (
+                <div className="row-line">
+                  <span>Image du service</span>
+                  <strong>{overview.availability.serviceImage}</strong>
+                </div>
+              ) : null}
+            </div>
+          </details>
 
           {overview.current ? (
             <div className="mini-list-item">
               <div>
-                <div className="item-title">Job actuel: {overview.current.id}</div>
+                <div className="item-title">Mise à jour en cours: {overview.current.id}</div>
                 <div className="item-subtitle">
                   {overview.current.requestedBy ? `Demandé par ${overview.current.requestedBy}` : "Demandé par utilisateur admin"}
                   {overview.current.finishedAt ? ` • fini à ${new Date(overview.current.finishedAt).toLocaleString()}` : ""}
@@ -344,14 +376,10 @@ export default function SelfUpdateSettingsPanel() {
             <button
               type="button"
               className="action-btn"
-              onClick={() =>
-                void loadOverview(true).catch((requestError) =>
-                  setError(requestError instanceof Error ? requestError.message : "Erreur"),
-                )
-              }
+              onClick={() => void postAction("refresh")}
               disabled={busy}
             >
-              Vérifier les updates
+              Vérifier les mises à jour
             </button>
             {overview.current && overview.current.status !== "running" ? (
               <button
@@ -365,8 +393,8 @@ export default function SelfUpdateSettingsPanel() {
             ) : null}
           </div>
 
-          <details className="self-update-log-wrap" open>
-            <summary>Logs update</summary>
+          <details className="self-update-log-wrap">
+            <summary>Journal de mise à jour</summary>
             <pre className="self-update-log">
               {overview.logs.length > 0 ? overview.logs.join("\n") : "Aucun log pour le moment."}
             </pre>

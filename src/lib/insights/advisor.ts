@@ -119,7 +119,7 @@ export function buildSecurityAdvisor(snapshot: DashboardSnapshot): SecurityAdvis
       category: "security",
       title: "Configurer un token API Proxmox dédié",
       rationale:
-        "Un token dédié permet de limiter les droits et d’auditer clairement les appels API de ProxCenter.",
+        "Un token dédié permet de limiter les droits et d’auditer clairement les appels API de ProxmoxCenter.",
       action:
         "Créer un token API minimal (rôle restreint) puis le renseigner dans Paramètres > Proxmox.",
     });

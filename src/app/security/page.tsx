@@ -14,7 +14,7 @@ import { readRuntimeProxmoxConfig } from "@/lib/proxmox/runtime-config";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { isConfiguredPublicOriginHttps } from "@/lib/security/request-guards";
 export const metadata: Metadata = {
-  title: "Sécurité | ProxCenter",
+  title: "Sécurité | ProxmoxCenter",
   description: "Sécurité plateforme, accès utilisateurs, sessions et journal sécurité.",
 };
 

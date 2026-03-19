@@ -260,6 +260,11 @@ export function writeRuntimeBackupState(state: BackupRuntimeState) {
   const filePath = getRuntimeBackupStatePath();
   ensureParentDirectory(filePath);
   const normalized = normalizeState(state);
-  fs.writeFileSync(filePath, `${JSON.stringify(normalized, null, 2)}\n`, "utf8");
+  fs.writeFileSync(filePath, `${JSON.stringify(normalized, null, 2)}\n`, { encoding: "utf8", mode: 0o600 });
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch {
+    // Ignore chmod issues on unsupported filesystems.
+  }
   return normalized;
 }

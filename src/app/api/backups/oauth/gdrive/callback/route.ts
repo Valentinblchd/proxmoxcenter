@@ -83,7 +83,7 @@ function renderPopup(payload: PopupPayload, nonce: string, status = 200) {
         const statusEl = document.getElementById("status");
         if (statusEl) {
           statusEl.textContent = payload.ok
-            ? "Refresh token transmis à ProxCenter. Cette fenêtre va se fermer."
+            ? "Refresh token transmis à ProxmoxCenter. Cette fenêtre va se fermer."
             : (payload.error || "Connexion refusée.");
         }
         try {

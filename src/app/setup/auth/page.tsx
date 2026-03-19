@@ -5,8 +5,8 @@ import AppAuthSetupForm from "@/components/app-auth-setup-form";
 import { getAuthStatus } from "@/lib/auth/session";
 
 export const metadata: Metadata = {
-  title: "Auth UI | ProxCenter",
-  description: "Configurer l’authentification locale de ProxCenter depuis l’interface",
+  title: "Authentification locale | ProxmoxCenter",
+  description: "Configurer l’authentification locale de ProxmoxCenter depuis l’interface",
 };
 
 export const dynamic = "force-dynamic";

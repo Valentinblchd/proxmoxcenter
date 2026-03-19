@@ -37,7 +37,7 @@ function asText(value: unknown) {
 function presentUpdateError(raw: string) {
   const text = raw.trim();
   if (/guest agent is not running/i.test(text)) {
-    return "Le guest agent n’est pas actif dans cette VM.";
+    return "L’agent invité n’est pas actif dans cette VM.";
   }
   if (/401|403|forbidden|unauthorized/i.test(text)) {
     return "Le scan a été refusé par Proxmox.";
@@ -87,7 +87,11 @@ export default function InventoryUpdateStatus({
       const payload = await requestScan(node, vmid, kind);
       setResult(payload);
     } catch (scanError) {
-      setError(scanError instanceof Error ? presentUpdateError(scanError.message) : "Erreur de scan MAJ.");
+      setError(
+        scanError instanceof Error
+          ? presentUpdateError(scanError.message)
+          : "Erreur lors de l’analyse des mises à jour.",
+      );
     } finally {
       setLoading(false);
     }
@@ -117,7 +121,11 @@ export default function InventoryUpdateStatus({
         setResult(payload);
       } catch (scanError) {
         if (!cancelled) {
-          setError(scanError instanceof Error ? presentUpdateError(scanError.message) : "Erreur de scan MAJ.");
+          setError(
+            scanError instanceof Error
+              ? presentUpdateError(scanError.message)
+              : "Erreur lors de l’analyse des mises à jour.",
+          );
         }
       } finally {
         if (!cancelled) {
@@ -185,12 +193,12 @@ export default function InventoryUpdateStatus({
       <div className="inventory-update-head">
         <div className="inventory-update-title">
           <span className="muted">Mises à jour OS</span>
-          <strong>{kind === "lxc" ? "CT / LXC" : "VM"}</strong>
+          <strong>{kind === "lxc" ? "Conteneur LXC" : "VM"}</strong>
         </div>
         <div className="inventory-update-actions">
           {shellHref && result?.scanMode === "manual-shell" ? (
             <a href={shellHref} className="inventory-ghost-btn">
-              Ouvrir console
+              Ouvrir la console
             </a>
           ) : null}
           <button
@@ -211,7 +219,7 @@ export default function InventoryUpdateStatus({
           <strong>{title}</strong>
           {pendingCount !== null ? (
             <span className={`inventory-update-count ${pendingCount > 0 ? "warn" : "ok"}`}>
-              {pendingCount} MAJ
+              {pendingCount} maj
             </span>
           ) : null}
         </div>

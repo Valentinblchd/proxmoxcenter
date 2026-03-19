@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { requireRequestCapability } from "@/lib/auth/authz";
 import { appendAuditLogEntry, buildAuditActor } from "@/lib/audit/runtime-log";
+import { consumeBootstrapCode, getBootstrapCodePath } from "@/lib/auth/bootstrap-code";
 import {
   AUTH_COOKIE_NAME,
   createSessionToken,
@@ -34,6 +35,7 @@ const AUTH_SETUP_POST_LIMIT = {
 } as const;
 
 type AuthSetupBody = {
+  bootstrapCode?: unknown;
   username?: unknown;
   email?: unknown;
   password?: unknown;
@@ -160,7 +162,17 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as AuthSetupBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
+  }
+
+  if (!authStatus.active && !consumeBootstrapCode(body.bootstrapCode)) {
+    return NextResponse.json(
+      {
+        ok: false,
+        error: `Code bootstrap invalide. Récupère-le sur le serveur dans ${getBootstrapCodePath()}.`,
+      },
+      { status: 403 },
+    );
   }
 
   const username = asNonEmptyString(body.username);
@@ -172,7 +184,7 @@ export async function POST(request: NextRequest) {
 
   if (!username || !password) {
     return NextResponse.json(
-      { ok: false, error: "Fields required: username, email, password." },
+      { ok: false, error: "Champs requis: username, email, password." },
       { status: 400 },
     );
   }
@@ -217,6 +229,7 @@ export async function POST(request: NextRequest) {
               email,
               passwordHash,
               passwordSalt,
+              sessionRevokedAt: now,
               updatedAt: now,
             }
           : user,

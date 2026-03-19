@@ -82,7 +82,7 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
     if (!originCheck.ok) {
       return new Response(
         JSON.stringify({
-          error: "Forbidden",
+          error: "Accès refusé.",
           details: originCheck.reason,
         }),
         {
@@ -100,7 +100,7 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
   if (!config) {
     return new Response(
       JSON.stringify({
-        error: "Proxmox credentials are not configured on the server.",
+        error: "Les identifiants Proxmox ne sont pas configurés sur le serveur.",
       }),
       {
         status: 500,
@@ -115,7 +115,7 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
   const { path } = await getParams(context);
   if (!path || path.length === 0) {
     return new Response(
-      JSON.stringify({ error: "Missing Proxmox API path." }),
+      JSON.stringify({ error: "Chemin API Proxmox manquant." }),
       {
         status: 400,
         headers: {
@@ -130,7 +130,7 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
   if (BLOCKED_UPSTREAM_PATHS.some((pattern) => pattern.test(joinedPath))) {
     return new Response(
       JSON.stringify({
-        error: "Forbidden",
+        error: "Accès refusé.",
         details: "Cette route Proxmox n’est pas exposée via ProxmoxCenter.",
       }),
       {
@@ -165,8 +165,8 @@ async function proxyRequest(request: NextRequest, context: RouteContext) {
   } catch (error) {
     return new Response(
       JSON.stringify({
-        error: "Failed to reach Proxmox API.",
-        details: error instanceof Error ? error.message : "Unknown error",
+        error: "Impossible de joindre l’API Proxmox.",
+        details: error instanceof Error ? error.message : "Erreur inconnue.",
       }),
       {
         status: 502,

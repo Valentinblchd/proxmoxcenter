@@ -114,7 +114,7 @@ export const PROVISION_PRESETS: ProvisionPreset[] = [
     id: "linux-vm",
     label: "Linux VM",
     kind: "qemu",
-    description: "VM Linux générique (QEMU) avec virtio + guest agent.",
+    description: "VM Linux générique (QEMU) avec virtio + agent invité.",
     draftPatch: {
       kind: "qemu",
       memoryMiB: "4096",

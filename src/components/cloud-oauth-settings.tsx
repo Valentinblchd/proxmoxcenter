@@ -147,7 +147,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
       });
       const payload = (await response.json()) as CloudOauthStatusResponse;
       if (!response.ok || !payload.ok || !payload.providers) {
-        throw new Error(payload.error || "Impossible d’enregistrer OAuth cloud.");
+        throw new Error(payload.error || "Impossible d’enregistrer la connexion cloud.");
       }
 
       setProviders(payload.providers);
@@ -160,7 +160,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
       }
       setFlash({
         type: "success",
-        text: payload.message || "OAuth cloud enregistré.",
+        text: payload.message || "Connexion cloud enregistrée.",
       });
       startTransition(() => router.refresh());
     } catch (error) {
@@ -189,7 +189,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
       });
       const payload = (await response.json()) as CloudOauthStatusResponse;
       if (!response.ok || !payload.ok || !payload.providers) {
-        throw new Error(payload.error || "Impossible de réinitialiser OAuth cloud.");
+        throw new Error(payload.error || "Impossible de réinitialiser la connexion cloud.");
       }
 
       setProviders(payload.providers);
@@ -203,7 +203,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
       }
       setFlash({
         type: "success",
-        text: payload.message || "OAuth cloud réinitialisé.",
+        text: payload.message || "Connexion cloud réinitialisée.",
       });
       startTransition(() => router.refresh());
     } catch (error) {
@@ -219,8 +219,8 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
   return (
     <section className="settings-block">
       <div className="panel-head">
-        <h2>OAuth cloud</h2>
-        <span className="muted">Config globale pour OneDrive et Google Drive</span>
+        <h2>Connexion cloud</h2>
+        <span className="muted">Configuration globale pour OneDrive et Google Drive</span>
       </div>
 
       {flash ? (
@@ -247,7 +247,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               <strong>{formatProviderSource(providers.onedrive.source)}</strong>
             </div>
             <div className="row-line">
-              <span>Authority</span>
+              <span>Locataire / autorité</span>
               <strong>{providers.onedrive.authority ?? "consumers"}</strong>
             </div>
             <div className="row-line">
@@ -255,7 +255,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               <strong>{formatDateOnly(providers.onedrive.secretExpiresAt)}</strong>
             </div>
             <div className="row-line">
-              <span>Etat secret</span>
+              <span>État du secret</span>
               <strong>
                 <span className={`inventory-badge ${getSecretExpiryBadge(providers.onedrive).className}`}>
                   {getSecretExpiryBadge(providers.onedrive).label}
@@ -279,7 +279,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
             <>
               <div className="provision-grid">
                 <label className="provision-field">
-                  <span className="provision-field-label">Client ID</span>
+                  <span className="provision-field-label">ID client Microsoft</span>
                   <input
                     className="provision-input"
                     value={oneDriveClientId}
@@ -288,7 +288,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
                   />
                 </label>
                 <label className="provision-field">
-                  <span className="provision-field-label">Authority</span>
+                  <span className="provision-field-label">Locataire / autorité</span>
                   <input
                     className="provision-input"
                     value={oneDriveAuthority}
@@ -309,7 +309,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               </div>
               <div className="hint-box">
                 <p className="muted">
-                  Callback OneDrive: <strong>/api/backups/oauth/onedrive/callback</strong>
+                  URL de retour OneDrive: <strong>/api/backups/oauth/onedrive/callback</strong>
                 </p>
                 {providers.onedrive.source === "local-file" ? (
                   <p className="muted">Le fichier local serveur reste prioritaire tant qu’il est présent.</p>
@@ -358,7 +358,7 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
               <strong>{formatDateOnly(providers.gdrive.secretExpiresAt)}</strong>
             </div>
             <div className="row-line">
-              <span>Etat secret</span>
+              <span>État du secret</span>
               <strong>
                 <span className={`inventory-badge ${getSecretExpiryBadge(providers.gdrive).className}`}>
                   {getSecretExpiryBadge(providers.gdrive).label}
@@ -382,28 +382,28 @@ export default function CloudOauthSettings({ initialProviders, canAdmin }: Props
             <>
               <div className="provision-grid">
                 <label className="provision-field">
-                  <span className="provision-field-label">Client ID</span>
+                  <span className="provision-field-label">ID client Google</span>
                   <input
                     className="provision-input"
                     value={googleClientId}
                     onChange={(event) => setGoogleClientId(event.target.value)}
-                    placeholder="Google OAuth client ID"
+                    placeholder="ID client Google"
                   />
                 </label>
                 <label className="provision-field">
-                  <span className="provision-field-label">Client Secret</span>
+                  <span className="provision-field-label">Secret client Google</span>
                   <input
                     className="provision-input"
                     type="password"
                     value={googleClientSecret}
                     onChange={(event) => setGoogleClientSecret(event.target.value)}
-                    placeholder="Google OAuth client secret"
+                    placeholder="Secret client Google"
                   />
                 </label>
               </div>
               <div className="hint-box">
                 <p className="muted">
-                  Callback Google Drive: <strong>/api/backups/oauth/gdrive/callback</strong>
+                  URL de retour Google Drive: <strong>/api/backups/oauth/gdrive/callback</strong>
                 </p>
                 {providers.gdrive.source === "local-file" ? (
                   <p className="muted">Le fichier local serveur reste prioritaire tant qu’il est présent.</p>

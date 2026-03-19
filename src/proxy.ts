@@ -143,7 +143,7 @@ export async function proxy(request: NextRequest) {
 
     if (isProtectedApiPath(pathname)) {
       return applySecurityHeaders(NextResponse.json(
-        { error: "Bootstrap required", next: "/login" },
+        { error: "Configuration initiale requise.", next: "/login" },
         { status: 401 },
       ), pathname, nonce);
     }
@@ -170,7 +170,7 @@ export async function proxy(request: NextRequest) {
 
   if (!session) {
     if (isProtectedApiPath(pathname)) {
-      return applySecurityHeaders(NextResponse.json({ error: "Unauthorized" }, { status: 401 }), pathname, nonce);
+      return applySecurityHeaders(NextResponse.json({ error: "Authentification requise." }, { status: 401 }), pathname, nonce);
     }
 
     return buildLoginRedirect(request, nonce);
@@ -182,7 +182,7 @@ export async function proxy(request: NextRequest) {
   ) {
     if (isProtectedApiPath(pathname)) {
       return applySecurityHeaders(
-        NextResponse.json({ error: "Forbidden" }, { status: 403 }),
+        NextResponse.json({ error: "Accès refusé." }, { status: 403 }),
         pathname,
         nonce,
       );
@@ -199,7 +199,7 @@ export async function proxy(request: NextRequest) {
 
   if (pathname.startsWith("/api/settings/") || pathname.startsWith("/api/setup/") || pathname.startsWith("/api/proxmox/")) {
     if (!hasRuntimeCapability(session.role, "admin")) {
-      return applySecurityHeaders(NextResponse.json({ error: "Forbidden" }, { status: 403 }), pathname, nonce);
+      return applySecurityHeaders(NextResponse.json({ error: "Accès refusé." }, { status: 403 }), pathname, nonce);
     }
   }
 
@@ -209,7 +209,7 @@ export async function proxy(request: NextRequest) {
     (pathname === "/api/backups/config" && request.method !== "GET")
   ) {
     if (!hasRuntimeCapability(session.role, "operate")) {
-      return applySecurityHeaders(NextResponse.json({ error: "Forbidden" }, { status: 403 }), pathname, nonce);
+      return applySecurityHeaders(NextResponse.json({ error: "Accès refusé." }, { status: 403 }), pathname, nonce);
     }
   }
 

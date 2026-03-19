@@ -10,7 +10,7 @@ import { buildThemeBootstrapScript } from "@/lib/ui/themes";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "ProxCenter",
+  title: "ProxmoxCenter",
   description: "Dashboard Proxmox personnel",
 };
 

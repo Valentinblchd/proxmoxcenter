@@ -110,7 +110,7 @@ function inferObjectMetadata(object: CloudBackupObject) {
 export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Accès refusé." }, { status: 403 });
   }
 
   const gate = consumeRateLimit(`backups:cloud-restore:${getClientIp(request)}`, CLOUD_RESTORE_LIMIT);
@@ -125,7 +125,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const action = asAction(body.action);
@@ -276,7 +276,7 @@ export async function POST(request: NextRequest) {
 export async function GET(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request, { allowMissingOrigin: true });
   if (!originCheck.ok) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Accès refusé." }, { status: 403 });
   }
 
   const gate = consumeRateLimit(`backups:cloud-restore:get:${getClientIp(request)}`, CLOUD_RESTORE_LIMIT);
@@ -288,8 +288,8 @@ export async function GET(request: NextRequest) {
   }
 
   const session = await getSessionFromRequest(request);
-  if (!session || !hasRuntimeCapability(session.role, "read")) {
-    return NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 });
+  if (!session || !hasRuntimeCapability(session.role, "operate")) {
+    return NextResponse.json({ ok: false, error: "Authentification requise." }, { status: 401 });
   }
 
   const jobId = asNonEmptyString(request.nextUrl.searchParams.get("jobId"), 120);

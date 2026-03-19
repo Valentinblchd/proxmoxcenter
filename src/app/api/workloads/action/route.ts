@@ -51,7 +51,7 @@ export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
-      { error: "Forbidden", details: originCheck.reason },
+      { error: "Accès refusé.", details: originCheck.reason },
       { status: 403 },
     );
   }
@@ -69,7 +69,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as ActionBody;
   } catch {
-    return NextResponse.json({ error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ error: "Requête invalide." }, { status: 400 });
   }
 
   const node = asNonEmptyString(body.node);
@@ -157,7 +157,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json(
       {
         ok: false,
-        error: error instanceof Error ? error.message : "Unknown error",
+        error: error instanceof Error ? error.message : "Erreur inconnue.",
       },
       { status: 502 },
     );

@@ -29,7 +29,7 @@ export async function DELETE(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
-      { ok: false, error: "Forbidden", details: originCheck.reason },
+      { ok: false, error: "Accès refusé.", details: originCheck.reason },
       { status: 403 },
     );
   }

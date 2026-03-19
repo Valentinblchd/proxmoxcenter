@@ -201,7 +201,7 @@ function mapFiles(raw: unknown) {
 export async function GET(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request, { allowMissingOrigin: true });
   if (!originCheck.ok) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Accès refusé." }, { status: 403 });
   }
 
   const capability = await requireRequestCapability(request, "read");
@@ -236,7 +236,7 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
-    return NextResponse.json({ ok: false, error: "Forbidden" }, { status: 403 });
+    return NextResponse.json({ ok: false, error: "Accès refusé." }, { status: 403 });
   }
 
   const capability = await requireRequestCapability(request, "operate");
@@ -256,7 +256,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const action = asAction(body.action);

@@ -123,7 +123,7 @@ export default function GreenItHistoryExplorer({
       <html lang="fr">
         <head>
           <meta charset="utf-8" />
-          <title>Historique energie ProxCenter</title>
+          <title>Historique energie ProxmoxCenter</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
             h1 { margin: 0 0 8px; }

@@ -39,7 +39,7 @@ export default function ErrorStateScreen({
               <span className="brand-logo-wrap">
                 <BrandLogo className="brand-logo" />
               </span>
-              <span>ProxCenter</span>
+              <span>ProxmoxCenter</span>
             </div>
             <p className="eyebrow">{eyebrow}</p>
             <div className="error-state-code">{code}</div>

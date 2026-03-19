@@ -28,11 +28,10 @@ function asString(value: unknown, max = 120) {
 export async function GET(request: NextRequest) {
   const capability = await requireRequestCapability(request, "admin");
   if (!capability.ok) return capability.response;
-  const refreshAvailability = request.nextUrl.searchParams.get("refresh") === "1";
 
   return NextResponse.json({
     ok: true,
-    ...(await getSelfUpdateOverview({ refreshAvailability })),
+    ...(await getSelfUpdateOverview()),
   });
 }
 
@@ -67,6 +66,11 @@ export async function POST(request: NextRequest) {
   }
 
   try {
+    if (action === "refresh") {
+      const overview = await getSelfUpdateOverview({ refreshAvailability: true });
+      return NextResponse.json({ ok: true, ...overview });
+    }
+
     if (action === "start") {
       assertStrongConfirmation(
         body.confirmationText,

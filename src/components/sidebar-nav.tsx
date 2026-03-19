@@ -461,7 +461,7 @@ export default function SidebarNav({
             <Link
               href="/"
               className="brand sidebar-brand-link"
-              title="ProxCenter - Accueil"
+              title="ProxmoxCenter - Accueil"
               aria-label="Accueil"
             >
               <span className="brand-logo-wrap" aria-hidden="true">

@@ -1779,6 +1779,7 @@ code {
 .provision-shell {
   display: grid;
   gap: 0.9rem;
+  width: min(100%, 1800px);
   max-width: none;
   margin-inline: auto;
 }
@@ -1876,6 +1877,116 @@ code {
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 0.65rem;
+}
+
+.provision-stepper {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.55rem;
+}
+
+.provision-step {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 0.7rem;
+  align-items: center;
+  text-align: left;
+  min-width: 0;
+  padding: 0.72rem 0.8rem;
+  border-radius: 14px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 72%),
+    rgba(8, 12, 26, 0.34);
+  color: #dbe5ff;
+  cursor: pointer;
+  transition:
+    border-color 140ms ease,
+    transform 140ms ease,
+    background 140ms ease;
+}
+
+.provision-step:hover {
+  border-color: rgba(101, 194, 255, 0.24);
+  transform: translateY(-1px);
+}
+
+.provision-step.is-active {
+  border-color: rgba(255, 159, 28, 0.36);
+  background:
+    linear-gradient(180deg, rgba(255, 159, 28, 0.08), transparent 72%),
+    rgba(15, 19, 38, 0.72);
+}
+
+.provision-step.is-done:not(.is-active) {
+  border-color: rgba(86, 215, 158, 0.22);
+}
+
+.provision-step-index {
+  display: inline-grid;
+  place-items: center;
+  width: 2rem;
+  height: 2rem;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background: rgba(255, 255, 255, 0.03);
+  font-size: 0.82rem;
+  font-weight: 700;
+}
+
+.provision-step.is-active .provision-step-index {
+  border-color: rgba(255, 159, 28, 0.4);
+  background: rgba(255, 159, 28, 0.12);
+  color: #ffe0b3;
+}
+
+.provision-step.is-done .provision-step-index {
+  border-color: rgba(86, 215, 158, 0.28);
+  color: #bff5d7;
+}
+
+.provision-step-copy {
+  display: grid;
+  gap: 0.14rem;
+  min-width: 0;
+}
+
+.provision-step-copy strong {
+  font-size: 0.94rem;
+}
+
+.provision-step-copy small {
+  color: var(--muted);
+  font-size: 0.72rem;
+}
+
+.provision-step-panel {
+  display: grid;
+  gap: 0.8rem;
+  padding: 0.85rem;
+  border-radius: 16px;
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.024), transparent 75%),
+    rgba(7, 11, 26, 0.36);
+}
+
+.provision-step-grid {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.provision-step-grid .provision-field:not(.provision-field-span-full) {
+  grid-column: span 2;
+}
+
+.provision-step-grid .provision-field-span-full,
+.provision-step-grid .provision-media-block,
+.provision-step-grid .provision-summary-card {
+  grid-column: 1 / -1;
+}
+
+.provision-summary-card {
+  gap: 0.5rem;
 }
 
 .provision-field {
@@ -4985,6 +5096,7 @@ select.inventory-node-filter option {
 }
 
 .observability-trend-graph {
+  position: relative;
   min-width: 0;
   border-radius: 14px;
   border: 1px solid rgba(255, 255, 255, 0.05);
@@ -4992,6 +5104,38 @@ select.inventory-node-filter option {
     linear-gradient(180deg, rgba(255, 255, 255, 0.02), transparent 75%),
     rgba(8, 12, 28, 0.42);
   padding: 0.6rem;
+}
+
+.observability-trend-graph-inner {
+  position: relative;
+}
+
+.observability-trend-tooltip {
+  position: absolute;
+  top: 0.2rem;
+  transform: translateX(-50%);
+  display: grid;
+  gap: 0.1rem;
+  min-width: 132px;
+  max-width: min(78%, 200px);
+  padding: 0.48rem 0.56rem;
+  border-radius: 12px;
+  border: 1px solid rgba(255, 255, 255, 0.08);
+  background:
+    linear-gradient(180deg, rgba(20, 27, 53, 0.98), rgba(8, 12, 26, 0.95));
+  box-shadow: 0 12px 24px rgba(2, 6, 18, 0.28);
+  pointer-events: none;
+  z-index: 2;
+}
+
+.observability-trend-tooltip strong {
+  font-size: 0.86rem;
+  color: #f6f8ff;
+}
+
+.observability-trend-tooltip span {
+  font-size: 0.7rem;
+  color: rgba(210, 220, 255, 0.76);
 }
 
 .observability-trend-chart-shell {
@@ -5030,6 +5174,11 @@ select.inventory-node-filter option {
   stroke-width: 1;
 }
 
+.observability-trend-cursor {
+  stroke: rgba(255, 255, 255, 0.18);
+  stroke-dasharray: 3 4;
+}
+
 .observability-trend-line {
   fill: none;
   stroke-width: 3;
@@ -5055,6 +5204,45 @@ select.inventory-node-filter option {
 
 .observability-trend-line.tone-red {
   stroke: #ff8e8e;
+}
+
+.observability-trend-dot {
+  fill: rgba(255, 255, 255, 0.22);
+  stroke: rgba(12, 18, 37, 0.84);
+  stroke-width: 1.2;
+  transition:
+    r 120ms ease,
+    fill 120ms ease,
+    stroke-width 120ms ease;
+}
+
+.observability-trend-dot.tone-blue {
+  fill: #67c3ff;
+}
+
+.observability-trend-dot.tone-orange {
+  fill: #ffb85f;
+}
+
+.observability-trend-dot.tone-green {
+  fill: #56d79e;
+}
+
+.observability-trend-dot.tone-purple {
+  fill: #b79cff;
+}
+
+.observability-trend-dot.tone-red {
+  fill: #ff8e8e;
+}
+
+.observability-trend-dot.is-active {
+  stroke-width: 1.8;
+}
+
+.observability-trend-dot.is-focus {
+  fill: #f7fbff;
+  stroke-width: 2.1;
 }
 
 .observability-trend-foot {
@@ -5537,6 +5725,18 @@ select.inventory-node-filter option {
     justify-content: flex-start;
   }
 
+  .provision-stepper {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .provision-step-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .provision-step-grid .provision-field:not(.provision-field-span-full) {
+    grid-column: span 1;
+  }
+
   .greenit-history-toolbar {
     grid-template-columns: 1fr;
     align-items: stretch;
@@ -5637,6 +5837,14 @@ select.inventory-node-filter option {
   }
 
   .provision-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .provision-stepper {
+    grid-template-columns: 1fr;
+  }
+
+  .provision-step-grid {
     grid-template-columns: 1fr;
   }
 

@@ -118,7 +118,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as RequestBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const candidateInput = mergeCandidateInput(body);

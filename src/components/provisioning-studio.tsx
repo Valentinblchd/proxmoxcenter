@@ -74,6 +74,8 @@ type TaskStatusResponse = {
   };
 };
 
+type ProvisionWizardStepId = "base" | "resources" | "os" | "advanced" | "review";
+
 function draftFromQuery(kindRaw?: string | null, presetRaw?: string | null) {
   const kind = coerceProvisionKind(kindRaw);
   let draft = getDefaultDraft(kind);
@@ -229,7 +231,7 @@ export default function ProvisioningStudio({
   const [isAskingAssistant, setIsAskingAssistant] = useState(false);
   const [isCreating, setIsCreating] = useState(false);
   const [importConfirmOpen, setImportConfirmOpen] = useState(false);
-  const [showAdvanced, setShowAdvanced] = useState(false);
+  const [wizardStep, setWizardStep] = useState<ProvisionWizardStepId>("base");
   const [createResult, setCreateResult] = useState<ProvisionCreateResponse | null>(null);
   const [taskStatus, setTaskStatus] = useState<TaskStatusResponse | null>(null);
   const [taskPollError, setTaskPollError] = useState<string | null>(null);
@@ -440,6 +442,7 @@ export default function ProvisioningStudio({
     setAssistantResponse(null);
     setCreateResult(null);
     setTaskStatus(null);
+    setWizardStep("base");
   }
 
   async function askAssistant() {
@@ -621,6 +624,41 @@ export default function ProvisioningStudio({
     (isQemu && draft.isoSourceMode === "existing" && !draft.isoVolume.trim()) ||
     (isQemu ? false : !draft.lxcTemplate);
 
+  const baseStepReady =
+    draft.node.trim().length > 0 &&
+    draft.vmid.trim().length > 0 &&
+    draft.name.trim().length > 0 &&
+    !vmidConflict &&
+    !vmidInvalid;
+  const resourcesStepReady =
+    draft.storage.trim().length > 0 &&
+    draft.memoryMiB.trim().length > 0 &&
+    draft.cores.trim().length > 0 &&
+    draft.diskGb.trim().length > 0;
+  const osStepReady = isQemu
+    ? draft.ostype.trim().length > 0 &&
+      (draft.isoSourceMode === "existing"
+        ? draft.isoVolume.trim().length > 0
+        : draft.isoStorage.trim().length > 0 && isIsoUrlCandidate(draft.isoUrl))
+    : draft.lxcTemplate.trim().length > 0;
+  const stepStatus: Record<ProvisionWizardStepId, boolean> = {
+    base: baseStepReady,
+    resources: resourcesStepReady,
+    os: osStepReady,
+    advanced: true,
+    review: !missingRequired,
+  };
+  const wizardSteps: Array<{ id: ProvisionWizardStepId; label: string; hint: string }> = [
+    { id: "base", label: "Base", hint: "Type, nœud, identité" },
+    { id: "resources", label: "Ressources", hint: "Stockage, réseau, CPU, RAM" },
+    { id: "os", label: "OS & média", hint: isQemu ? "OS, ISO et firmware" : "Template et accès" },
+    { id: "advanced", label: "Options", hint: "Paramètres avancés" },
+    { id: "review", label: "Validation", hint: "Résumé et création" },
+  ];
+  const currentWizardIndex = wizardSteps.findIndex((step) => step.id === wizardStep);
+  const canMoveNext =
+    currentWizardIndex < wizardSteps.length - 1 && stepStatus[wizardSteps[currentWizardIndex]?.id ?? "base"];
+
   return (
     <div className="provision-shell">
       {mode === "assistant" ? (
@@ -752,326 +790,511 @@ export default function ProvisioningStudio({
           </section>
         ) : null}
 
-        <div className="provision-grid">
-          <FieldRow label="Nœud">
-            <SelectInput
-              value={draft.node}
-              onChange={(value) => patchDraft({ node: value })}
-              options={nodeOptions}
-              placeholder="Choisir un nœud"
-            />
-          </FieldRow>
-
-          <FieldRow
-            label="VMID"
-            hint={
-              vmidInvalid
-                ? "VMID invalide."
-                : vmidConflict
-                ? "VMID déjà utilisé, choisis un autre identifiant."
-                : options?.options.nextVmid
-                  ? `Prochain suggéré: ${options.options.nextVmid}`
-                  : undefined
-            }
-          >
-            <div className="provision-inline-split provision-inline-vmid">
-              <input
-                className={`provision-input${vmidConflict || vmidInvalid ? " is-invalid" : ""}`}
-                value={draft.vmid}
-                onChange={(event) => patchDraft({ vmid: event.target.value })}
-                inputMode="numeric"
-                placeholder="100"
-                aria-invalid={vmidConflict || vmidInvalid}
-              />
+        <section className="provision-stepper" aria-label="Étapes de création">
+          {wizardSteps.map((step, index) => {
+            const isActive = step.id === wizardStep;
+            const isDone = stepStatus[step.id];
+            return (
               <button
+                key={step.id}
                 type="button"
-                className="inventory-mini-toggle"
-                onClick={() => {
-                  if (!options?.options.nextVmid) return;
-                  patchDraft({ vmid: String(options.options.nextVmid) });
-                }}
-                disabled={!options?.options.nextVmid}
+                className={`provision-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`}
+                onClick={() => setWizardStep(step.id)}
               >
-                Auto VMID
+                <span className="provision-step-index">{index + 1}</span>
+                <span className="provision-step-copy">
+                  <strong>{step.label}</strong>
+                  <small>{step.hint}</small>
+                </span>
               </button>
+            );
+          })}
+        </section>
+
+        {wizardStep === "base" ? (
+          <section className="provision-step-panel">
+            <div className="panel-head">
+              <h3>Base</h3>
+              <span className="muted">Choisis le type, le nœud et l’identité de la ressource.</span>
             </div>
-          </FieldRow>
-
-          <FieldRow label={isQemu ? "Nom VM" : "Hostname LXC"}>
-            <input
-              className="provision-input"
-              value={draft.name}
-              onChange={(event) => patchDraft({ name: event.target.value })}
-              placeholder={isQemu ? "win-server-prod" : "debian-app-01"}
-            />
-          </FieldRow>
-
-          <FieldRow label="Stockage">
-            <SelectInput
-              value={draft.storage}
-              onChange={(value) => patchDraft({ storage: value })}
-              options={storageOptions}
-              placeholder={
-                storageOptions.length > 0
-                  ? isQemu
-                    ? "Choisir un stockage VM"
-                    : "Choisir un stockage CT"
-                  : "Aucun stockage compatible"
-              }
-            />
-          </FieldRow>
-
-          <FieldRow label="Bridge réseau" hint="Optionnel">
-            <SelectInput
-              value={draft.bridge}
-              onChange={(value) => patchDraft({ bridge: value })}
-              options={bridgeOptions}
-              placeholder={bridgeOptions.length === 1 ? "Bridge auto" : "Aucun bridge"}
-            />
-          </FieldRow>
-
-          <FieldRow label="RAM (MiB)">
-            <input
-              className="provision-input"
-              value={draft.memoryMiB}
-              onChange={(event) => patchDraft({ memoryMiB: event.target.value })}
-              inputMode="numeric"
-              placeholder="4096"
-            />
-          </FieldRow>
-
-          <FieldRow label="vCPU / Cores">
-            <input
-              className="provision-input"
-              value={draft.cores}
-              onChange={(event) => patchDraft({ cores: event.target.value })}
-              inputMode="numeric"
-              placeholder="2"
-            />
-          </FieldRow>
-
-          {isQemu ? (
-            <FieldRow label="Sockets">
-              <input
-                className="provision-input"
-                value={draft.sockets}
-                onChange={(event) => patchDraft({ sockets: event.target.value })}
-                inputMode="numeric"
-                placeholder="1"
-              />
-            </FieldRow>
-          ) : (
-            <FieldRow label="Swap LXC (MiB)">
-              <input
-                className="provision-input"
-                value={draft.lxcSwapMiB}
-                onChange={(event) => patchDraft({ lxcSwapMiB: event.target.value })}
-                inputMode="numeric"
-                placeholder="512"
-              />
-            </FieldRow>
-          )}
-
-          <FieldRow label="Disque (Go)">
-            <input
-              className="provision-input"
-              value={draft.diskGb}
-              onChange={(event) => patchDraft({ diskGb: event.target.value })}
-              inputMode="numeric"
-              placeholder={isQemu ? "64" : "16"}
-            />
-          </FieldRow>
-
-          {isQemu ? (
-            <FieldRow label="OS Type VM" hint="Valeur libre acceptée. Ex: l26, win11, w2k22">
-              <>
-                <input
-                  className="provision-input"
-                  value={draft.ostype}
-                  onChange={(event) => {
-                    setOstypeTouched(true);
-                    patchDraft({ ostype: event.target.value });
-                  }}
-                  placeholder="l26"
-                  list="vm-ostype-options"
+            <div className="provision-grid provision-step-grid">
+              <FieldRow label="Nœud">
+                <SelectInput
+                  value={draft.node}
+                  onChange={(value) => patchDraft({ node: value })}
+                  options={nodeOptions}
+                  placeholder="Choisir un nœud"
                 />
-                <datalist id="vm-ostype-options">
-                  {(options?.options.vmOstypes ?? []).map((option) => (
-                    <option key={`${option.value}-${option.label}`} value={option.value}>
-                      {option.label}
-                    </option>
-                  ))}
-                </datalist>
-              </>
-            </FieldRow>
-          ) : (
-            <FieldRow label="Template LXC" hint="Volume Proxmox type `vztmpl`">
-              <input
-                className="provision-input"
-                value={draft.lxcTemplate}
-                onChange={(event) => patchDraft({ lxcTemplate: event.target.value })}
-                placeholder="local:vztmpl/debian-12-standard_12.x_amd64.tar.zst"
-              />
-            </FieldRow>
-          )}
+              </FieldRow>
 
-          {isQemu ? (
-            <div className="provision-media-block provision-field-span-full">
-              <FieldRow label="Source ISO">
-                <div className="provision-segment">
+              <FieldRow
+                label="VMID"
+                hint={
+                  vmidInvalid
+                    ? "VMID invalide."
+                    : vmidConflict
+                      ? "VMID déjà utilisé, choisis un autre identifiant."
+                      : options?.options.nextVmid
+                        ? `Prochain suggéré: ${options.options.nextVmid}`
+                        : undefined
+                }
+              >
+                <div className="provision-inline-split provision-inline-vmid">
+                  <input
+                    className={`provision-input${vmidConflict || vmidInvalid ? " is-invalid" : ""}`}
+                    value={draft.vmid}
+                    onChange={(event) => patchDraft({ vmid: event.target.value })}
+                    inputMode="numeric"
+                    placeholder="100"
+                    aria-invalid={vmidConflict || vmidInvalid}
+                  />
                   <button
                     type="button"
-                    className={`provision-seg-btn${draft.isoSourceMode === "existing" ? " is-active" : ""}`}
-                    onClick={() => patchDraft({ isoSourceMode: "existing" })}
+                    className="inventory-mini-toggle"
+                    onClick={() => {
+                      if (!options?.options.nextVmid) return;
+                      patchDraft({ vmid: String(options.options.nextVmid) });
+                    }}
+                    disabled={!options?.options.nextVmid}
                   >
-                    ISO local
-                  </button>
-                  <button
-                    type="button"
-                    className={`provision-seg-btn${draft.isoSourceMode === "url" ? " is-active" : ""}`}
-                    onClick={() => patchDraft({ isoSourceMode: "url" })}
-                  >
-                    URL ISO
+                    Auto VMID
                   </button>
                 </div>
               </FieldRow>
 
-              {draft.isoSourceMode === "existing" ? (
-                <FieldRow
-                  label="ISO local"
-                  hint={
-                    isoVolumeOptions.length > 0
-                      ? `${isoVolumeOptions.length} ISO détecté(s)${draft.node ? ` sur ${draft.node}` : ""}`
-                      : draft.node
-                        ? `Aucun ISO détecté sur ${draft.node}.`
-                        : "Aucun ISO détecté, saisis un volume manuellement."
-                  }
-                >
-                  <SelectInput
-                    value={draft.isoVolume}
-                    onChange={(value) => patchDraft({ isoVolume: value })}
-                    options={isoVolumeOptions}
-                    placeholder={isoVolumeOptions.length > 0 ? "Sélectionner un ISO local" : "Aucun ISO détecté"}
-                  />
-                  {isoVolumeOptions.length === 0 ? (
-                    <input
-                      className="provision-input"
-                      value={draft.isoVolume}
-                      onChange={(event) => patchDraft({ isoVolume: event.target.value })}
-                      placeholder="local:iso/WinServer2022.iso"
-                    />
-                  ) : null}
-                </FieldRow>
-              ) : (
-                <div className="provision-media-grid">
-                  <FieldRow
-                    label="URL du fichier ISO"
-                    hint="HTTPS direct, sans query, terminée par .iso"
-                    className="provision-field-span-full"
-                  >
-                    <input
-                      className="provision-input"
-                      value={draft.isoUrl}
-                      onChange={(event) => patchDraft({ isoUrl: event.target.value })}
-                      placeholder="https://downloads.exemple.tld/windows-server-2022.iso"
-                    />
-                  </FieldRow>
+              <FieldRow label={isQemu ? "Nom de la VM" : "Nom du conteneur"}>
+                <input
+                  className="provision-input"
+                  value={draft.name}
+                  onChange={(event) => patchDraft({ name: event.target.value })}
+                  placeholder={isQemu ? "win-server-prod" : "debian-app-01"}
+                />
+              </FieldRow>
 
-                  <FieldRow label="Stockage ISO cible">
-                    <SelectInput
-                      value={draft.isoStorage}
-                      onChange={(value) => patchDraft({ isoStorage: value })}
-                      options={isoStorageOptions}
-                      placeholder={
-                        isoStorageOptions.length > 0
-                          ? "Choisir un stockage ISO"
-                          : "Aucun stockage ISO détecté"
-                      }
-                    />
-                  </FieldRow>
-
-                  <FieldRow label="Nom du fichier ISO" hint="Optionnel, extension .iso obligatoire">
-                    <input
-                      className="provision-input"
-                      value={draft.isoFilename}
-                      onChange={(event) => patchDraft({ isoFilename: event.target.value })}
-                      placeholder="windows-server-2022.iso"
-                    />
-                  </FieldRow>
-
-                  {draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl) ? (
-                    <p className="provision-inline-hint warning-text provision-field-span-full">
-                      URL refusée: seuls les liens HTTPS directs, sans querystring, vers un fichier se terminant par <code>.iso</code> sont acceptés.
-                    </p>
-                  ) : null}
+              <section className="hint-box provision-summary-card provision-field-span-full">
+                <div className="row-line">
+                  <span>Type</span>
+                  <strong>{isQemu ? "VM QEMU" : "Conteneur LXC"}</strong>
                 </div>
-              )}
+                <div className="row-line">
+                  <span>Résumé</span>
+                  <strong>
+                    {draft.node || "Nœud à choisir"} • {draft.vmid || "VMID à définir"} • {draft.name || "Nom à définir"}
+                  </strong>
+                </div>
+              </section>
             </div>
-          ) : (
-            <FieldRow label="Mot de passe root (optionnel)">
-              <input
-                className="provision-input"
-                type="password"
-                value={draft.lxcPassword}
-                onChange={(event) => patchDraft({ lxcPassword: event.target.value })}
-                placeholder="Laisse vide si tu fournis ensuite SSH/console"
-              />
-            </FieldRow>
-          )}
+          </section>
+        ) : null}
 
-          {isQemu ? (
-            showAdvanced ? (
-              <>
-                <FieldRow label="CPU type">
+        {wizardStep === "resources" ? (
+          <section className="provision-step-panel">
+            <div className="panel-head">
+              <h3>Ressources et réseau</h3>
+              <span className="muted">Définis le stockage principal, le réseau et la taille de la machine.</span>
+            </div>
+            <div className="provision-grid provision-step-grid">
+              <FieldRow label="Stockage principal">
+                <SelectInput
+                  value={draft.storage}
+                  onChange={(value) => patchDraft({ storage: value })}
+                  options={storageOptions}
+                  placeholder={
+                    storageOptions.length > 0
+                      ? isQemu
+                        ? "Choisir un stockage VM"
+                        : "Choisir un stockage CT"
+                      : "Aucun stockage compatible"
+                  }
+                />
+              </FieldRow>
+
+              <FieldRow label="Bridge réseau" hint="Optionnel">
+                <SelectInput
+                  value={draft.bridge}
+                  onChange={(value) => patchDraft({ bridge: value })}
+                  options={bridgeOptions}
+                  placeholder={bridgeOptions.length === 1 ? "Bridge auto" : "Aucun bridge"}
+                />
+              </FieldRow>
+
+              <FieldRow label="RAM (MiB)">
+                <input
+                  className="provision-input"
+                  value={draft.memoryMiB}
+                  onChange={(event) => patchDraft({ memoryMiB: event.target.value })}
+                  inputMode="numeric"
+                  placeholder="4096"
+                />
+              </FieldRow>
+
+              <FieldRow label="vCPU / cœurs">
+                <input
+                  className="provision-input"
+                  value={draft.cores}
+                  onChange={(event) => patchDraft({ cores: event.target.value })}
+                  inputMode="numeric"
+                  placeholder="2"
+                />
+              </FieldRow>
+
+              {isQemu ? (
+                <FieldRow label="Sockets">
                   <input
                     className="provision-input"
-                    value={draft.cpuType}
-                    onChange={(event) => patchDraft({ cpuType: event.target.value })}
-                    placeholder="host ou x86-64-v2-AES"
+                    value={draft.sockets}
+                    onChange={(event) => patchDraft({ sockets: event.target.value })}
+                    inputMode="numeric"
+                    placeholder="1"
                   />
                 </FieldRow>
-                <FieldRow label="Firmware VM">
-                  <div className="provision-inline-split">
-                    <select
+              ) : (
+                <FieldRow label="Swap LXC (MiB)">
+                  <input
+                    className="provision-input"
+                    value={draft.lxcSwapMiB}
+                    onChange={(event) => patchDraft({ lxcSwapMiB: event.target.value })}
+                    inputMode="numeric"
+                    placeholder="512"
+                  />
+                </FieldRow>
+              )}
+
+              <FieldRow label="Disque (Go)">
+                <input
+                  className="provision-input"
+                  value={draft.diskGb}
+                  onChange={(event) => patchDraft({ diskGb: event.target.value })}
+                  inputMode="numeric"
+                  placeholder={isQemu ? "64" : "16"}
+                />
+              </FieldRow>
+
+              <section className="hint-box provision-summary-card provision-field-span-full">
+                <div className="row-line">
+                  <span>Ressources</span>
+                  <strong>
+                    {draft.cores || "0"} vCPU • {draft.memoryMiB || "0"} MiB • {draft.diskGb || "0"} Go
+                  </strong>
+                </div>
+                <div className="row-line">
+                  <span>Réseau / stockage</span>
+                  <strong>{draft.bridge || "Sans réseau"} • {draft.storage || "Stockage à choisir"}</strong>
+                </div>
+              </section>
+            </div>
+          </section>
+        ) : null}
+
+        {wizardStep === "os" ? (
+          <section className="provision-step-panel">
+            <div className="panel-head">
+              <h3>OS et média</h3>
+              <span className="muted">
+                {isQemu ? "Choisis l’OS invité, la source ISO et le média de démarrage." : "Choisis le template et l’accès initial."}
+              </span>
+            </div>
+            <div className="provision-grid provision-step-grid">
+              {isQemu ? (
+                <>
+                  <FieldRow label="Type d’OS invité" hint="Valeur libre acceptée. Ex: l26, win11, w2k22">
+                    <>
+                      <input
+                        className="provision-input"
+                        value={draft.ostype}
+                        onChange={(event) => {
+                          setOstypeTouched(true);
+                          patchDraft({ ostype: event.target.value });
+                        }}
+                        placeholder="l26"
+                        list="vm-ostype-options"
+                      />
+                      <datalist id="vm-ostype-options">
+                        {(options?.options.vmOstypes ?? []).map((option) => (
+                          <option key={`${option.value}-${option.label}`} value={option.value}>
+                            {option.label}
+                          </option>
+                        ))}
+                      </datalist>
+                    </>
+                  </FieldRow>
+
+                  <div className="provision-media-block provision-field-span-full">
+                    <FieldRow label="Source ISO">
+                      <div className="provision-segment">
+                        <button
+                          type="button"
+                          className={`provision-seg-btn${draft.isoSourceMode === "existing" ? " is-active" : ""}`}
+                          onClick={() => patchDraft({ isoSourceMode: "existing" })}
+                        >
+                          ISO local
+                        </button>
+                        <button
+                          type="button"
+                          className={`provision-seg-btn${draft.isoSourceMode === "url" ? " is-active" : ""}`}
+                          onClick={() => patchDraft({ isoSourceMode: "url" })}
+                        >
+                          URL ISO
+                        </button>
+                      </div>
+                    </FieldRow>
+
+                    {draft.isoSourceMode === "existing" ? (
+                      <FieldRow
+                        label="ISO local"
+                        hint={
+                          isoVolumeOptions.length > 0
+                            ? `${isoVolumeOptions.length} ISO détecté(s)${draft.node ? ` sur ${draft.node}` : ""}`
+                            : draft.node
+                              ? `Aucun ISO détecté sur ${draft.node}.`
+                              : "Aucun ISO détecté, saisis un volume manuellement."
+                        }
+                      >
+                        <SelectInput
+                          value={draft.isoVolume}
+                          onChange={(value) => patchDraft({ isoVolume: value })}
+                          options={isoVolumeOptions}
+                          placeholder={isoVolumeOptions.length > 0 ? "Sélectionner un ISO local" : "Aucun ISO détecté"}
+                        />
+                        {isoVolumeOptions.length === 0 ? (
+                          <input
+                            className="provision-input"
+                            value={draft.isoVolume}
+                            onChange={(event) => patchDraft({ isoVolume: event.target.value })}
+                            placeholder="local:iso/WinServer2022.iso"
+                          />
+                        ) : null}
+                      </FieldRow>
+                    ) : (
+                      <div className="provision-media-grid">
+                        <FieldRow
+                          label="URL du fichier ISO"
+                          hint="HTTPS direct, sans query, terminée par .iso"
+                          className="provision-field-span-full"
+                        >
+                          <input
+                            className="provision-input"
+                            value={draft.isoUrl}
+                            onChange={(event) => patchDraft({ isoUrl: event.target.value })}
+                            placeholder="https://downloads.exemple.tld/windows-server-2022.iso"
+                          />
+                        </FieldRow>
+
+                        <FieldRow label="Stockage ISO cible">
+                          <SelectInput
+                            value={draft.isoStorage}
+                            onChange={(value) => patchDraft({ isoStorage: value })}
+                            options={isoStorageOptions}
+                            placeholder={
+                              isoStorageOptions.length > 0
+                                ? "Choisir un stockage ISO"
+                                : "Aucun stockage ISO détecté"
+                            }
+                          />
+                        </FieldRow>
+
+                        <FieldRow label="Nom du fichier ISO" hint="Optionnel, extension .iso obligatoire">
+                          <input
+                            className="provision-input"
+                            value={draft.isoFilename}
+                            onChange={(event) => patchDraft({ isoFilename: event.target.value })}
+                            placeholder="windows-server-2022.iso"
+                          />
+                        </FieldRow>
+
+                        {draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl) ? (
+                          <p className="provision-inline-hint warning-text provision-field-span-full">
+                            URL refusée: seuls les liens HTTPS directs, sans querystring, vers un fichier se terminant par <code>.iso</code> sont acceptés.
+                          </p>
+                        ) : null}
+                      </div>
+                    )}
+                  </div>
+                </>
+              ) : (
+                <>
+                  <FieldRow label="Template LXC" hint="Volume Proxmox type `vztmpl`">
+                    <input
                       className="provision-input"
-                      value={draft.bios}
-                      onChange={(event) =>
-                        patchDraft({ bios: event.target.value as ProvisionDraft["bios"] })
-                      }
-                    >
-                      <option value="ovmf">OVMF (UEFI)</option>
-                      <option value="seabios">SeaBIOS</option>
-                    </select>
-                    <select
+                      value={draft.lxcTemplate}
+                      onChange={(event) => patchDraft({ lxcTemplate: event.target.value })}
+                      placeholder="local:vztmpl/debian-12-standard_12.x_amd64.tar.zst"
+                    />
+                  </FieldRow>
+
+                  <FieldRow label="Mot de passe root" hint="Optionnel">
+                    <input
                       className="provision-input"
-                      value={draft.machine}
-                      disabled={draft.bios === "ovmf"}
-                      onChange={(event) =>
-                        patchDraft({ machine: event.target.value as ProvisionDraft["machine"] })
-                      }
-                    >
-                      <option value="q35">Q35</option>
-                      <option value="i440fx">i440fx</option>
-                    </select>
+                      type="password"
+                      value={draft.lxcPassword}
+                      onChange={(event) => patchDraft({ lxcPassword: event.target.value })}
+                      placeholder="Laisse vide si tu fournis ensuite SSH/console"
+                    />
+                  </FieldRow>
+                </>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {wizardStep === "advanced" ? (
+          <section className="provision-step-panel">
+            <div className="panel-head">
+              <h3>Options avancées</h3>
+              <span className="muted">Ajuste le firmware, l’agent invité et les options avancées.</span>
+            </div>
+            <div className="provision-grid provision-step-grid">
+              {isQemu ? (
+                <>
+                  <FieldRow label="Type CPU">
+                    <input
+                      className="provision-input"
+                      value={draft.cpuType}
+                      onChange={(event) => patchDraft({ cpuType: event.target.value })}
+                      placeholder="host ou x86-64-v2-AES"
+                    />
+                  </FieldRow>
+
+                  <FieldRow label="Firmware de la VM">
+                    <div className="provision-inline-split">
+                      <select
+                        className="provision-input"
+                        value={draft.bios}
+                        onChange={(event) =>
+                          patchDraft({ bios: event.target.value as ProvisionDraft["bios"] })
+                        }
+                      >
+                        <option value="ovmf">OVMF (UEFI)</option>
+                        <option value="seabios">SeaBIOS</option>
+                      </select>
+                      <select
+                        className="provision-input"
+                        value={draft.machine}
+                        disabled={draft.bios === "ovmf"}
+                        onChange={(event) =>
+                          patchDraft({ machine: event.target.value as ProvisionDraft["machine"] })
+                        }
+                      >
+                        <option value="q35">Q35</option>
+                        <option value="i440fx">i440fx</option>
+                      </select>
+                    </div>
+                  </FieldRow>
+
+                  <div className="provision-field">
+                    <span className="provision-field-label">Agent invité QEMU</span>
+                    <div className="provision-segment">
+                      <button
+                        type="button"
+                        className={`provision-seg-btn${draft.enableAgent ? " is-active" : ""}`}
+                        onClick={() => patchDraft({ enableAgent: true })}
+                      >
+                        Activé
+                      </button>
+                      <button
+                        type="button"
+                        className={`provision-seg-btn${!draft.enableAgent ? " is-active" : ""}`}
+                        onClick={() => patchDraft({ enableAgent: false })}
+                      >
+                        Désactivé
+                      </button>
+                    </div>
+                  </div>
+
+                  <div className="provision-field">
+                    <span className="provision-field-label">TPM</span>
+                    <div className="provision-segment">
+                      <button
+                        type="button"
+                        className={`provision-seg-btn${draft.enableTpm ? " is-active" : ""}`}
+                        onClick={() => patchDraft({ enableTpm: true })}
+                        disabled={tpmUnsupported}
+                      >
+                        Activé
+                      </button>
+                      <button
+                        type="button"
+                        className={`provision-seg-btn${!draft.enableTpm ? " is-active" : ""}`}
+                        onClick={() => patchDraft({ enableTpm: false })}
+                      >
+                        Désactivé
+                      </button>
+                    </div>
+                  </div>
+                </>
+              ) : (
+                <FieldRow label="Mode LXC">
+                  <div className="provision-check-row">
+                    <label className="provision-check">
+                      <input
+                        type="checkbox"
+                        checked={draft.lxcUnprivileged}
+                        onChange={(event) => patchDraft({ lxcUnprivileged: event.target.checked })}
+                      />
+                      <span>Unprivileged</span>
+                    </label>
                   </div>
                 </FieldRow>
-              </>
-            ) : null
-          ) : (
-            <FieldRow label="Mode LXC">
-              <div className="provision-check-row">
-                <label className="provision-check">
-                  <input
-                    type="checkbox"
-                    checked={draft.lxcUnprivileged}
-                    onChange={(event) => patchDraft({ lxcUnprivileged: event.target.checked })}
-                  />
-                  <span>Unprivileged</span>
-                </label>
-              </div>
-            </FieldRow>
-          )}
-        </div>
+              )}
+            </div>
+          </section>
+        ) : null}
+
+        {wizardStep === "review" ? (
+          <section className="provision-step-panel">
+            <div className="panel-head">
+              <h3>Validation</h3>
+              <span className="muted">Vérifie le résumé avant de lancer la création.</span>
+            </div>
+            <div className="content-grid">
+              <section className="hint-box provision-summary-card">
+                <div className="row-line">
+                  <span>Type</span>
+                  <strong>{isQemu ? "VM QEMU" : "Conteneur LXC"}</strong>
+                </div>
+                <div className="row-line">
+                  <span>Identité</span>
+                  <strong>{draft.name || "Nom manquant"} • #{draft.vmid || "?"}</strong>
+                </div>
+                <div className="row-line">
+                  <span>Nœud</span>
+                  <strong>{draft.node || "À choisir"}</strong>
+                </div>
+                <div className="row-line">
+                  <span>Stockage</span>
+                  <strong>{draft.storage || "À choisir"}</strong>
+                </div>
+              </section>
+
+              <section className="hint-box provision-summary-card">
+                <div className="row-line">
+                  <span>Ressources</span>
+                  <strong>{draft.cores || "0"} vCPU • {draft.memoryMiB || "0"} MiB • {draft.diskGb || "0"} Go</strong>
+                </div>
+                <div className="row-line">
+                  <span>Réseau</span>
+                  <strong>{draft.bridge || "Aucun bridge"}</strong>
+                </div>
+                <div className="row-line">
+                  <span>OS</span>
+                  <strong>{isQemu ? draft.ostype || "À définir" : draft.lxcTemplate || "Template manquant"}</strong>
+                </div>
+                <div className="row-line">
+                  <span>Média</span>
+                  <strong>
+                    {isQemu
+                      ? draft.isoSourceMode === "existing"
+                        ? draft.isoVolume || "ISO local manquant"
+                        : draft.isoUrl || "URL ISO manquante"
+                      : draft.lxcPassword
+                        ? "Mot de passe root défini"
+                        : "Mot de passe root vide"}
+                  </strong>
+                </div>
+              </section>
+            </div>
+          </section>
+        ) : null}
 
         {isQemu && draft.isoSourceMode === "url" && isoStorageOptions.length === 0 ? (
           <p className="warning">
@@ -1087,83 +1310,50 @@ export default function ProvisioningStudio({
           </p>
         ) : null}
 
-        {isQemu ? (
-          <div className="quick-actions">
-            <button
-              type="button"
-              className="action-btn"
-              onClick={() => setShowAdvanced((current) => !current)}
-            >
-              {showAdvanced ? "Masquer options avancées" : "Afficher options avancées"}
-            </button>
-          </div>
-        ) : null}
-
-        {isQemu ? (
-          <div className="provision-check-row">
-            <div className="provision-field">
-              <span className="provision-field-label">QEMU guest agent</span>
-              <div className="provision-segment">
-                <button
-                  type="button"
-                  className={`provision-seg-btn${draft.enableAgent ? " is-active" : ""}`}
-                  onClick={() => patchDraft({ enableAgent: true })}
-                >
-                  Activé
-                </button>
-                <button
-                  type="button"
-                  className={`provision-seg-btn${!draft.enableAgent ? " is-active" : ""}`}
-                  onClick={() => patchDraft({ enableAgent: false })}
-                >
-                  Désactivé
-                </button>
-              </div>
-            </div>
-            <div className="provision-field">
-              <span className="provision-field-label">TPM</span>
-              <div className="provision-segment">
-                <button
-                  type="button"
-                  className={`provision-seg-btn${draft.enableTpm ? " is-active" : ""}`}
-                  onClick={() => patchDraft({ enableTpm: true })}
-                  disabled={tpmUnsupported}
-                >
-                  Activé
-                </button>
-                <button
-                  type="button"
-                  className={`provision-seg-btn${!draft.enableTpm ? " is-active" : ""}`}
-                  onClick={() => patchDraft({ enableTpm: false })}
-                >
-                  Désactivé
-                </button>
-              </div>
-            </div>
-          </div>
-        ) : null}
-
         <div className="provision-actions">
           <button
             type="button"
-            className="action-btn primary"
-            onClick={() => {
-              startTransition(() => {
-                if (isQemu && draft.isoSourceMode === "url" && draft.isoUrl.trim()) {
-                  setImportConfirmOpen(true);
-                  return;
-                }
-                void createWorkload();
-              });
-            }}
-            disabled={!canCreate || missingRequired}
+            className="action-btn"
+            onClick={() => setWizardStep(wizardSteps[Math.max(0, currentWizardIndex - 1)]?.id ?? "base")}
+            disabled={currentWizardIndex <= 0 || isCreating}
           >
-            {isCreating ? "Création..." : `Créer ${isQemu ? "la VM" : "le LXC"}`}
+            Étape précédente
           </button>
+          {wizardStep !== "review" ? (
+            <button
+              type="button"
+              className="action-btn primary"
+              onClick={() => setWizardStep(wizardSteps[Math.min(wizardSteps.length - 1, currentWizardIndex + 1)]?.id ?? "review")}
+              disabled={!canMoveNext}
+            >
+              Étape suivante
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="action-btn primary"
+              onClick={() => {
+                startTransition(() => {
+                  if (isQemu && draft.isoSourceMode === "url" && draft.isoUrl.trim()) {
+                    setImportConfirmOpen(true);
+                    return;
+                  }
+                  void createWorkload();
+                });
+              }}
+              disabled={!canCreate || missingRequired}
+            >
+              {isCreating ? "Création..." : `Créer ${isQemu ? "la VM" : "le LXC"}`}
+            </button>
+          )}
           {vmidConflict ? (
             <span className="warning">VMID déjà utilisé.</span>
           ) : missingRequired ? (
-            <span className="muted">Complète les champs requis pour activer la création.</span>
+            <span className="muted">
+              {wizardStep === "review"
+                ? "Complète les champs requis pour activer la création."
+                : "Termine cette étape pour passer à la suivante."}
+            </span>
           ) : null}
         </div>
 

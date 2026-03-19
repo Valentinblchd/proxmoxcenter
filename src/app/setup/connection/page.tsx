@@ -4,7 +4,7 @@ import ProxmoxConnectionForm from "@/components/proxmox-connection-form";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 
 export const metadata: Metadata = {
-  title: "Connexion Proxmox | ProxCenter",
+  title: "Connexion Proxmox | ProxmoxCenter",
   description: "Assistant de connexion Proxmox VE (DNS/IP, port, TLS/certificats, LDAP, token API)",
 };
 

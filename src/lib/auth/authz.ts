@@ -20,7 +20,7 @@ export async function requireRequestCapability(
   if (!session) {
     return {
       ok: false,
-      response: NextResponse.json({ ok: false, error: "Unauthorized" }, { status: 401 }),
+      response: NextResponse.json({ ok: false, error: "Authentification requise." }, { status: 401 }),
     };
   }
 
@@ -36,4 +36,3 @@ export async function requireRequestCapability(
 
   return { ok: true, session };
 }
-

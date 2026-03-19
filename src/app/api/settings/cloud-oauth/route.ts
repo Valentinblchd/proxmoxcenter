@@ -70,7 +70,7 @@ export async function POST(request: NextRequest) {
   );
   if (!gate.ok) {
     return NextResponse.json(
-      { ok: false, error: "Trop de modifications OAuth cloud. Réessaie plus tard." },
+      { ok: false, error: "Trop de modifications de connexion cloud. Réessaie plus tard." },
       { status: 429 },
     );
   }
@@ -108,7 +108,7 @@ export async function POST(request: NextRequest) {
     }
   } catch (error) {
     return NextResponse.json(
-      { ok: false, error: error instanceof Error ? error.message : "Impossible d’enregistrer OAuth cloud." },
+      { ok: false, error: error instanceof Error ? error.message : "Impossible d’enregistrer la connexion cloud." },
       { status: 400 },
     );
   }
@@ -140,7 +140,7 @@ export async function DELETE(request: NextRequest) {
   );
   if (!gate.ok) {
     return NextResponse.json(
-      { ok: false, error: "Trop de modifications OAuth cloud. Réessaie plus tard." },
+      { ok: false, error: "Trop de modifications de connexion cloud. Réessaie plus tard." },
       { status: 429 },
     );
   }

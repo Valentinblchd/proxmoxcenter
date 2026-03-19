@@ -99,7 +99,7 @@ export default function ObservabilityHistoryExplorer({
       <html lang="fr">
         <head>
           <meta charset="utf-8" />
-          <title>Archives supervision ProxCenter</title>
+          <title>Archives supervision ProxmoxCenter</title>
           <style>
             body { font-family: Arial, sans-serif; margin: 24px; color: #111827; }
             h1 { margin: 0 0 8px; }

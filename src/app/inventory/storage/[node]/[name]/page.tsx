@@ -21,7 +21,7 @@ function buildStorageHref(node: string, storage: string) {
 export async function generateMetadata({ params }: StoragePageProps): Promise<Metadata> {
   const resolved = await readParams(params);
   return {
-    title: `Storage ${decodeURIComponent(resolved.name)} | ProxCenter`,
+    title: `Stockage ${decodeURIComponent(resolved.name)} | ProxmoxCenter`,
   };
 }
 

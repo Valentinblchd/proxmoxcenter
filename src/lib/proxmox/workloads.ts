@@ -609,7 +609,7 @@ export async function getWorkloadRemoteAccessDetails(options: {
   } else if (mergedIps.length === 0) {
     reason =
       kind === "qemu"
-        ? "IP invitée non remontée. Vérifie le guest agent ou renseigne l’adresse manuellement."
+        ? "IP invitée non remontée. Vérifie l’agent invité ou renseigne l’adresse manuellement."
         : "IP non remontée. Renseigne l’adresse manuellement si nécessaire.";
   }
 

@@ -79,7 +79,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
         <div>
           <p className="eyebrow">Paramètres</p>
           <h1>Configuration</h1>
-          <p className="muted">Connexion Proxmox, PBS, OAuth cloud, sonde iLO/Redfish, GreenIT et réglages applicatifs au même endroit.</p>
+          <p className="muted">Connexion Proxmox, PBS, connexion cloud, sonde iLO/Redfish, GreenIT et réglages applicatifs au même endroit.</p>
         </div>
         <div className="topbar-meta">
           <span className={`pill ${authStatus.active ? "live" : ""}`}>
@@ -110,31 +110,31 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           <section className="stats-grid settings-summary-grid">
             <article className="stat-tile">
               <div className="stat-label">Proxmox</div>
-              <div className="stat-value">{proxmoxConfigured ? "OK" : "Setup"}</div>
+              <div className="stat-value">{proxmoxConfigured ? "Prêt" : "À configurer"}</div>
               <div className="stat-subtle">{proxmoxConfigured ? "Connexion enregistrée" : "Connexion à configurer"}</div>
             </article>
             <article className="stat-tile">
               <div className="stat-label">PBS</div>
-              <div className="stat-value">{pbsRuntime ? "Prêt" : "Off"}</div>
+              <div className="stat-value">{pbsRuntime ? "Prêt" : "Désactivé"}</div>
               <div className="stat-subtle">
                 {pbsRuntime ? `${pbsRuntime.host} • client ${pbsTooling.available ? "OK" : "absent"}` : "Optionnel"}
               </div>
             </article>
             <article className="stat-tile">
-              <div className="stat-label">Cloud OAuth</div>
+              <div className="stat-label">Connexion cloud</div>
               <div className="stat-value">{configuredCloudProviders}/2</div>
               <div className="stat-subtle">OneDrive et Google Drive</div>
             </article>
             <article className="stat-tile">
               <div className="stat-label">Sonde serveur</div>
-              <div className="stat-value">{hardwareMonitorRuntime?.enabled ? "OK" : "Setup"}</div>
+              <div className="stat-value">{hardwareMonitorRuntime?.enabled ? "Prêt" : "À configurer"}</div>
               <div className="stat-subtle">
                 {hardwareMonitorRuntime?.label ?? hardwareMonitorRuntime?.host ?? "BMC / iLO Redfish"}
               </div>
             </article>
             <article className="stat-tile">
               <div className="stat-label">GreenIT</div>
-              <div className="stat-value">{greenitRuntime ? "Calibré" : "Setup"}</div>
+              <div className="stat-value">{greenitRuntime ? "Calibré" : "À configurer"}</div>
               <div className="stat-subtle">{greenitRuntime?.outsideCity ?? "Ville extérieure non définie"}</div>
             </article>
           </section>
@@ -156,7 +156,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             </summary>
             <div className="settings-collapsible-content stack-sm">
               <div className="row-line">
-                <span>Host</span>
+                <span>Hôte</span>
                 <strong>{pbsRuntime?.host ?? "Non configuré"}</strong>
               </div>
               <div className="row-line">
@@ -164,13 +164,13 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
                 <strong>{pbsRuntime?.datastore ?? "—"}</strong>
               </div>
               <div className="row-line">
-                <span>Auth ID</span>
+                <span>Identifiant d’authentification</span>
                 <strong>{pbsRuntime?.authId ?? "—"}</strong>
               </div>
               <div className="row-line">
                 <span>Tooling PBS</span>
                 <strong className={pbsTooling.available ? "status-good" : "status-bad"}>
-                  {pbsTooling.available ? "OK" : "Absent"}
+                  {pbsTooling.available ? "Prêt" : "Absent"}
                 </strong>
               </div>
               <div className="quick-actions">
@@ -184,7 +184,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
           {canAdmin ? (
             <details className="panel settings-detail-panel">
               <summary className="settings-collapsible-summary">
-                <span>OAuth Cloud</span>
+                <span>Connexion cloud</span>
                 <span className="muted">Google Drive / OneDrive</span>
               </summary>
               <div className="settings-collapsible-content">
@@ -212,7 +212,7 @@ export default async function SettingsPage({ searchParams }: SettingsPageProps) 
             <details className="panel settings-detail-panel">
               <summary className="settings-collapsible-summary">
                 <span>Mise à jour</span>
-                <span className="muted">Update UI automatique</span>
+                <span className="muted">Mise à jour automatique depuis l’interface</span>
               </summary>
               <div className="settings-collapsible-content">
                 <SelfUpdateSettingsPanel />

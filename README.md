@@ -33,7 +33,7 @@ L'installateur :
 
 ### Taille du package
 
-- Image Docker ProxCenter actuelle: environ **392 MiB** en local (`linux/amd64`)
+- Image Docker ProxmoxCenter actuelle: environ **392 MiB** en local (`linux/amd64`)
 - La taille peut légèrement varier selon la version publiée et la plateforme cible
 
 ### Variables d'environnement optionnelles
@@ -73,7 +73,7 @@ Les connexions et données sont stockées dans `<INSTALL_DIR>/data/`.
 
 ## Métriques matérielles serveur
 
-Pour récupérer les métriques physiques du serveur hôte (températures, CPU, RAM, disques), ProxCenter peut interroger un BMC compatible Redfish, par exemple HPE iLO.
+Pour récupérer les métriques physiques du serveur hôte (températures, CPU, RAM, disques), ProxmoxCenter peut interroger un BMC compatible Redfish, par exemple HPE iLO.
 
 Configuration :
 
@@ -94,11 +94,11 @@ Une fois configuré, l’onglet `Observabilité > Santé` affiche :
 
 Si ton iLO utilise un certificat autosigné, tu peux soit importer la CA personnalisée, soit passer temporairement en mode `TLS insecure`.
 
-Si le power meter Redfish est disponible, GreenIT l’utilise automatiquement en priorité pour le calcul de consommation et de coût. Sinon, ProxCenter retombe sur la puissance manuelle ou l’estimation Proxmox.
+Si le power meter Redfish est disponible, GreenIT l’utilise automatiquement en priorité pour le calcul de consommation et de coût. Sinon, ProxmoxCenter retombe sur la puissance manuelle ou l’estimation Proxmox.
 
 ## Reverse Proxy
 
-Si tu exposes ProxCenter derrière un reverse proxy HTTPS :
+Si tu exposes ProxmoxCenter derrière un reverse proxy HTTPS :
 
 - définis `PROXMOXCENTER_PUBLIC_ORIGIN=https://ton-fqdn`
 - active `Secure cookie` dans `Sécurité > Sessions & accès`

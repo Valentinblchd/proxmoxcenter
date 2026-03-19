@@ -11,7 +11,7 @@ import { proxmoxRequest } from "@/lib/proxmox/client";
 import { formatBytes, formatPercent, formatRelativeTime, formatUptime } from "@/lib/ui/format";
 
 export const metadata: Metadata = {
-  title: "Inventaire | ProxCenter",
+  title: "Inventaire | ProxmoxCenter",
   description: "Inventaire Proxmox (nœuds, VM/CT, HA, backups, snapshots, stockage).",
 };
 

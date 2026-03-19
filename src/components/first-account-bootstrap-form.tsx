@@ -7,6 +7,7 @@ import { getPasswordPolicyError, evaluatePasswordPolicy } from "@/lib/auth/passw
 
 type Props = {
   nextPath?: string;
+  bootstrapCodePath: string;
 };
 
 type SetupAuthResponse = {
@@ -15,10 +16,11 @@ type SetupAuthResponse = {
   error?: string;
 };
 
-export default function FirstAccountBootstrapForm({ nextPath }: Props) {
+export default function FirstAccountBootstrapForm({ nextPath, bootstrapCodePath }: Props) {
   const router = useRouter();
   const [username, setUsername] = useState("admin");
   const [email, setEmail] = useState("");
+  const [bootstrapCode, setBootstrapCode] = useState("");
   const [password, setPassword] = useState("");
   const [confirmPassword, setConfirmPassword] = useState("");
   const [busy, setBusy] = useState(false);
@@ -27,6 +29,7 @@ export default function FirstAccountBootstrapForm({ nextPath }: Props) {
   const passwordsMatch = confirmPassword.length > 0 && password === confirmPassword;
   const canSubmit =
     !busy &&
+    bootstrapCode.trim().length > 0 &&
     username.trim().length > 0 &&
     email.trim().length > 0 &&
     passwordPolicy.isValid &&
@@ -36,7 +39,7 @@ export default function FirstAccountBootstrapForm({ nextPath }: Props) {
     setFlash(null);
 
     if (!username.trim() || !email.trim() || !password) {
-      setFlash({ type: "error", text: "Utilisateur, e-mail et mot de passe sont requis." });
+      setFlash({ type: "error", text: "Code bootstrap, utilisateur, e-mail et mot de passe sont requis." });
       return;
     }
 
@@ -57,6 +60,7 @@ export default function FirstAccountBootstrapForm({ nextPath }: Props) {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
+          bootstrapCode,
           username,
           email,
           password,
@@ -100,6 +104,27 @@ export default function FirstAccountBootstrapForm({ nextPath }: Props) {
           {flash.text}
         </div>
       ) : null}
+
+      <label className="field">
+        <span className="field-label">Code bootstrap</span>
+        <input
+          className="field-input"
+          type="text"
+          value={bootstrapCode}
+          onChange={(event) => setBootstrapCode(event.target.value)}
+          placeholder="XXXX-XXXX-XXXX"
+          autoComplete="one-time-code"
+          disabled={busy}
+          required
+        />
+      </label>
+
+      <div className="hint-box">
+        <p className="muted">
+          Première activation sécurisée: lis le code bootstrap sur le serveur dans{" "}
+          <strong>{bootstrapCodePath}</strong>.
+        </p>
+      </div>
 
       <label className="field">
         <span className="field-label">Utilisateur</span>

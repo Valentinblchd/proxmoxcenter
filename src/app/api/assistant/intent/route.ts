@@ -989,7 +989,7 @@ export async function POST(request: NextRequest) {
   const originCheck = ensureSameOriginRequest(request);
   if (!originCheck.ok) {
     return NextResponse.json(
-      { ok: false, error: "Forbidden", details: originCheck.reason },
+      { ok: false, error: "Accès refusé.", details: originCheck.reason },
       { status: 403 },
     );
   }
@@ -1011,7 +1011,7 @@ export async function POST(request: NextRequest) {
   try {
     body = (await request.json()) as IntentBody;
   } catch {
-    return NextResponse.json({ ok: false, error: "Invalid JSON body." }, { status: 400 });
+    return NextResponse.json({ ok: false, error: "Requête invalide." }, { status: 400 });
   }
 
   const prompt = typeof body.prompt === "string" ? body.prompt.trim() : "";

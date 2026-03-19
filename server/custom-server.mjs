@@ -62,7 +62,7 @@ function sameHostAndPort(left, right) {
 
 function isAllowedOrigin(req) {
   const origin = normalizeOrigin(req.headers.origin);
-  if (!origin) return true;
+  if (!origin) return false;
 
   const accepted = new Set();
   const configured =

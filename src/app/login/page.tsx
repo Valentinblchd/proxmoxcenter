@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import BrandLogo from "@/components/brand-logo";
 import FirstAccountBootstrapForm from "@/components/first-account-bootstrap-form";
+import { ensureBootstrapCode, getBootstrapCodePath } from "@/lib/auth/bootstrap-code";
 import { isLdapSecondaryAuthEnabled } from "@/lib/auth/ldap";
 import { getAuthStatus, sanitizeNextPath } from "@/lib/auth/session";
 
@@ -40,8 +41,8 @@ function getErrorMessage(errorCode: string) {
 }
 
 export const metadata: Metadata = {
-  title: "Login | ProxCenter",
-  description: "Authentification locale ProxCenter",
+  title: "Connexion | ProxmoxCenter",
+  description: "Authentification locale ProxmoxCenter",
 };
 
 export default async function LoginPage({ searchParams }: LoginPageProps) {
@@ -54,6 +55,11 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
   const authStatus = getAuthStatus();
   const isFirstSetup = !authStatus.active;
   const ldapSecondaryEnabled = isLdapSecondaryAuthEnabled();
+  const bootstrapCodePath = getBootstrapCodePath();
+
+  if (isFirstSetup) {
+    ensureBootstrapCode();
+  }
 
   return (
     <main className="login-shell">
@@ -67,7 +73,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
             </span>
           </div>
           <div>
-            <p className="eyebrow">ProxCenter</p>
+            <p className="eyebrow">ProxmoxCenter</p>
             <h1>{isFirstSetup ? "Créer le compte admin" : "Connexion"}</h1>
           </div>
         </div>
@@ -75,7 +81,7 @@ export default async function LoginPage({ searchParams }: LoginPageProps) {
         {errorMessage ? <div className="login-state error-box">{errorMessage}</div> : null}
 
         {isFirstSetup ? (
-          <FirstAccountBootstrapForm nextPath={nextPath} />
+          <FirstAccountBootstrapForm nextPath={nextPath} bootstrapCodePath={bootstrapCodePath} />
         ) : (
           <form method="post" action="/api/auth/login" className="login-form">
             <input type="hidden" name="next" value={nextPath} />
