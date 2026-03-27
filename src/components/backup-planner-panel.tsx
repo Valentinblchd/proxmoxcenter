@@ -2584,23 +2584,23 @@ export default function BackupPlannerPanel({
   const showPlansPanel = showConfigPanel && configTab === "plans";
   const tabIntro =
     activeTab === "overview"
-      ? "Vue rapide pour savoir ce qui tourne, ce qui arrive ensuite et où partent les sauvegardes."
+      ? "Vois tout de suite le run actif, le prochain passage et l’état global des destinations."
       : activeTab === "config"
         ? configTab === "targets"
-          ? "Renseigne les destinations locales, cloud et les connexions nécessaires."
-          : "Définis quoi sauvegarder, quand, et combien de temps conserver les archives."
+          ? "Configure les destinations locales, cloud et les connexions nécessaires."
+          : "Définis quoi sauvegarder, quand lancer les runs et combien de temps garder les archives."
         : activeTab === "history"
-          ? "Historique des exécutions avec progression, erreurs et détail par workload."
+          ? "Suis les exécutions, la progression, les erreurs et le détail par workload."
           : activeTab === "restore"
-            ? "Télécharger, restaurer vers Proxmox ou importer directement depuis le cloud."
-            : "Explorer PBS si la connexion et le client sont prêts.";
+            ? "Télécharge, restaure vers Proxmox ou importe directement depuis le cloud."
+            : "Explore PBS si la connexion et le client sont prêts.";
   const tabChips =
     activeTab === "overview"
       ? ["Run actif", "À venir", "Destinations"]
       : activeTab === "config"
         ? configTab === "targets"
-          ? ["Local", "Cloud", "Connexions"]
-          : ["Portée", "Fréquence", "Rétention"]
+          ? ["Local", "Cloud", "Accès"]
+          : ["Portée", "Planification", "Rétention"]
           : activeTab === "history"
             ? ["Progression", "Erreurs", "États"]
             : activeTab === "restore"
@@ -2656,7 +2656,7 @@ export default function BackupPlannerPanel({
                 className={`hub-tab${configTab === "plans" ? " is-active" : ""}`}
                 onClick={() => setConfigTab("plans")}
               >
-                Plans
+                Planification
               </button>
             </div>
           ) : null}
@@ -2684,8 +2684,8 @@ export default function BackupPlannerPanel({
               </div>
             </article>
             <article className="stat-tile">
-              <div className="stat-label">OAuth cloud</div>
-              <div className="stat-value">{cloudOauthMode === "central" ? "Central" : "Local"}</div>
+              <div className="stat-label">Connexion cloud</div>
+              <div className="stat-value">{cloudOauthMode === "central" ? "Broker" : "Clés locales"}</div>
               <div className="stat-subtle">
                 {cloudOauthBrokerAvailable ? "Broker disponible" : "Broker indisponible"}
               </div>

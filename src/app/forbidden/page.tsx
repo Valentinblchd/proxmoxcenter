@@ -27,7 +27,7 @@ export default async function ForbiddenPage({ searchParams }: ForbiddenPageProps
       diagnostics={[
         { label: "Statut", value: "Accès bloqué", tone: "bad" },
         { label: "Cause probable", value: "Droits insuffisants" },
-        { label: "Zone utile", value: "Sécurité / sessions" },
+        { label: "Zone utile", value: "Sécurité / rôles" },
         ...(fromPath && fromPath !== "/" ? [{ label: "Page demandée", value: fromPath }] : []),
       ]}
       actions={

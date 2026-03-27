@@ -295,7 +295,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
   const greenitSettings = readRuntimeGreenItConfig();
   const electricityPricing = await resolveGreenItElectricityPricing(greenitSettings);
   const hardwareMonitorConfig = readRuntimeHardwareMonitorConfig();
-  const warningCount = snapshot.warnings.length;
   const avgCpu =
     snapshot.nodes.length > 0
       ? snapshot.nodes.reduce((sum, node) => sum + node.cpuLoad, 0) / snapshot.nodes.length
@@ -946,7 +945,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           ) : (
             <div className="stack-sm">
               {hardwareMonitorConfig?.enabled ? (
-                <p className="muted">Le BMC/iLO est configuré mais aucune métrique Redfish n’a pu être lue.</p>
+                <div className="hint-box">
+                  <div className="item-title">Sonde configurée mais sans métriques</div>
+                  <div className="item-subtitle">
+                    Vérifie l’hôte iLO/Redfish, les identifiants, le mode TLS et l’association au bon nœud Proxmox.
+                  </div>
+                </div>
               ) : (
                 <div className="hint-box">
                   <div className="item-title">Activer la sonde serveur</div>
@@ -955,6 +959,11 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                   </div>
                   <div className="item-subtitle">
                     Renseigne l’hôte iLO/Redfish, un compte lecture seule, le mot de passe et le nœud associé.
+                  </div>
+                  <div className="backup-target-meta">
+                    <span className="inventory-badge status-template">Hôte iLO/Redfish</span>
+                    <span className="inventory-badge status-template">Compte lecture seule</span>
+                    <span className="inventory-badge status-template">Nœud associé</span>
                   </div>
                 </div>
               )}
