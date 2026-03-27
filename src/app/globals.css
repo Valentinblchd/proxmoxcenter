@@ -1216,6 +1216,34 @@ code {
   align-items: start;
 }
 
+.inventory-toolbar-panel,
+.inventory-tabs-panel,
+.backup-workspace-panel,
+.observability-hero-shell,
+.observability-surface-card,
+.greenit-history-explorer,
+.observability-history-explorer,
+.provision-stage-hero,
+.provision-step-panel,
+.workload-hero,
+.workload-section-head,
+.workload-grid > .panel,
+.workload-support-grid > .panel {
+  animation: surface-fade-in 220ms ease both;
+}
+
+.inventory-tabs-panel {
+  animation-delay: 20ms;
+}
+
+.backup-workspace-panel,
+.observability-surface-card,
+.provision-step-panel,
+.workload-grid > .panel,
+.workload-support-grid > .panel {
+  animation-delay: 40ms;
+}
+
 .content-grid > :only-child {
   grid-column: 1 / -1;
 }
@@ -4325,10 +4353,34 @@ select.inventory-node-filter option {
   padding: 0.6rem;
   display: grid;
   gap: 0.2rem;
+  transition:
+    border-color 140ms ease,
+    background-color 140ms ease,
+    transform 140ms ease,
+    box-shadow 140ms ease;
 }
 
 .inventory-metric-card strong {
   font-size: 0.83rem;
+}
+
+@media (hover: hover) and (pointer: fine) {
+  .mini-list-link:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 14px 24px rgba(2, 6, 18, 0.12);
+  }
+
+  .inventory-tab:hover {
+    transform: translateY(-1px);
+    box-shadow: 0 12px 22px rgba(2, 6, 18, 0.12);
+  }
+
+  .inventory-metric-card:hover {
+    border-color: rgba(255, 255, 255, 0.12);
+    background: rgba(255, 255, 255, 0.035);
+    box-shadow: 0 14px 26px rgba(2, 6, 18, 0.16);
+    transform: translateY(-1px);
+  }
 }
 
 .inventory-update-panel {
@@ -6381,6 +6433,12 @@ select.inventory-node-filter option {
     padding-inline: 0;
   }
 
+  .backup-page-summary-strip,
+  .provision-page-summary-strip,
+  .observability-summary-strip {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
   .provision-stage-hero-grid,
   .backup-live-strip {
     grid-template-columns: 1fr;
@@ -6398,6 +6456,12 @@ select.inventory-node-filter option {
     grid-template-columns: 1fr;
   }
 
+  .provision-stage-meta {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 0.35rem 0.7rem;
+  }
+
   .provision-panel-compact .provision-grid {
     grid-template-columns: 1fr;
   }
@@ -6408,6 +6472,58 @@ select.inventory-node-filter option {
 
   .theme-image-source-grid {
     grid-template-columns: 1fr;
+  }
+
+  .inventory-search-shell {
+    min-width: 0;
+    max-width: none;
+    flex: 1 1 100%;
+  }
+
+  .inventory-toolbar,
+  .inventory-toolbar-actions,
+  .inventory-toolbar-filter,
+  .inventory-toolbar-cta {
+    width: 100%;
+  }
+
+  .inventory-toolbar-actions {
+    justify-content: space-between;
+  }
+
+  .inventory-toolbar-filter {
+    flex: 1 1 100%;
+  }
+
+  .inventory-toolbar-filter .field-input,
+  .inventory-toolbar-filter .action-btn,
+  .inventory-toolbar-cta .action-btn {
+    flex: 1 1 0;
+  }
+
+  .workload-support-grid,
+  .workload-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workload-support-grid > :last-child {
+    grid-column: 1 / -1;
+  }
+
+  .workload-hero-stats {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+  }
+
+  .observability-history-toolbar {
+    align-items: flex-start;
+  }
+
+  .greenit-history-toolbar {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .greenit-history-actions {
+    grid-column: 1 / -1;
   }
 
   .inventory-tabs {
@@ -6465,6 +6581,17 @@ select.inventory-node-filter option {
 }
 
 @media (max-width: 779px) {
+  .panel-head {
+    align-items: flex-start;
+    gap: 0.5rem;
+    margin-bottom: 0.75rem;
+    padding-bottom: 0.55rem;
+  }
+
+  .panel-head .muted {
+    width: 100%;
+  }
+
   .theme-grid {
     grid-template-columns: 1fr;
   }
@@ -6692,6 +6819,14 @@ select.inventory-node-filter option {
     grid-template-columns: 1fr;
   }
 
+  .backup-page-summary-strip,
+  .provision-page-summary-strip,
+  .observability-summary-strip,
+  .greenit-history-kpis,
+  .advisor-kpi-grid {
+    grid-template-columns: 1fr;
+  }
+
   .provision-page-topbar-meta,
   .observability-hero-meta {
     justify-content: flex-start;
@@ -6699,6 +6834,25 @@ select.inventory-node-filter option {
 
   .backup-planner-shell {
     gap: 0.75rem;
+  }
+
+  .quick-actions,
+  .settings-inline-actions,
+  .inventory-toolbar-actions,
+  .inventory-toolbar-filter,
+  .inventory-toolbar-cta,
+  .observability-history-toolbar {
+    width: 100%;
+    align-items: stretch;
+  }
+
+  .quick-actions .action-btn,
+  .settings-inline-actions .action-btn,
+  .inventory-toolbar-filter .field-input,
+  .inventory-toolbar-filter .action-btn,
+  .inventory-toolbar-cta .action-btn {
+    width: 100%;
+    flex: 1 1 100%;
   }
 
   .backup-planner-shell .quick-actions {
@@ -6746,6 +6900,24 @@ select.inventory-node-filter option {
     flex: 1 1 0;
   }
 
+  .observability-history-actions,
+  .greenit-history-actions {
+    width: 100%;
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .workload-hero-stats,
+  .provision-stage-meta {
+    grid-template-columns: 1fr;
+  }
+
+  .sync-alert-tray {
+    left: 12px;
+    bottom: 12px;
+    width: min(420px, calc(100vw - 24px));
+  }
+
   .backup-shell-actions {
     grid-template-columns: 1fr;
   }
@@ -6790,6 +6962,14 @@ select.inventory-node-filter option {
 
   .settings-collapsible-summary {
     align-items: flex-start;
+  }
+}
+
+@media (max-width: 560px) {
+  .observability-history-actions,
+  .greenit-history-actions,
+  .backup-planner-shell .quick-actions {
+    grid-template-columns: 1fr;
   }
 }
 
@@ -7520,6 +7700,22 @@ html[data-theme="photo"] .ai-guide-input {
   .ai-widget-panel,
   .inline-loader,
   .empty-state-card {
+    animation: none;
+  }
+
+  .inventory-toolbar-panel,
+  .inventory-tabs-panel,
+  .backup-workspace-panel,
+  .observability-hero-shell,
+  .observability-surface-card,
+  .greenit-history-explorer,
+  .observability-history-explorer,
+  .provision-stage-hero,
+  .provision-step-panel,
+  .workload-hero,
+  .workload-section-head,
+  .workload-grid > .panel,
+  .workload-support-grid > .panel {
     animation: none;
   }
 
