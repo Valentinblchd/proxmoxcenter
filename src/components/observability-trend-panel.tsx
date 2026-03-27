@@ -201,6 +201,28 @@ export default function ObservabilityTrendPanel({
               {readingHint} • {formatTrendLabel(points.at(-1)?.timestamp ?? points[0].timestamp, points.length)}
             </span>
           </div>
+
+          <details className="observability-trend-table">
+            <summary>Voir les valeurs détaillées</summary>
+            <div className="observability-trend-table-wrap">
+              <table>
+                <thead>
+                  <tr>
+                    <th>Horodatage</th>
+                    <th>Valeur</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {[...points].reverse().map((point) => (
+                    <tr key={`${title}-${point.timestamp}`}>
+                      <td>{formatTrendLabel(point.timestamp, points.length)}</td>
+                      <td>{formatTrendValue(mode, point.value)}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </details>
         </>
       )}
     </section>

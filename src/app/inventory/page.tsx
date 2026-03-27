@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { cookies } from "next/headers";
 import Link from "next/link";
 import InventoryRefreshButton from "@/components/inventory-refresh-button";
+import InventoryViewTools from "@/components/inventory-view-tools";
 import InventoryWorkloadActions from "@/components/inventory-workload-actions";
 import PlatformStateAlerts from "@/components/platform-state-alerts";
 import { AUTH_COOKIE_NAME, verifySessionToken } from "@/lib/auth/session";
@@ -503,6 +504,12 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
             </div>
           </div>
         </div>
+        <InventoryViewTools
+          currentHref={buildInventoryHref({})}
+          activeTab={activeTab}
+          query={query}
+          nodeFilter={nodeFilter}
+        />
       </section>
 
       {activeTab === "summary" ? (

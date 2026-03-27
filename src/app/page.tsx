@@ -1,5 +1,6 @@
 import Link from "next/link";
 import PlatformStateAlerts from "@/components/platform-state-alerts";
+import RecentViewsPanel from "@/components/recent-views-panel";
 import { getDashboardSnapshot } from "@/lib/proxmox/dashboard";
 import { formatBytes } from "@/lib/ui/format";
 
@@ -145,6 +146,39 @@ export default async function HomePage() {
               ))}
             </div>
           )}
+        </section>
+      </section>
+
+      <section className="content-grid">
+        <RecentViewsPanel />
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Navigation rapide</h2>
+            <span className="muted">Commandes et raccourcis</span>
+          </div>
+          <div className="stack-sm">
+            <div className="row-line">
+              <span>Palette de commandes</span>
+              <strong>Ctrl/Cmd + K</strong>
+            </div>
+            <div className="row-line">
+              <span>Accueil</span>
+              <strong>Alt + 1</strong>
+            </div>
+            <div className="row-line">
+              <span>Inventaire</span>
+              <strong>Alt + 2</strong>
+            </div>
+            <div className="row-line">
+              <span>Création / Observabilité / Sauvegardes</span>
+              <strong>Alt + 3 / 4 / 5</strong>
+            </div>
+            <div className="row-line">
+              <span>Sécurité / Paramètres</span>
+              <strong>Alt + 6 / 7</strong>
+            </div>
+          </div>
         </section>
       </section>
     </section>

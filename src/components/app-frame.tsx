@@ -3,7 +3,9 @@
 import { usePathname } from "next/navigation";
 import { Suspense, useState } from "react";
 import AiChatWidget from "@/components/ai-chat-widget";
+import CommandPalette from "@/components/command-palette";
 import LiveSyncAlerts from "@/components/live-sync-alerts";
+import RecentViewsTracker from "@/components/recent-views-tracker";
 import SessionKeepAlive from "@/components/session-keepalive";
 import SidebarNav from "@/components/sidebar-nav";
 import type { RuntimeAuthUserRole } from "@/lib/auth/rbac";
@@ -44,6 +46,8 @@ export default function AppFrame({
       ) : null}
       <>
         {children}
+        <RecentViewsTracker />
+        <CommandPalette sessionRole={sessionRole} />
         <SessionKeepAlive />
         <LiveSyncAlerts />
         <AiChatWidget sessionRole={sessionRole} />
