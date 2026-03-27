@@ -58,9 +58,9 @@ type NodeHealthRow = {
 
 function formatHealthState(value: HardwareHealthState) {
   if (value === "ok") return "OK";
-  if (value === "warning") return "warning";
-  if (value === "critical") return "critical";
-  return "inconnu";
+  if (value === "warning") return "Attention";
+  if (value === "critical") return "Critique";
+  return "Inconnu";
 }
 
 function formatPowerMetric(value: number | null) {
@@ -374,19 +374,18 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
   return (
     <section className="content content-wide observability-page">
-
       <PlatformStateAlerts live={hasLiveData} warnings={snapshot.warnings} />
 
-      <section className="panel observability-hero-shell">
+      <section className="panel observability-hero-shell observability-hero-shell-compact">
         <div className="observability-hero-top">
           <div className="observability-hero-copy">
             <p className="eyebrow">Observabilité</p>
-            <h1>Supervision, sonde serveur et énergie</h1>
-            <p className="muted">CPU, RAM, IO, sonde matérielle et coût électrique au même endroit.</p>
+            <h1>Supervision cluster, santé et énergie</h1>
+            <p className="muted">Charge, réseau, sondes matérielles et coût électrique dans une lecture plus directe.</p>
             <div className="observability-hero-chips" aria-label="Points clés observabilité">
-              <span className="inventory-tag">Cluster live</span>
+              <span className="inventory-tag">Temps réel</span>
               <span className="inventory-tag">Sonde serveur</span>
-              <span className="inventory-tag">Historique & coût</span>
+              <span className="inventory-tag">Archives et coût</span>
             </div>
           </div>
           <div className="observability-hero-meta">
@@ -406,42 +405,35 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             </Link>
           ))}
         </div>
+      </section>
 
-        <section className="stats-grid observability-hero-stats">
-          <article className="stat-tile">
-            <div className="stat-label">Nœuds</div>
-            <div className="stat-value">{snapshot.summary.nodes}</div>
-            <div className="stat-subtle">Cluster</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">CPU moyen</div>
-            <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
-            <div className="stat-subtle">Tous nœuds</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">RAM moyenne</div>
-            <div className="stat-value">{hasLiveData ? formatPercent(avgMem) : "—"}</div>
-            <div className="stat-subtle">Tous nœuds</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">Source énergie</div>
-            <div className="stat-value">{greenit.metrics.powerSourceLabel}</div>
-            <div className="stat-subtle">
-              {greenit.metrics.effectivePowerWatts} W effectifs
-            </div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">Alertes brutes</div>
-            <div className="stat-value">{warningCount}</div>
-            <div className="stat-subtle">API/connexion</div>
-          </article>
-        </section>
+      <section className="stats-grid observability-summary-strip">
+        <article className="stat-tile">
+          <div className="stat-label">CPU moyen cluster</div>
+          <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
+          <div className="stat-subtle">{snapshot.summary.nodes} nœud(x) suivi(s)</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">RAM moyenne cluster</div>
+          <div className="stat-value">{hasLiveData ? formatPercent(avgMem) : "—"}</div>
+          <div className="stat-subtle">Mémoire utilisée sur l’ensemble</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Sonde serveur</div>
+          <div className="stat-value">{hardwareMonitorConfig?.enabled ? "Prête" : "À configurer"}</div>
+          <div className="stat-subtle">{hardwareStatusLabel}</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Énergie</div>
+          <div className="stat-value">{greenit.metrics.powerSourceLabel}</div>
+          <div className="stat-subtle">{greenit.metrics.effectivePowerWatts} W effectifs</div>
+        </article>
       </section>
 
       {activeTab !== "greenit" ? (
         <section className="panel observability-trend-shell observability-surface-card">
           <div className="panel-head">
-            <h2>Supervision cluster</h2>
+            <h2>Tendances cluster</h2>
             <span className="muted">Fenêtre active: {historySeries.range.label}</span>
           </div>
           <div className="hub-tabs observability-range-tabs">
@@ -455,12 +447,35 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </Link>
             ))}
           </div>
+          <div className="observability-trend-intro">
+            <p className="muted">
+              Passe la souris sur un graphe pour lire la valeur exacte et l’horodatage. Le réseau est affiché en débit agrégé
+              entrant + sortant.
+            </p>
+            {historySeries.summary ? (
+              <div className="backup-target-meta">
+                <span className="inventory-badge status-running">
+                  CPU {formatPercent(historySeries.summary.cpuRatio)}
+                </span>
+                <span className="inventory-badge status-pending">
+                  RAM {formatPercent(historySeries.summary.memoryRatio)}
+                </span>
+                <span className="inventory-badge status-template">
+                  Réseau {formatBytes(historySeries.summary.networkBytesPerSecond)}/s
+                </span>
+                <span className="inventory-badge status-stopped">
+                  IO wait {formatPercent(historySeries.summary.ioWaitRatio)}
+                </span>
+              </div>
+            ) : null}
+          </div>
           <div className="content-grid observability-trend-grid">
             <ObservabilityTrendPanel
               title="CPU cluster"
               subtitle="Charge agrégée"
               points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.cpuRatio }))}
               mode="percent"
+              scopeLabel="Cluster"
               toneClass="tone-blue"
             />
             <ObservabilityTrendPanel
@@ -468,6 +483,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               subtitle="Mémoire utilisée"
               points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.memoryRatio }))}
               mode="percent"
+              scopeLabel="Cluster"
               toneClass="tone-orange"
             />
             <ObservabilityTrendPanel
@@ -478,6 +494,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 value: point.networkBytesPerSecond,
               }))}
               mode="network"
+              scopeLabel="Cluster"
               toneClass="tone-green"
             />
             <ObservabilityTrendPanel
@@ -485,6 +502,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               subtitle="Occupation rootfs"
               points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.diskRatio }))}
               mode="percent"
+              scopeLabel="Cluster"
               toneClass="tone-purple"
             />
             <ObservabilityTrendPanel
@@ -492,10 +510,13 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               subtitle="Attente disque"
               points={historySeries.points.map((point) => ({ timestamp: point.timestamp, value: point.ioWaitRatio }))}
               mode="percent"
+              scopeLabel="Cluster"
               toneClass="tone-red"
             />
           </div>
-          <ObservabilityHistoryExplorer points={historySeries.points} rangeLabel={historySeries.range.label} />
+          <section className="observability-history-shell">
+            <ObservabilityHistoryExplorer points={historySeries.points} rangeLabel={historySeries.range.label} />
+          </section>
         </section>
       ) : null}
 
@@ -956,7 +977,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <div className="greenit-hero">
               <div className="greenit-hero-left">
                 <div>
-                  <h2>Mesure en direct</h2>
+                  <h2>Puissance en direct</h2>
                   <div className="muted">{greenit.metrics.powerSourceLabel}</div>
                 </div>
               </div>
@@ -1003,29 +1024,25 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               </article>
             </section>
 
-            <div className="stack-sm">
-              <div className="row-line">
-                <span>Source de mesure</span>
-                <strong>{greenit.metrics.powerSourceLabel}</strong>
-              </div>
+            <div className="hint-box">
               <div className="row-line">
                 <span>Lecture actuelle</span>
                 <strong>{hourlyKwh} kWh/h • {Math.round(greenit.metrics.effectivePowerWatts)} W</strong>
               </div>
               <div className="row-line">
-                <span>CO2 annuel</span>
-                <strong>{greenit.metrics.annualCo2Kg} kg</strong>
+                <span>Projection rapide</span>
+                <strong>{dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
               </div>
               <div className="row-line">
-                <span>Projection</span>
-                <strong>{dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
+                <span>Impact carbone</span>
+                <strong>{dailyCo2} kg/j • {greenit.metrics.annualCo2Kg} kg/an</strong>
               </div>
             </div>
           </section>
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Tarif & coût</h2>
+              <h2>Tarif électrique</h2>
               <span className="muted">{electricityPricing.mode === "edf-standard" ? "EDF standard auto" : "Tarif manuel"}</span>
             </div>
             <div className="advisor-kpi-grid hardware-kpi-grid">
@@ -1046,7 +1063,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{greenit.metrics.annualCost} €</strong>
               </article>
             </div>
-            <div className="stack-sm">
+            <div className="hint-box">
               <div className="row-line">
                 <span>Mode de coût</span>
                 <strong>
@@ -1057,23 +1074,19 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 </strong>
               </div>
               <div className="row-line">
-                <span>Conso actuelle</span>
-                <strong>{hourlyKwh} kWh/h • {dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
-              </div>
-              <div className="row-line">
-                <span>Coût actuel</span>
+                <span>Lecture tarifée</span>
                 <strong>{hourlyCost} €/h • {dailyCost} €/j • {monthlyCost} €/mois</strong>
               </div>
               <div className="row-line">
-                <span>CO2 actuel</span>
-                <strong>{dailyCo2} kg/j</strong>
+                <span>Consommation suivie</span>
+                <strong>{hourlyKwh} kWh/h • {dailyKwh} kWh/j • {monthlyKwh} kWh/mois</strong>
               </div>
             </div>
           </section>
 
           <section className="panel">
             <div className="panel-head">
-              <h2>Thermique et sonde</h2>
+              <h2>Thermique</h2>
               <span className="muted">{greenitSettings?.outsideCity ?? "Local"}</span>
             </div>
             <div className="advisor-kpi-grid hardware-kpi-grid">
@@ -1094,22 +1107,10 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                 <strong>{hardwareSnapshot?.summary.ambientTemperatureC !== null && hardwareSnapshot?.summary.ambientTemperatureC !== undefined ? `${hardwareSnapshot.summary.ambientTemperatureC.toFixed(1)}°C` : "—"}</strong>
               </article>
             </div>
-            <div className="stack-sm">
-              <div className="row-line">
-                <span>Température serveur</span>
-                <strong>{representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "Non remontée"}</strong>
-              </div>
-              <div className="row-line">
-                <span>Température extérieure</span>
-                <strong>{outsideTemp !== null ? `${outsideTemp.toFixed(1)}°C` : "Non renseignée"}</strong>
-              </div>
+            <div className="hint-box">
               <div className="row-line">
                 <span>Ville extérieure</span>
                 <strong>{greenitSettings?.outsideCity ?? "Non renseignée"}</strong>
-              </div>
-              <div className="row-line">
-                <span>Delta thermique</span>
-                <strong>{thermalDelta !== null ? `${thermalDelta > 0 ? "+" : ""}${thermalDelta.toFixed(1)}°C` : "Indisponible"}</strong>
               </div>
               <div className="row-line">
                 <span>Sonde serveur</span>
@@ -1121,6 +1122,13 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
                       : "À configurer dans Paramètres > Proxmox"}
                 </strong>
               </div>
+              <div className="row-line">
+                <span>Lecture thermique</span>
+                <strong>
+                  {representativeServerTemp !== null ? `${representativeServerTemp.toFixed(1)}°C` : "Non remontée"} •{" "}
+                  {outsideTemp !== null ? `${outsideTemp.toFixed(1)}°C` : "Extérieur non renseigné"}
+                </strong>
+              </div>
             </div>
           </section>
         </section>
@@ -1129,9 +1137,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
       {activeTab === "greenit" ? (
         <section className="panel">
           <div className="panel-head">
-              <h2>Projection et archives</h2>
+              <h2>Archives énergie</h2>
             <span className="muted">{greenitHistory.days.length} archive(s) disponibles</span>
           </div>
+          <p className="muted">
+            Historique journalier pour consultation, export et comparaison mensuelle.
+          </p>
 
           <div className="advisor-kpi-grid hardware-kpi-grid">
             <article className="advisor-kpi-card">
@@ -1157,7 +1168,7 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
           </div>
 
           {greenitHistory.days.length === 0 ? (
-            <p className="muted">L’historique journalier commencera à se remplir automatiquement avec les prochaines lectures GreenIT.</p>
+            <p className="muted">L’historique journalier se remplira automatiquement avec les prochaines lectures GreenIT.</p>
           ) : null}
         </section>
       ) : null}

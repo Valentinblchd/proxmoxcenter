@@ -164,10 +164,10 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
   };
   const workloadSupportStyle = {
-    gridTemplateColumns: "minmax(0, 1.1fr) minmax(0, 0.9fr)",
+    gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 0.95fr) minmax(280px, 0.8fr)",
   };
   const workloadDetailGridStyle = {
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
   };
   const consoleSummary = detail.kind === "qemu" ? "noVNC / série / SPICE" : "xtermjs";
   const networkSummary = [
@@ -233,10 +233,6 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             <strong>{detail.node}</strong>
           </div>
           <div className="row-line">
-            <span>État</span>
-            <strong>{detail.status === "running" ? "En marche" : "Arrêtée"}</strong>
-          </div>
-          <div className="row-line">
             <span>OS</span>
             <strong>{detail.remoteAccess.osLabel ?? detail.ostype ?? "—"}</strong>
           </div>
@@ -251,12 +247,6 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
           <div className="row-line">
             <span>Uptime</span>
             <strong>{detail.uptimeSeconds > 0 ? formatUptime(detail.uptimeSeconds) : "—"}</strong>
-          </div>
-          <div className="row-line">
-            <span>Agent invité</span>
-            <strong>
-              {detail.agentEnabled === null ? "—" : detail.agentEnabled ? "Actif" : "Inactif"}
-            </strong>
           </div>
         </div>
 
@@ -320,6 +310,14 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         </div>
       </section>
 
+      <section className="workload-section-head">
+        <div>
+          <p className="eyebrow">Exploitation</p>
+          <h2>Console, accès et état du système invité</h2>
+        </div>
+        <p className="muted">Accès réseau, console intégrée et scan des mises à jour OS.</p>
+      </section>
+
       <section className="content-grid workload-support-grid" style={workloadSupportStyle}>
         <section className="panel">
           <InventoryRemoteAccess
@@ -348,6 +346,47 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             shellHref={updateShellHref}
           />
         </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Pilotage</h2>
+            <span className="muted">{detail.kind === "qemu" ? "VM QEMU" : "Conteneur LXC"}</span>
+          </div>
+          <div className="stack-sm">
+            <div className="row-line">
+              <span>État</span>
+              <strong>{detail.status === "running" ? "En marche" : "Arrêtée"}</strong>
+            </div>
+            <div className="row-line">
+              <span>Agent invité</span>
+              <strong>
+                {detail.agentEnabled === null ? "—" : detail.agentEnabled ? "Actif" : "Inactif"}
+              </strong>
+            </div>
+            <div className="row-line">
+              <span>Console prioritaire</span>
+              <strong>{consoleSummary}</strong>
+            </div>
+            <div className="row-line">
+              <span>Stockage principal</span>
+              <strong>{currentStorage ?? "—"}</strong>
+            </div>
+            <div className="row-line">
+              <span>Débit réseau</span>
+              <strong>
+                In {formatRate(detail.networkInBytesPerSecond)} • Out {formatRate(detail.networkOutBytesPerSecond)}
+              </strong>
+            </div>
+          </div>
+        </section>
+      </section>
+
+      <section className="workload-section-head">
+        <div>
+          <p className="eyebrow">Configuration</p>
+          <h2>Réglages, disques, interfaces et snapshots</h2>
+        </div>
+        <p className="muted">Vue technique de la ressource et édition rapide des paramètres principaux.</p>
       </section>
 
       <InventoryWorkloadConfigEditor

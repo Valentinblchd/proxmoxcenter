@@ -63,12 +63,14 @@ export default function ObservabilityTrendPanel({
   subtitle,
   points,
   mode,
+  scopeLabel,
   toneClass,
 }: {
   title: string;
   subtitle: string;
   points: TrendPoint[];
   mode: TrendMode;
+  scopeLabel?: string;
   toneClass: string;
 }) {
   const [hoveredIndex, setHoveredIndex] = useState<number | null>(null);
@@ -83,6 +85,8 @@ export default function ObservabilityTrendPanel({
   const activeY = activePoint ? buildPointY(activePoint.value, maxValue, 74) : 0;
   const activeXPercent =
     activePoint && points.length > 1 ? (activeIndex / (points.length - 1)) * 100 : 50;
+  const unitLabel = mode === "percent" ? "% utilisé" : "Octets par seconde";
+  const readingHint = mode === "percent" ? "Plus haut = plus chargé" : "Plus haut = plus de débit";
 
   const pointMarkers = useMemo(
     () =>
@@ -97,8 +101,14 @@ export default function ObservabilityTrendPanel({
   return (
     <section className="panel observability-trend-card">
       <div className="panel-head">
-        <h2>{title}</h2>
-        <span className="muted">{subtitle}</span>
+        <div className="observability-trend-headline">
+          <h2>{title}</h2>
+          <span className="muted">
+            {subtitle}
+            {scopeLabel ? ` • ${scopeLabel}` : ""}
+          </span>
+        </div>
+        <span className="inventory-tag observability-trend-unit">{unitLabel}</span>
       </div>
 
       {points.length === 0 ? (
@@ -188,8 +198,7 @@ export default function ObservabilityTrendPanel({
           <div className="observability-trend-foot">
             <span>{formatTrendLabel(points[0].timestamp, points.length)}</span>
             <span>
-              {mode === "percent" ? "Unité: %" : "Unité: octets/s"} •{" "}
-              {formatTrendLabel(points.at(-1)?.timestamp ?? points[0].timestamp, points.length)}
+              {readingHint} • {formatTrendLabel(points.at(-1)?.timestamp ?? points[0].timestamp, points.length)}
             </span>
           </div>
         </>

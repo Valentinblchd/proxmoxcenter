@@ -67,7 +67,7 @@ function statusLabel(status: UpdateStatus | null | undefined) {
 function availabilityLabel(status: UpdateAvailabilityStatus | null | undefined) {
   switch (status) {
     case "update-available":
-      return "Update dispo";
+      return "Mise à jour disponible";
     case "up-to-date":
       return "À jour";
     case "error":
@@ -75,7 +75,7 @@ function availabilityLabel(status: UpdateAvailabilityStatus | null | undefined) 
     case "disabled":
       return "Désactivé";
     default:
-      return "Inconnu";
+      return "En attente";
   }
 }
 
@@ -145,7 +145,7 @@ export default function SelfUpdateSettingsPanel() {
   useEffect(() => {
     let disposed = false;
     setLoading(true);
-    refreshAvailability()
+    loadOverview()
       .catch((requestError) => {
         if (disposed) return;
         setError(requestError instanceof Error ? requestError.message : "Erreur de chargement.");
@@ -157,7 +157,7 @@ export default function SelfUpdateSettingsPanel() {
     return () => {
       disposed = true;
     };
-  }, [refreshAvailability]);
+  }, [loadOverview]);
 
   useEffect(() => {
     currentStatusRef.current = currentStatus;
@@ -360,9 +360,9 @@ export default function SelfUpdateSettingsPanel() {
           {overview.current ? (
             <div className="mini-list-item">
               <div>
-                <div className="item-title">Mise à jour en cours: {overview.current.id}</div>
+                <div className="item-title">Job de mise à jour: {overview.current.id}</div>
                 <div className="item-subtitle">
-                  {overview.current.requestedBy ? `Demandé par ${overview.current.requestedBy}` : "Demandé par utilisateur admin"}
+                  {overview.current.requestedBy ? `Demandé par ${overview.current.requestedBy}` : "Demandé depuis l’interface"}
                   {overview.current.finishedAt ? ` • fini à ${new Date(overview.current.finishedAt).toLocaleString()}` : ""}
                 </div>
                 {overview.current.message ? <div className="item-subtitle">{overview.current.message}</div> : null}
@@ -401,7 +401,7 @@ export default function SelfUpdateSettingsPanel() {
           </div>
 
           <details className="self-update-log-wrap">
-            <summary>Journal de mise à jour</summary>
+            <summary>Journal d’exécution</summary>
             <pre className="self-update-log">
               {overview.logs.length > 0 ? overview.logs.join("\n") : "Aucun log pour le moment."}
             </pre>

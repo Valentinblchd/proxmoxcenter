@@ -26,15 +26,17 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
 
   return (
     <section className="content content-wide provision-page">
-      <header className="topbar provision-page-hero">
+      <header className="topbar provision-page-hero provision-page-hero-compact">
         <div className="provision-page-hero-copy">
           <p className="eyebrow">Création</p>
           <h1>Créer une VM ou un LXC</h1>
-          <p className="muted">Parcours en étapes, options Proxmox live et validation propre avant lancement.</p>
+          <p className="muted">
+            Un wizard simple et large pour définir la machine, vérifier le résumé puis lancer la création sans quitter la page.
+          </p>
           <div className="provision-page-hero-chips" aria-label="Points clés création">
-            <span className="inventory-tag">Wizard 5 étapes</span>
-            <span className="inventory-tag">ISO local ou URL</span>
+            <span className="inventory-tag">5 étapes</span>
             <span className="inventory-tag">VM et LXC</span>
+            <span className="inventory-tag">ISO local, URL ou template</span>
           </div>
         </div>
         <div className="topbar-meta provision-page-topbar-meta">
@@ -44,29 +46,25 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
             Retour inventaire
           </Link>
         </div>
-        <section className="stats-grid provision-page-hero-grid">
-          <article className="stat-tile">
-            <div className="stat-label">Mode de départ</div>
-            <div className="stat-value">{kindLabel}</div>
-            <div className="stat-subtle">Tu peux encore changer à tout moment</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">Parcours</div>
-            <div className="stat-value">5 étapes</div>
-            <div className="stat-subtle">Base, ressources, OS, options, validation</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">Supports</div>
-            <div className="stat-value">ISO + CT</div>
-            <div className="stat-subtle">ISO local, URL ISO et template LXC</div>
-          </article>
-          <article className="stat-tile">
-            <div className="stat-label">Sortie</div>
-            <div className="stat-value">Direct</div>
-            <div className="stat-subtle">Validation finale puis création dans Proxmox</div>
-          </article>
-        </section>
       </header>
+
+      <section className="stats-grid provision-page-summary-strip">
+        <article className="stat-tile">
+          <div className="stat-label">Départ</div>
+          <div className="stat-value">{kindLabel}</div>
+          <div className="stat-subtle">Type modifiable à tout moment</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Parcours</div>
+          <div className="stat-value">5 étapes</div>
+          <div className="stat-subtle">Identité, capacité, système, options, résumé</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Supports</div>
+          <div className="stat-value">ISO + CT</div>
+          <div className="stat-subtle">ISO local, URL ISO et template LXC</div>
+        </article>
+      </section>
 
       <ProvisioningStudio initialKind={kind} initialPreset={preset} mode="wizard" />
     </section>

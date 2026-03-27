@@ -447,9 +447,13 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         <div>
           <p className="eyebrow">Inventaire</p>
           <h1>Nœuds, VM et CT</h1>
+          <p className="muted">
+            Recherche, pilotage rapide et accès aux fiches VM, CT, nœuds, sauvegardes et stockages.
+          </p>
         </div>
         <div className="topbar-meta">
           {hasLiveData ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}
+          <span className="pill">{canOperate ? "Mode opérateur" : "Lecture seule"}</span>
         </div>
       </header>
 
@@ -514,14 +518,16 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         </article>
         <article className="stat-tile">
           <div className="stat-label">Nœuds</div>
-          <div className="stat-value">{nodeRuntimeList.length}</div>
+          <div className="stat-value">{snapshot.summary.nodes}</div>
           <div className="stat-subtle">{selectedNode || "Vue cluster"}</div>
         </article>
-        <article className="stat-tile">
-          <div className="stat-label">Backups</div>
-          <div className="stat-value">{activeBackupJobs}</div>
-          <div className="stat-subtle">{backupJobs.length} job(s) Proxmox détecté(s)</div>
-        </article>
+        {activeTab === "backups" || activeTab === "summary" ? (
+          <article className="stat-tile">
+            <div className="stat-label">Backups</div>
+            <div className="stat-value">{activeBackupJobs}</div>
+            <div className="stat-subtle">{backupJobs.length} job(s) Proxmox détecté(s)</div>
+          </article>
+        ) : null}
       </section>
 
       <section className="panel inventory-tabs-panel">

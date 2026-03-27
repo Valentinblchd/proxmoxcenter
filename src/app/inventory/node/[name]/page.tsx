@@ -86,12 +86,17 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
   const token = cookieStore.get(AUTH_COOKIE_NAME)?.value;
   const session = token ? await verifySessionToken(token) : null;
   const canOperate = hasRuntimeCapability(session?.role, "operate");
+  const nodeMemoryRatio = detail.memoryTotal > 0 ? detail.memoryUsed / detail.memoryTotal : 0;
+  const nodeDiskRatio = detail.diskTotal > 0 ? detail.diskUsed / detail.diskTotal : 0;
   const nodeHeroStyle = {
     gridTemplateColumns: "minmax(0, 0.98fr) minmax(0, 1.02fr)",
     alignItems: "stretch",
   };
   const nodeHeroStatsStyle = {
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
+  };
+  const nodeSupportStyle = {
+    gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 0.95fr) minmax(280px, 0.8fr)",
   };
   const nodeGridStyle = {
     gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
@@ -155,10 +160,6 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
             <strong>{detail.summary.workloads}</strong>
           </div>
           <div className="row-line">
-            <span>Actifs</span>
-            <strong>{detail.summary.running}</strong>
-          </div>
-          <div className="row-line">
             <span>VM / CT</span>
             <strong>
               {detail.summary.vms} / {detail.summary.cts}
@@ -182,24 +183,29 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           <div className="inventory-metric-card">
             <span className="muted">CPU</span>
             <strong>{formatPercent(detail.cpuLoad)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span className="tone-green" style={{ width: `${Math.round(detail.cpuLoad * 100)}%` }} />
+            </div>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">RAM</span>
             <strong>{formatBytes(detail.memoryUsed)} / {formatBytes(detail.memoryTotal)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span className="tone-orange" style={{ width: `${Math.round(nodeMemoryRatio * 100)}%` }} />
+            </div>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Disque</span>
             <strong>{formatBytes(detail.diskUsed)} / {formatBytes(detail.diskTotal)}</strong>
+            <div className="inventory-progress inventory-progress-wide" aria-hidden>
+              <span className="tone-orange" style={{ width: `${Math.round(nodeDiskRatio * 100)}%` }} />
+            </div>
           </div>
           <div className="inventory-metric-card">
             <span className="muted">Débit réseau</span>
             <strong>
               {networkSummary}
             </strong>
-          </div>
-          <div className="inventory-metric-card">
-            <span className="muted">Stockages</span>
-            <strong>{detail.storages.length}</strong>
           </div>
         </div>
 
@@ -215,6 +221,82 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
             <span className="pill">Connexion requise</span>
           )}
         </div>
+      </section>
+
+      <section className="workload-section-head">
+        <div>
+          <p className="eyebrow">Capacité</p>
+          <h2>Workloads, stockages, interfaces et maintenance</h2>
+        </div>
+        <p className="muted">Vue d’ensemble du nœud pour piloter la charge, le stockage et les mises à jour.</p>
+      </section>
+
+      <section className="content-grid workload-support-grid" style={nodeSupportStyle}>
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Maintenance et mise à jour</h2>
+            <span className="muted">APT et rolling update</span>
+          </div>
+          <div style={{ display: "grid", gap: "0.75rem" }}>
+            <NodeUpdateStatus live={true} node={detail.name} />
+            <NodeRollingUpdatePanel
+              live={true}
+              node={detail.name}
+              canOperate={canOperate}
+              shellHref={shellHref}
+            />
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Accès et réseau</h2>
+            <span className="muted">{detail.networks.length} interface(s)</span>
+          </div>
+          <div className="stack-sm">
+            <div className="row-line">
+              <span>Shell intégré</span>
+              <strong>{shellHref ? "Disponible" : "Indisponible"}</strong>
+            </div>
+            <div className="row-line">
+              <span>Débit réseau</span>
+              <strong>{networkSummary}</strong>
+            </div>
+            <div className="row-line">
+              <span>Stockages</span>
+              <strong>{detail.storages.length}</strong>
+            </div>
+            <div className="row-line">
+              <span>Workloads actifs</span>
+              <strong>{detail.summary.running}</strong>
+            </div>
+          </div>
+        </section>
+
+        <section className="panel">
+          <div className="panel-head">
+            <h2>Capacité rapide</h2>
+            <span className="muted">Lecture opérateur</span>
+          </div>
+          <div className="stack-sm">
+            <div className="row-line">
+              <span>CPU</span>
+              <strong>{formatPercent(detail.cpuLoad)}</strong>
+            </div>
+            <div className="row-line">
+              <span>RAM</span>
+              <strong>{formatBytes(detail.memoryUsed)} / {formatBytes(detail.memoryTotal)}</strong>
+            </div>
+            <div className="row-line">
+              <span>Disque</span>
+              <strong>{formatBytes(detail.diskUsed)} / {formatBytes(detail.diskTotal)}</strong>
+            </div>
+            <div className="row-line">
+              <span>Uptime</span>
+              <strong>{detail.uptimeSeconds > 0 ? formatUptime(detail.uptimeSeconds) : "—"}</strong>
+            </div>
+          </div>
+        </section>
       </section>
 
       <section className="workload-grid" style={nodeGridStyle}>
@@ -306,21 +388,6 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           )}
         </section>
 
-        <section className="panel" style={{ gridColumn: "1 / -1" }}>
-          <div className="panel-head">
-            <h2>Maintenance et mise à jour</h2>
-            <span className="muted">Scan APT et rolling update du nœud</span>
-          </div>
-          <div style={{ display: "grid", gap: "0.75rem" }}>
-            <NodeUpdateStatus live={true} node={detail.name} />
-            <NodeRollingUpdatePanel
-              live={true}
-              node={detail.name}
-              canOperate={canOperate}
-              shellHref={shellHref}
-            />
-          </div>
-        </section>
       </section>
     </section>
   );

@@ -2573,33 +2573,33 @@ export default function BackupPlannerPanel({
     return execution.status === historyFilter;
   });
   const backupTabs: Array<{ id: BackupWorkspaceTab; label: string }> = [
-    { id: "overview", label: "Pilotage" },
-    { id: "config", label: "Cibles & plans" },
-    { id: "history", label: "Exécutions" },
+    { id: "overview", label: "Vue générale" },
+    { id: "config", label: "Configuration" },
+    { id: "history", label: "Activité" },
     { id: "restore", label: "Restauration" },
-    ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS direct" }] : []),
+    ...(pbsStatus?.configured ? [{ id: "pbs" as const, label: "PBS" }] : []),
   ];
   const showConfigPanel = activeTab === "config";
   const showTargetsPanel = showConfigPanel && configTab === "targets";
   const showPlansPanel = showConfigPanel && configTab === "plans";
   const tabIntro =
     activeTab === "overview"
-      ? "Vue rapide pour voir ce qui tourne, le prochain passage et l’état des stockages."
+      ? "Vue rapide pour savoir ce qui tourne, ce qui arrive ensuite et où partent les sauvegardes."
       : activeTab === "config"
         ? configTab === "targets"
-          ? "Configure les cibles locales, cloud et les secrets liés aux connexions."
-          : "Définis les plans, la fréquence, la portée et la rétention."
-          : activeTab === "history"
-            ? "Historique des exécutions avec progression, erreurs et détail des workloads."
-            : activeTab === "restore"
-              ? "Téléchargement, restauration Proxmox et imports directs depuis le cloud."
-              : "Navigation directe dans PBS si la connexion est disponible.";
+          ? "Renseigne les destinations locales, cloud et les connexions nécessaires."
+          : "Définis quoi sauvegarder, quand, et combien de temps conserver les archives."
+        : activeTab === "history"
+          ? "Historique des exécutions avec progression, erreurs et détail par workload."
+          : activeTab === "restore"
+            ? "Télécharger, restaurer vers Proxmox ou importer directement depuis le cloud."
+            : "Explorer PBS si la connexion et le client sont prêts.";
   const tabChips =
     activeTab === "overview"
-      ? ["Run actif", "Prochain passage", "État des stockages"]
+      ? ["Run actif", "À venir", "Destinations"]
       : activeTab === "config"
         ? configTab === "targets"
-          ? ["Local", "Cloud", "Secrets chiffrés"]
+          ? ["Local", "Cloud", "Connexions"]
           : ["Portée", "Fréquence", "Rétention"]
           : activeTab === "history"
             ? ["Progression", "Erreurs", "États"]
@@ -2611,9 +2611,9 @@ export default function BackupPlannerPanel({
     <section className="backup-planner-shell">
       <section className="panel backup-workspace-panel">
         <div className="panel-head">
-          <h2>Sauvegardes</h2>
+          <h2>Centre de sauvegarde</h2>
           <span className="muted">
-            {config?.mode === "live" ? "Proxmox live" : "Mode offline"}
+            {config?.mode === "live" ? "Proxmox connecté" : "Mode hors ligne"}
           </span>
         </div>
 
@@ -2649,14 +2649,14 @@ export default function BackupPlannerPanel({
                 className={`hub-tab${configTab === "targets" ? " is-active" : ""}`}
                 onClick={() => setConfigTab("targets")}
               >
-                Local & cloud
+                Destinations
               </button>
               <button
                 type="button"
                 className={`hub-tab${configTab === "plans" ? " is-active" : ""}`}
                 onClick={() => setConfigTab("plans")}
               >
-                Plans & rétention
+                Plans
               </button>
             </div>
           ) : null}
@@ -2665,12 +2665,12 @@ export default function BackupPlannerPanel({
         {showConfigPanel ? (
           <section className="stats-grid" style={{ marginTop: "0.75rem" }}>
             <article className="stat-tile">
-              <div className="stat-label">Cibles locales</div>
+              <div className="stat-label">Destinations locales</div>
               <div className="stat-value">{localStorages.length}</div>
               <div className="stat-subtle">Stockages Proxmox détectés</div>
             </article>
             <article className="stat-tile">
-              <div className="stat-label">Cibles cloud</div>
+              <div className="stat-label">Destinations cloud</div>
               <div className="stat-value">{cloudTargets.length}</div>
               <div className="stat-subtle">
                 {selectableCloudTargets.length} activée{selectableCloudTargets.length > 1 ? "s" : ""}
@@ -2684,8 +2684,8 @@ export default function BackupPlannerPanel({
               </div>
             </article>
             <article className="stat-tile">
-              <div className="stat-label">Mode cloud</div>
-              <div className="stat-value">{cloudOauthMode === "central" ? "CENTRAL" : "LOCAL"}</div>
+              <div className="stat-label">OAuth cloud</div>
+              <div className="stat-value">{cloudOauthMode === "central" ? "Central" : "Local"}</div>
               <div className="stat-subtle">
                 {cloudOauthBrokerAvailable ? "Broker disponible" : "Broker indisponible"}
               </div>
@@ -2731,12 +2731,82 @@ export default function BackupPlannerPanel({
         {config?.engine ? (
           <div className="row-line backup-engine-line">
             <span>
-              Scheduler {config.engine.started ? "actif" : "inactif"}{" "}
+              Moteur backup {config.engine.started ? "actif" : "inactif"}{" "}
               {config.engine.running ? "(en cours)" : ""}
             </span>
             <strong>{config.engine.lastTickAt ?? "Jamais"}</strong>
           </div>
         ) : null}
+
+        <section className={`backup-live-strip${runningExecution ? " is-live" : ""}`}>
+          <div className="backup-live-strip-copy">
+            <div className="item-title">
+              {runningExecution ? `Run actif • ${runningExecution.planName}` : "Aucun run en cours"}
+            </div>
+            <div className="item-subtitle">
+              {runningExecution
+                ? runningExecutionSummary
+                  ? `${runningExecutionSummary.completed}/${runningExecutionSummary.total} étapes terminées • ${formatExecutionState(
+                      runningExecution.status,
+                    )}`
+                  : `Démarré ${formatScheduleDate(runningExecution.startedAt)}`
+                : nextUpcomingRun
+                  ? `Prochain passage: ${nextUpcomingRun.planName} • ${formatScheduleDate(nextUpcomingRun.scheduledAt)}`
+                  : "Aucun plan actif pour le moment."}
+            </div>
+            {runningExecutionSummary ? (
+              <>
+                <div className="inventory-progress inventory-progress-wide" aria-hidden>
+                  <span
+                    className="tone-green"
+                    style={{ width: `${Math.round(Math.max(8, runningExecutionSummary.progress * 100))}%` }}
+                  />
+                </div>
+                <div className="backup-target-meta">
+                  <span className="inventory-badge status-running">
+                    {runningExecutionSummary.running} en cours
+                  </span>
+                  <span className="inventory-badge status-pending">
+                    {runningExecutionSummary.pending} en attente
+                  </span>
+                  <span className="inventory-badge status-stopped">
+                    {runningExecutionSummary.failed} erreur
+                  </span>
+                </div>
+              </>
+            ) : null}
+          </div>
+          <div className="backup-live-strip-actions">
+            <span className="pill">{canOperate ? "Mode opérateur" : "Lecture seule"}</span>
+            <button
+              type="button"
+              className="action-btn"
+              onClick={() => setActiveTab(runningExecution ? "history" : "config")}
+            >
+              {runningExecution ? "Suivre le run" : "Ouvrir la configuration"}
+            </button>
+            {!runningExecution && canOperate ? (
+              <button
+                type="button"
+                className="action-btn primary"
+                onClick={() => void onRunNow()}
+                disabled={busy || plans.length === 0}
+              >
+                Déclencher maintenant
+              </button>
+            ) : null}
+            {runningExecution && canOperate ? (
+              <button
+                type="button"
+                className="action-btn primary"
+                onClick={() => void onCancelExecution(runningExecution.id)}
+                disabled={busy || runningExecution.cancelRequested}
+              >
+                {runningExecution.cancelRequested ? "Annulation..." : "Annuler le run"}
+              </button>
+            ) : null}
+          </div>
+        </section>
 
         {activeTab === "overview" ? (
           <>
@@ -2744,7 +2814,7 @@ export default function BackupPlannerPanel({
               <article className="stat-tile">
                 <div className="stat-label">Dernière exécution</div>
                 <div className="stat-value">
-                  {lastExecution ? lastExecution.status.toUpperCase() : "AUCUNE"}
+                  {lastExecution ? formatExecutionState(lastExecution.status) : "Aucune"}
                 </div>
                 <div className="stat-subtle">
                   {lastExecution
@@ -2757,7 +2827,7 @@ export default function BackupPlannerPanel({
                 <div className="stat-value">
                   {runningExecutionSummary
                     ? `${Math.round(runningExecutionSummary.progress * 100)} %`
-                    : "AUCUNE"}
+                    : "Aucune"}
                 </div>
                 <div className="stat-subtle">
                   {runningExecutionSummary
@@ -2767,7 +2837,7 @@ export default function BackupPlannerPanel({
               </article>
               <article className="stat-tile">
                 <div className="stat-label">Prochain passage</div>
-                <div className="stat-value">{nextUpcomingRun ? "PRÉVU" : "AUCUN"}</div>
+                <div className="stat-value">{nextUpcomingRun ? "Prévu" : "Aucun"}</div>
                 <div className="stat-subtle">
                   {nextUpcomingRun ? `${nextUpcomingRun.planName} • ${formatScheduleDate(nextUpcomingRun.scheduledAt)}` : "Aucun plan actif"}
                 </div>
@@ -3009,7 +3079,7 @@ export default function BackupPlannerPanel({
           </button>
           {(activeTab === "overview" || activeTab === "history") && canOperate ? (
             <button className="action-btn primary" type="button" onClick={() => void onRunNow()} disabled={busy}>
-              Lancer maintenant
+              Déclencher maintenant
             </button>
           ) : null}
         </div>

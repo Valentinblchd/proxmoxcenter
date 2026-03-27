@@ -192,8 +192,8 @@ export default function InventoryUpdateStatus({
     <section className="inventory-update-panel" aria-live="polite">
       <div className="inventory-update-head">
         <div className="inventory-update-title">
-          <span className="muted">Mises à jour OS</span>
-          <strong>{kind === "lxc" ? "Conteneur LXC" : "VM"}</strong>
+          <span className="muted">État OS invité</span>
+          <strong>{kind === "lxc" ? "Conteneur" : "Machine virtuelle"}</strong>
         </div>
         <div className="inventory-update-actions">
           {shellHref && result?.scanMode === "manual-shell" ? (
@@ -227,6 +227,7 @@ export default function InventoryUpdateStatus({
 
         <div className="inventory-update-meta">
           {asText(result?.osLabel) ? <span>OS: {result?.osLabel}</span> : null}
+          {result?.scanMode ? <span>Mode: {result.scanMode === "guest-agent" ? "guest-agent" : result.scanMode === "manual-shell" ? "console" : "non supporté"}</span> : null}
           {checkedAtText ? <span>Dernier scan: {checkedAtText}</span> : null}
         </div>
       </div>

@@ -649,16 +649,72 @@ export default function ProvisioningStudio({
     review: !missingRequired,
   };
   const wizardSteps: Array<{ id: ProvisionWizardStepId; label: string; hint: string }> = [
-    { id: "base", label: "Base", hint: "Type, nœud, identité" },
-    { id: "resources", label: "Ressources", hint: "Stockage, réseau, CPU, RAM" },
-    { id: "os", label: "OS & média", hint: isQemu ? "OS, ISO et firmware" : "Template et accès" },
-    { id: "advanced", label: "Options", hint: "Paramètres avancés" },
-    { id: "review", label: "Validation", hint: "Résumé et création" },
+    { id: "base", label: "Identité", hint: "Type, nœud, VMID et nom" },
+    { id: "resources", label: "Capacité", hint: "Stockage, réseau, CPU et RAM" },
+    { id: "os", label: "Système", hint: isQemu ? "OS, ISO et firmware" : "Template et accès" },
+    { id: "advanced", label: "Options", hint: "Réglages système" },
+    { id: "review", label: "Résumé", hint: "Vérifier puis créer" },
   ];
   const currentWizardIndex = wizardSteps.findIndex((step) => step.id === wizardStep);
   const activeWizardStep = wizardSteps[currentWizardIndex] ?? wizardSteps[0];
   const canMoveNext =
     currentWizardIndex < wizardSteps.length - 1 && stepStatus[wizardSteps[currentWizardIndex]?.id ?? "base"];
+  const stageSummaryRows = [
+    { label: "Type", value: isQemu ? "VM QEMU" : "Conteneur LXC" },
+    { label: "Nœud", value: draft.node || "À choisir" },
+    { label: "Stockage", value: draft.storage || "À choisir" },
+    {
+      label: isQemu ? "Média" : "Template",
+      value: isQemu
+        ? draft.isoSourceMode === "url"
+          ? draft.isoUrl || "URL ISO manquante"
+          : draft.isoVolume || "ISO local manquant"
+        : draft.lxcTemplate || "Template manquant",
+    },
+  ];
+  const stageChecklist = (() => {
+    if (wizardStep === "base") {
+      return [
+        !draft.node.trim() ? "Choisir le nœud Proxmox" : null,
+        !draft.vmid.trim() ? "Définir le VMID" : null,
+        vmidConflict ? "Corriger le VMID déjà utilisé" : null,
+        !draft.name.trim() ? `Renseigner le nom de ${isQemu ? "la VM" : "du conteneur"}` : null,
+      ].filter((item): item is string => Boolean(item));
+    }
+
+    if (wizardStep === "resources") {
+      return [
+        !draft.storage.trim() ? "Sélectionner le stockage principal" : null,
+        !draft.memoryMiB.trim() ? "Renseigner la RAM" : null,
+        !draft.cores.trim() ? "Renseigner les vCPU" : null,
+        !draft.diskGb.trim() ? "Renseigner la taille disque" : null,
+      ].filter((item): item is string => Boolean(item));
+    }
+
+    if (wizardStep === "os") {
+      return [
+        isQemu && !draft.ostype.trim() ? "Choisir le type d’OS invité" : null,
+        isQemu && draft.isoSourceMode === "existing" && !draft.isoVolume.trim() ? "Sélectionner un ISO local" : null,
+        isQemu && draft.isoSourceMode === "url" && !draft.isoUrl.trim() ? "Renseigner l’URL ISO" : null,
+        isQemu && draft.isoSourceMode === "url" && draft.isoUrl.trim() && !isIsoUrlCandidate(draft.isoUrl)
+          ? "Vérifier le format de l’URL ISO"
+          : null,
+        isQemu && draft.isoSourceMode === "url" && !draft.isoStorage.trim() ? "Choisir le stockage ISO cible" : null,
+        !isQemu && !draft.lxcTemplate.trim() ? "Renseigner le template LXC" : null,
+      ].filter((item): item is string => Boolean(item));
+    }
+
+    if (wizardStep === "advanced") {
+      return tpmUnsupported ? ["TPM indisponible tant que le firmware n’est pas en OVMF."] : [];
+    }
+
+    return missingRequired ? ["Compléter les champs requis avant la création."] : [];
+  })();
+  const stageReadyMessage = stepStatus[wizardStep]
+    ? wizardStep === "review"
+      ? "Le brouillon est cohérent. Tu peux lancer la création."
+      : "Cette étape est cohérente. Tu peux continuer."
+    : "Complète les points ci-dessous pour avancer sans erreur.";
 
   return (
     <div className="provision-shell">
@@ -720,123 +776,159 @@ export default function ProvisioningStudio({
 
       <section className="panel provision-panel provision-panel-compact provision-master-panel">
         <div className="panel-head">
-          <h2>Création guidée</h2>
+          <h2>Wizard de création</h2>
           {!options?.configured ? <span className="muted">Connexion requise</span> : null}
         </div>
 
         <div className="provision-stage-hero">
-          <div className="provision-stage-head">
-            <div className="provision-stage-copy">
-              <span className="eyebrow">Parcours guidé</span>
-              <strong>
-                Étape {currentWizardIndex + 1}/{wizardSteps.length} • {activeWizardStep.label}
-              </strong>
-              <small>{activeWizardStep.hint}</small>
-            </div>
-            <span className={`pill${options?.configured ? " live" : ""}`}>
-              {options?.configured ? "Options Proxmox live" : "Configuration requise"}
-            </span>
-          </div>
+          <div className="provision-stage-hero-grid">
+            <div className="provision-stage-main">
+              <div className="provision-stage-head">
+                <div className="provision-stage-copy">
+                  <span className="eyebrow">Parcours guidé</span>
+                  <strong>
+                    Étape {currentWizardIndex + 1}/{wizardSteps.length} • {activeWizardStep.label}
+                  </strong>
+                  <small>{activeWizardStep.hint}. Le reste reste accessible sans casser le flux.</small>
+                </div>
+                <span className={`pill${options?.configured ? " live" : ""}`}>
+                  {options?.configured ? "Proxmox connecté" : "Configuration requise"}
+                </span>
+              </div>
 
-          <div className="provision-toolbar">
-            <div className="provision-segment">
-              <button
-                type="button"
-                className={`provision-seg-btn${draft.kind === "qemu" ? " is-active" : ""}`}
-                onClick={() => setKind("qemu")}
-              >
-                VM (QEMU)
-              </button>
-              <button
-                type="button"
-                className={`provision-seg-btn${draft.kind === "lxc" ? " is-active" : ""}`}
-                onClick={() => setKind("lxc")}
-              >
-                LXC
-              </button>
-            </div>
+              <div className="provision-toolbar">
+                <div className="provision-segment">
+                  <button
+                    type="button"
+                    className={`provision-seg-btn${draft.kind === "qemu" ? " is-active" : ""}`}
+                    onClick={() => setKind("qemu")}
+                  >
+                    VM (QEMU)
+                  </button>
+                  <button
+                    type="button"
+                    className={`provision-seg-btn${draft.kind === "lxc" ? " is-active" : ""}`}
+                    onClick={() => setKind("lxc")}
+                  >
+                    LXC
+                  </button>
+                </div>
 
-            <div className="provision-toolbar-right">
-              <button
-                type="button"
-                className="inventory-mini-toggle"
-                onClick={() => window.location.reload()}
-              >
-                Recharger options
-              </button>
-            </div>
-          </div>
+                <div className="provision-toolbar-right">
+                  <button
+                    type="button"
+                    className="inventory-mini-toggle"
+                    onClick={() => window.location.reload()}
+                  >
+                    Actualiser les options
+                  </button>
+                </div>
+              </div>
 
-          {isLoadingOptions ? (
-            <div className="inline-loader" role="status" aria-live="polite">
-              <span className="inline-loader-dots" aria-hidden="true">
-                <span />
-              </span>
-              <span className="inline-loader-label">Chargement des options de création</span>
-            </div>
-          ) : null}
-
-          {optionsError ? <p className="warning">{optionsError}</p> : null}
-
-          {!options?.configured ? (
-            <div className="hint-box">
-              <p className="muted">
-                Connexion Proxmox requise pour créer. Ouvre{" "}
-                <Link href="/settings?tab=proxmox">Paramètres → Proxmox</Link>.
-              </p>
-            </div>
-          ) : null}
-
-          {options?.configured ? (
-            <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
-              <article className="provision-overview-chip">
-                <span>Nœuds</span>
-                <strong>{nodeOptions.length}</strong>
-              </article>
-              <article className="provision-overview-chip">
-                <span>Stockages</span>
-                <strong>{storageOptions.length}</strong>
-              </article>
-              <article className="provision-overview-chip">
-                <span>Bridges</span>
-                <strong>{bridgeOptions.length || "0"}</strong>
-              </article>
-              {isQemu ? (
-                <article className="provision-overview-chip">
-                  <span>ISO</span>
-                  <strong>{isoVolumeOptions.length}</strong>
-                </article>
-              ) : null}
-            </section>
-          ) : null}
-
-          <section className="provision-stepper" aria-label="Étapes de création">
-            {wizardSteps.map((step, index) => {
-              const isActive = step.id === wizardStep;
-              const isDone = stepStatus[step.id];
-              return (
-                <button
-                  key={step.id}
-                  type="button"
-                  className={`provision-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`}
-                  onClick={() => setWizardStep(step.id)}
-                >
-                  <span className="provision-step-index">{index + 1}</span>
-                  <span className="provision-step-copy">
-                    <strong>{step.label}</strong>
-                    <small>{step.hint}</small>
+              {isLoadingOptions ? (
+                <div className="inline-loader" role="status" aria-live="polite">
+                  <span className="inline-loader-dots" aria-hidden="true">
+                    <span />
                   </span>
-                </button>
-              );
-            })}
-          </section>
+                  <span className="inline-loader-label">Chargement des options de création</span>
+                </div>
+              ) : null}
+
+              {optionsError ? <p className="warning">{optionsError}</p> : null}
+
+              {!options?.configured ? (
+                <div className="hint-box">
+                  <p className="muted">
+                    Connexion Proxmox requise pour créer. Ouvre{" "}
+                    <Link href="/settings?tab=proxmox">Paramètres → Proxmox</Link>.
+                  </p>
+                </div>
+              ) : null}
+
+              {options?.configured ? (
+                <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
+                  <article className="provision-overview-chip">
+                    <span>Nœuds</span>
+                    <strong>{nodeOptions.length}</strong>
+                  </article>
+                  <article className="provision-overview-chip">
+                    <span>Stockages</span>
+                    <strong>{storageOptions.length}</strong>
+                  </article>
+                  {isQemu ? (
+                    <article className="provision-overview-chip">
+                      <span>ISO</span>
+                      <strong>{isoVolumeOptions.length}</strong>
+                    </article>
+                  ) : (
+                    <article className="provision-overview-chip">
+                      <span>Bridges</span>
+                      <strong>{bridgeOptions.length || "0"}</strong>
+                    </article>
+                  )}
+                </section>
+              ) : null}
+
+              <section className="provision-stepper" aria-label="Étapes de création">
+                {wizardSteps.map((step, index) => {
+                  const isActive = step.id === wizardStep;
+                  const isDone = stepStatus[step.id];
+                  return (
+                    <button
+                      key={step.id}
+                      type="button"
+                      className={`provision-step${isActive ? " is-active" : ""}${isDone ? " is-done" : ""}`}
+                      onClick={() => setWizardStep(step.id)}
+                    >
+                      <span className="provision-step-index">{index + 1}</span>
+                      <span className="provision-step-copy">
+                        <strong>{step.label}</strong>
+                        <small>{step.hint}</small>
+                      </span>
+                    </button>
+                  );
+                })}
+              </section>
+            </div>
+
+            <aside className="provision-stage-aside">
+              <section className="hint-box provision-stage-summary">
+                <div className="item-title">Résumé courant</div>
+                <div className="stack-sm">
+                  {stageSummaryRows.map((row) => (
+                    <div key={row.label} className="row-line">
+                      <span>{row.label}</span>
+                      <strong>{row.value}</strong>
+                    </div>
+                  ))}
+                </div>
+              </section>
+
+              <section className="hint-box provision-stage-summary">
+                <div className="item-title">{stepStatus[wizardStep] ? "Étape prête" : "À compléter"}</div>
+                <div className="item-subtitle">{stageReadyMessage}</div>
+                {stageChecklist.length > 0 ? (
+                  <ul className="provision-stage-checklist">
+                    {stageChecklist.map((item) => (
+                      <li key={item}>{item}</li>
+                    ))}
+                  </ul>
+                ) : (
+                  <div className="backup-target-meta">
+                    <span className="inventory-badge status-running">Validation OK</span>
+                    <span className="inventory-badge status-template">{activeWizardStep.label}</span>
+                  </div>
+                )}
+              </section>
+            </aside>
+          </div>
         </div>
 
         {wizardStep === "base" ? (
           <section className="provision-step-panel">
             <div className="panel-head">
-              <h3>Base</h3>
-              <span className="muted">Choisis le type, le nœud et l’identité de la ressource.</span>
+              <h3>Identité</h3>
+              <span className="muted">Type, nœud cible et identité de la ressource.</span>
             </div>
             <div className="provision-grid provision-step-grid">
               <FieldRow label="Nœud">
@@ -911,8 +1003,8 @@ export default function ProvisioningStudio({
         {wizardStep === "resources" ? (
           <section className="provision-step-panel">
             <div className="panel-head">
-              <h3>Ressources et réseau</h3>
-              <span className="muted">Définis le stockage principal, le réseau et la taille de la machine.</span>
+              <h3>Capacité</h3>
+              <span className="muted">Stockage principal, réseau et taille de la machine.</span>
             </div>
             <div className="provision-grid provision-step-grid">
               <FieldRow label="Stockage principal">
@@ -1010,7 +1102,7 @@ export default function ProvisioningStudio({
         {wizardStep === "os" ? (
           <section className="provision-step-panel">
             <div className="panel-head">
-              <h3>OS et média</h3>
+              <h3>Système</h3>
               <span className="muted">
                 {isQemu ? "Choisis l’OS invité, la source ISO et le média de démarrage." : "Choisis le template et l’accès initial."}
               </span>
@@ -1162,7 +1254,7 @@ export default function ProvisioningStudio({
           <section className="provision-step-panel">
             <div className="panel-head">
               <h3>Options avancées</h3>
-              <span className="muted">Ajuste le firmware, l’agent invité et les options avancées.</span>
+              <span className="muted">Firmware, agent invité et réglages système.</span>
             </div>
             <div className="provision-grid provision-step-grid">
               {isQemu ? (
@@ -1264,8 +1356,8 @@ export default function ProvisioningStudio({
         {wizardStep === "review" ? (
           <section className="provision-step-panel">
             <div className="panel-head">
-              <h3>Validation</h3>
-              <span className="muted">Vérifie le résumé avant de lancer la création.</span>
+              <h3>Résumé final</h3>
+              <span className="muted">Dernière vérification avant la création côté Proxmox.</span>
             </div>
             <div className="content-grid">
               <section className="hint-box provision-summary-card">
