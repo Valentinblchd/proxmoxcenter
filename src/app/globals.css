@@ -1502,6 +1502,65 @@ code {
   border-radius: 24px;
 }
 
+.roadmap-page {
+  display: grid;
+  gap: 1rem;
+}
+
+.roadmap-overview-grid {
+  align-items: start;
+}
+
+.roadmap-chip-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.65rem;
+}
+
+.roadmap-chip {
+  text-decoration: none;
+}
+
+.roadmap-sections {
+  display: grid;
+  gap: 1rem;
+}
+
+.roadmap-section {
+  overflow: hidden;
+}
+
+.roadmap-section-summary {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 1rem;
+  cursor: pointer;
+  list-style: none;
+}
+
+.roadmap-section-summary::-webkit-details-marker {
+  display: none;
+}
+
+.roadmap-section-summary h2 {
+  margin: 0;
+}
+
+.roadmap-idea-list {
+  margin-top: 1rem;
+}
+
+.roadmap-idea-copy {
+  display: grid;
+  gap: 0.25rem;
+}
+
+.roadmap-idea-id {
+  color: var(--accent);
+  font-weight: 700;
+}
+
 @media (max-width: 1080px) {
   .loading-shell-grid,
   .loading-shell-grid.is-aside,
@@ -1525,6 +1584,11 @@ code {
   }
 
   .loading-shell-list-item {
+    align-items: flex-start;
+    flex-direction: column;
+  }
+
+  .roadmap-section-summary {
     align-items: flex-start;
     flex-direction: column;
   }

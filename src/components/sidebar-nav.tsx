@@ -57,6 +57,15 @@ function MenuIcon({ itemId }: { itemId: string }) {
           <path d="M12 8v8M8 12h8" />
         </svg>
       );
+    case "roadmap":
+      return (
+        <svg {...commonProps}>
+          <path d="M5 5h14v14H5z" />
+          <path d="M8 9h8" />
+          <path d="M8 12h8" />
+          <path d="M8 15h5" />
+        </svg>
+      );
     case "observability":
       return (
         <svg {...commonProps}>

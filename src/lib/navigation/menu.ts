@@ -33,6 +33,7 @@ export const MAIN_MENU_SECTIONS: NavSection[] = [
       { id: "dashboard", label: "Accueil", glyph: "DB", href: "/" },
       { id: "inventory", label: "Inventaire", glyph: "IV", href: "/inventory" },
       { id: "provision", label: "Création", glyph: "CR", href: "/provision" },
+      { id: "roadmap", label: "Roadmap", glyph: "RM", href: "/roadmap" },
     ],
   },
   {

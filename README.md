@@ -13,6 +13,14 @@ Interface web Proxmox orientée exploitation : inventaire, sauvegardes local/clo
 - **Observabilité** — métriques et état des ressources, avec sonde matérielle BMC / iLO Redfish en option
 - **Opérations** — actions groupées sur les machines
 - **Paramètres** — gestion des connexions Proxmox, PBS, cloud et des comptes locaux
+- **Roadmap** — backlog produit intégré de 500 idées classées par thème, visible directement dans l’app
+
+## Roadmap intégrée
+
+Le backlog complet est disponible à deux endroits :
+
+- dans l’application via la page `Roadmap`
+- dans le repo via [`docs/product-backlog-500-ideas.md`](docs/product-backlog-500-ideas.md)
 
 ## Prérequis
 
