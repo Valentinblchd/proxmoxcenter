@@ -382,11 +382,6 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
             <p className="eyebrow">Observabilité</p>
             <h1>Supervision cluster, santé et énergie</h1>
             <p className="muted">Charge, réseau, sondes matérielles et coût électrique dans une lecture plus directe.</p>
-            <div className="observability-hero-chips" aria-label="Points clés observabilité">
-              <span className="inventory-tag">Temps réel</span>
-              <span className="inventory-tag">Sonde serveur</span>
-              <span className="inventory-tag">Archives et coût</span>
-            </div>
           </div>
           <div className="observability-hero-meta">
             {hasLiveData ? <span className="pill live">Live</span> : <span className="pill">Hors ligne</span>}
@@ -409,24 +404,24 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
 
       <section className="stats-grid observability-summary-strip">
         <article className="stat-tile">
-          <div className="stat-label">CPU moyen cluster</div>
-          <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
+          <div className="stat-label">Cluster</div>
+          <div className="stat-value">{hasLiveData ? "Live" : "Offline"}</div>
           <div className="stat-subtle">{snapshot.summary.nodes} nœud(x) suivi(s)</div>
         </article>
         <article className="stat-tile">
-          <div className="stat-label">RAM moyenne cluster</div>
-          <div className="stat-value">{hasLiveData ? formatPercent(avgMem) : "—"}</div>
-          <div className="stat-subtle">Mémoire utilisée sur l’ensemble</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">Sonde serveur</div>
-          <div className="stat-value">{hardwareMonitorConfig?.enabled ? "Prête" : "À configurer"}</div>
-          <div className="stat-subtle">{hardwareStatusLabel}</div>
+          <div className="stat-label">Charge live</div>
+          <div className="stat-value">{hasLiveData ? formatPercent(avgCpu) : "—"}</div>
+          <div className="stat-subtle">RAM {hasLiveData ? formatPercent(avgMem) : "—"}</div>
         </article>
         <article className="stat-tile">
           <div className="stat-label">Énergie</div>
           <div className="stat-value">{greenit.metrics.powerSourceLabel}</div>
           <div className="stat-subtle">{greenit.metrics.effectivePowerWatts} W effectifs</div>
+        </article>
+        <article className="stat-tile">
+          <div className="stat-label">Sonde serveur</div>
+          <div className="stat-value">{hardwareMonitorConfig?.enabled ? "Prête" : "À configurer"}</div>
+          <div className="stat-subtle">{hardwareStatusLabel}</div>
         </article>
       </section>
 
@@ -514,9 +509,12 @@ export default async function ObservabilityPage({ searchParams }: ObservabilityP
               toneClass="tone-red"
             />
           </div>
-          <section className="observability-history-shell">
-            <ObservabilityHistoryExplorer points={historySeries.points} rangeLabel={historySeries.range.label} />
-          </section>
+          <details className="observability-archives-wrap">
+            <summary>Archives et exports</summary>
+            <section className="observability-history-shell">
+              <ObservabilityHistoryExplorer points={historySeries.points} rangeLabel={historySeries.range.label} />
+            </section>
+          </details>
         </section>
       ) : null}
 

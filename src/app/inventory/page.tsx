@@ -505,30 +505,30 @@ export default async function InventoryPage({ searchParams }: InventoryPageProps
         </div>
       </section>
 
-      <section className="stats-grid inventory-kpi-grid">
-        <article className="stat-tile">
-          <div className="stat-label">Workloads</div>
-          <div className="stat-value">{filteredRows.length}</div>
-          <div className="stat-subtle">{query ? `Recherche: ${query}` : "VM et CT visibles"}</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">En ligne</div>
-          <div className="stat-value">{runningWorkloads}</div>
-          <div className="stat-subtle">{filteredRows.length - runningWorkloads} arrêtés</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">Nœuds</div>
-          <div className="stat-value">{snapshot.summary.nodes}</div>
-          <div className="stat-subtle">{selectedNode || "Vue cluster"}</div>
-        </article>
-        {activeTab === "backups" || activeTab === "summary" ? (
+      {activeTab === "summary" ? (
+        <section className="stats-grid inventory-kpi-grid">
+          <article className="stat-tile">
+            <div className="stat-label">Workloads</div>
+            <div className="stat-value">{filteredRows.length}</div>
+            <div className="stat-subtle">{query ? `Recherche: ${query}` : "VM et CT visibles"}</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">En ligne</div>
+            <div className="stat-value">{runningWorkloads}</div>
+            <div className="stat-subtle">{filteredRows.length - runningWorkloads} arrêtés</div>
+          </article>
+          <article className="stat-tile">
+            <div className="stat-label">Nœuds</div>
+            <div className="stat-value">{snapshot.summary.nodes}</div>
+            <div className="stat-subtle">{selectedNode || "Vue cluster"}</div>
+          </article>
           <article className="stat-tile">
             <div className="stat-label">Backups</div>
             <div className="stat-value">{activeBackupJobs}</div>
             <div className="stat-subtle">{backupJobs.length} job(s) Proxmox détecté(s)</div>
           </article>
-        ) : null}
-      </section>
+        </section>
+      ) : null}
 
       <section className="panel inventory-tabs-panel">
         <div className="inventory-tabs">

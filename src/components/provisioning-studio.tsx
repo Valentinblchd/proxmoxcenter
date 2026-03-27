@@ -785,10 +785,8 @@ export default function ProvisioningStudio({
             <div className="provision-stage-main">
               <div className="provision-stage-head">
                 <div className="provision-stage-copy">
-                  <span className="eyebrow">Parcours guidé</span>
-                  <strong>
-                    Étape {currentWizardIndex + 1}/{wizardSteps.length} • {activeWizardStep.label}
-                  </strong>
+                  <span className="eyebrow">Étape {currentWizardIndex + 1}/{wizardSteps.length}</span>
+                  <strong>{activeWizardStep.label}</strong>
                   <small>{activeWizardStep.hint}. Le reste reste accessible sans casser le flux.</small>
                 </div>
                 <span className={`pill${options?.configured ? " live" : ""}`}>
@@ -817,10 +815,10 @@ export default function ProvisioningStudio({
                 <div className="provision-toolbar-right">
                   <button
                     type="button"
-                    className="inventory-mini-toggle"
+                    className="action-btn"
                     onClick={() => window.location.reload()}
                   >
-                    Actualiser les options
+                    Relire les options
                   </button>
                 </div>
               </div>
@@ -846,27 +844,12 @@ export default function ProvisioningStudio({
               ) : null}
 
               {options?.configured ? (
-                <section className="provision-overview-strip" aria-label="Résumé des options disponibles">
-                  <article className="provision-overview-chip">
-                    <span>Nœuds</span>
-                    <strong>{nodeOptions.length}</strong>
-                  </article>
-                  <article className="provision-overview-chip">
-                    <span>Stockages</span>
-                    <strong>{storageOptions.length}</strong>
-                  </article>
-                  {isQemu ? (
-                    <article className="provision-overview-chip">
-                      <span>ISO</span>
-                      <strong>{isoVolumeOptions.length}</strong>
-                    </article>
-                  ) : (
-                    <article className="provision-overview-chip">
-                      <span>Bridges</span>
-                      <strong>{bridgeOptions.length || "0"}</strong>
-                    </article>
-                  )}
-                </section>
+                <div className="provision-stage-meta" aria-label="Résumé des options disponibles">
+                  <span>{nodeOptions.length} nœud(x)</span>
+                  <span>{storageOptions.length} stockage(s)</span>
+                  <span>{bridgeOptions.length || 0} bridge(s)</span>
+                  {isQemu ? <span>{isoVolumeOptions.length} ISO</span> : <span>Template LXC manuel</span>}
+                </div>
               ) : null}
 
               <section className="provision-stepper" aria-label="Étapes de création">

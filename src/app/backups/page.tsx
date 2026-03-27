@@ -54,11 +54,6 @@ export default async function BackupsPage({ searchParams }: BackupsPageProps) {
           <p className="muted">
             Configure les destinations, suis les runs et restaure sans te perdre entre plusieurs écrans.
           </p>
-          <div className="backup-page-hero-chips" aria-label="Points clés sauvegardes">
-            <span className="inventory-tag">Suivi en direct</span>
-            <span className="inventory-tag">Local et cloud</span>
-            <span className="inventory-tag">Restauration guidée</span>
-          </div>
         </div>
         <div className="topbar-meta backup-page-topbar-meta">
           {snapshot.mode === "live" ? <span className="pill live">Proxmox connecté</span> : <span className="pill">Hors ligne</span>}

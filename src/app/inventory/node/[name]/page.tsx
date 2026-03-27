@@ -88,19 +88,6 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
   const canOperate = hasRuntimeCapability(session?.role, "operate");
   const nodeMemoryRatio = detail.memoryTotal > 0 ? detail.memoryUsed / detail.memoryTotal : 0;
   const nodeDiskRatio = detail.diskTotal > 0 ? detail.diskUsed / detail.diskTotal : 0;
-  const nodeHeroStyle = {
-    gridTemplateColumns: "minmax(0, 0.98fr) minmax(0, 1.02fr)",
-    alignItems: "stretch",
-  };
-  const nodeHeroStatsStyle = {
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  };
-  const nodeSupportStyle = {
-    gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 0.95fr) minmax(280px, 0.8fr)",
-  };
-  const nodeGridStyle = {
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  };
   const networkSummary = `In ${formatRate(detail.networkInBytesPerSecond)} • Out ${formatRate(detail.networkOutBytesPerSecond)}`;
 
   return (
@@ -149,7 +136,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
         </div>
       </header>
 
-      <section className="panel workload-hero" style={nodeHeroStyle}>
+      <section className="panel workload-hero">
         <div className="workload-hero-copy">
           <div className="row-line">
             <span>Statut</span>
@@ -179,7 +166,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
           </div>
         </div>
 
-        <div className="workload-hero-stats" style={nodeHeroStatsStyle}>
+        <div className="workload-hero-stats">
           <div className="inventory-metric-card">
             <span className="muted">CPU</span>
             <strong>{formatPercent(detail.cpuLoad)}</strong>
@@ -231,7 +218,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
         <p className="muted">Vue d’ensemble du nœud pour piloter la charge, le stockage et les mises à jour.</p>
       </section>
 
-      <section className="content-grid workload-support-grid" style={nodeSupportStyle}>
+      <section className="content-grid workload-support-grid">
         <section className="panel">
           <div className="panel-head">
             <h2>Maintenance et mise à jour</h2>
@@ -299,7 +286,7 @@ export default async function InventoryNodeDetailPage({ params }: NodePageProps)
         </section>
       </section>
 
-      <section className="workload-grid" style={nodeGridStyle}>
+      <section className="workload-grid workload-grid-compact">
         <section className="panel">
           <div className="panel-head">
             <h2>Workloads du nœud</h2>

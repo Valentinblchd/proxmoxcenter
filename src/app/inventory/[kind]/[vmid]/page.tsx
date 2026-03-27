@@ -156,19 +156,6 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
     detail.kind === "lxc"
       ? buildWorkloadConsoleHref(detail.kind, detail.vmid)
       : buildWorkloadConsoleHref(detail.kind, detail.vmid, "console");
-  const workloadHeroStyle = {
-    gridTemplateColumns: "minmax(0, 0.98fr) minmax(0, 1.02fr)",
-    alignItems: "stretch",
-  };
-  const workloadHeroStatsStyle = {
-    gridTemplateColumns: "repeat(2, minmax(0, 1fr))",
-  };
-  const workloadSupportStyle = {
-    gridTemplateColumns: "minmax(0, 1.05fr) minmax(0, 0.95fr) minmax(280px, 0.8fr)",
-  };
-  const workloadDetailGridStyle = {
-    gridTemplateColumns: "repeat(3, minmax(0, 1fr))",
-  };
   const consoleSummary = detail.kind === "qemu" ? "noVNC / série / SPICE" : "xtermjs";
   const networkSummary = [
     detail.remoteAccess.primaryIp ? `IP ${detail.remoteAccess.primaryIp}` : null,
@@ -221,12 +208,12 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
             <span className="pill">Fin</span>
           )}
           <span className={`inventory-badge status-${detail.status === "running" ? "running" : "stopped"}`}>
-            {detail.kind.toUpperCase()} • {detail.status}
+            {detail.kind === "qemu" ? "VM" : "LXC"} • {detail.status === "running" ? "en marche" : "arrêtée"}
           </span>
         </div>
       </header>
 
-      <section className="panel workload-hero" style={workloadHeroStyle}>
+      <section className="panel workload-hero">
         <div className="workload-hero-copy">
           <div className="row-line">
             <span>Nœud</span>
@@ -250,7 +237,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
           </div>
         </div>
 
-        <div className="workload-hero-stats" style={workloadHeroStatsStyle}>
+        <div className="workload-hero-stats">
           <div className="inventory-metric-card">
             <span className="muted">CPU</span>
             <strong>{formatPercent(detail.cpuLoad)}</strong>
@@ -318,7 +305,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         <p className="muted">Accès réseau, console intégrée et scan des mises à jour OS.</p>
       </section>
 
-      <section className="content-grid workload-support-grid" style={workloadSupportStyle}>
+      <section className="content-grid workload-support-grid">
         <section className="panel">
           <InventoryRemoteAccess
             key={detail.id}
@@ -406,7 +393,7 @@ export default async function WorkloadDetailPage({ params }: WorkloadPageProps) 
         diskSizeGb={diskSizeGb}
       />
 
-      <section className="workload-grid" style={workloadDetailGridStyle}>
+      <section className="workload-grid workload-grid-compact">
         <section className="panel">
           <div className="panel-head">
             <h2>Configuration</h2>

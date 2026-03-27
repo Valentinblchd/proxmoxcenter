@@ -40,6 +40,12 @@ function toCsvValue(value: string | number) {
   return `"${text.replaceAll("\"", "\"\"")}"`;
 }
 
+function toDateValue(timestamp: string) {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return "";
+  return date.toISOString().slice(0, 10);
+}
+
 export default function ObservabilityHistoryExplorer({
   points,
   rangeLabel,
@@ -48,18 +54,29 @@ export default function ObservabilityHistoryExplorer({
   rangeLabel: string;
 }) {
   const [metric, setMetric] = useState<MetricId>("cpuRatio");
+  const [from, setFrom] = useState(() => toDateValue(points[0]?.timestamp ?? ""));
+  const [to, setTo] = useState(() => toDateValue(points.at(-1)?.timestamp ?? ""));
+
+  const filteredPoints = useMemo(() => {
+    return points.filter((point) => {
+      const date = toDateValue(point.timestamp);
+      if (from && date < from) return false;
+      if (to && date > to) return false;
+      return true;
+    });
+  }, [from, points, to]);
 
   const summary = useMemo(() => {
-    const values = points.map((point) => point[metric]).filter((value) => Number.isFinite(value));
+    const values = filteredPoints.map((point) => point[metric]).filter((value) => Number.isFinite(value));
     const latest = values.at(-1) ?? 0;
     const average = values.length > 0 ? values.reduce((sum, value) => sum + value, 0) / values.length : 0;
     const peak = values.reduce((max, value) => Math.max(max, value), 0);
     return { latest, average, peak };
-  }, [metric, points]);
+  }, [filteredPoints, metric]);
 
   function exportCsv() {
     const header = ["timestamp", "cpu_ratio", "memory_ratio", "network_bytes_per_second", "disk_ratio", "iowait_ratio"];
-    const rows = points.map((point) => [
+    const rows = filteredPoints.map((point) => [
       point.timestamp,
       point.cpuRatio.toFixed(6),
       point.memoryRatio.toFixed(6),
@@ -72,7 +89,7 @@ export default function ObservabilityHistoryExplorer({
     const url = URL.createObjectURL(blob);
     const anchor = document.createElement("a");
     anchor.href = url;
-    anchor.download = `observability-${rangeLabel.replace(/\s+/g, "-").toLowerCase()}.csv`;
+    anchor.download = `observability-${from || "debut"}-${to || "fin"}.csv`;
     document.body.appendChild(anchor);
     anchor.click();
     anchor.remove();
@@ -82,7 +99,7 @@ export default function ObservabilityHistoryExplorer({
   function exportPdfView() {
     const popup = window.open("", "_blank", "noopener,noreferrer,width=1100,height=760");
     if (!popup) return;
-    const rows = points
+    const rows = filteredPoints
       .map(
         (point) => `
           <tr>
@@ -115,7 +132,7 @@ export default function ObservabilityHistoryExplorer({
         </head>
         <body>
           <h1>Archives supervision</h1>
-          <p>Fenetre ${rangeLabel} • metrique active ${METRICS.find((entry) => entry.id === metric)?.label ?? metric}</p>
+          <p>Fenetre ${rangeLabel} • période ${from || "début"} au ${to || "fin"} • métrique active ${METRICS.find((entry) => entry.id === metric)?.label ?? metric}</p>
           <section class="summary">
             <div class="card"><div class="label">Actuel</div><div class="value">${formatMetricValue(metric, summary.latest)}</div></div>
             <div class="card"><div class="label">Moyenne</div><div class="value">${formatMetricValue(metric, summary.average)}</div></div>
@@ -143,11 +160,19 @@ export default function ObservabilityHistoryExplorer({
   return (
     <section className="panel observability-history-explorer">
       <div className="panel-head">
-        <h2>Archives supervision</h2>
-        <span className="muted">{rangeLabel} • {points.length} point(s)</span>
+        <h2>Archives et exports</h2>
+        <span className="muted">{rangeLabel} • {filteredPoints.length} point(s)</span>
       </div>
 
       <div className="observability-history-toolbar">
+        <label className="provision-field">
+          <span className="provision-field-label">Du</span>
+          <input className="provision-input" type="date" value={from} onChange={(event) => setFrom(event.target.value)} />
+        </label>
+        <label className="provision-field">
+          <span className="provision-field-label">Au</span>
+          <input className="provision-input" type="date" value={to} onChange={(event) => setTo(event.target.value)} />
+        </label>
         <div className="provision-segment" role="group" aria-label="Métrique supervision">
           {METRICS.map((entry) => (
             <button
@@ -160,11 +185,53 @@ export default function ObservabilityHistoryExplorer({
             </button>
           ))}
         </div>
+        <div className="greenit-history-preset-row">
+          <button
+            type="button"
+            className="inventory-ghost-btn"
+            onClick={() => {
+              setFrom(toDateValue(points[Math.max(0, points.length - 24)]?.timestamp ?? points[0]?.timestamp ?? ""));
+              setTo(toDateValue(points.at(-1)?.timestamp ?? ""));
+            }}
+          >
+            24 h
+          </button>
+          <button
+            type="button"
+            className="inventory-ghost-btn"
+            onClick={() => {
+              setFrom(toDateValue(points[Math.max(0, points.length - 7)]?.timestamp ?? points[0]?.timestamp ?? ""));
+              setTo(toDateValue(points.at(-1)?.timestamp ?? ""));
+            }}
+          >
+            7 jours
+          </button>
+          <button
+            type="button"
+            className="inventory-ghost-btn"
+            onClick={() => {
+              setFrom(toDateValue(points[Math.max(0, points.length - 30)]?.timestamp ?? points[0]?.timestamp ?? ""));
+              setTo(toDateValue(points.at(-1)?.timestamp ?? ""));
+            }}
+          >
+            30 jours
+          </button>
+          <button
+            type="button"
+            className="inventory-ghost-btn"
+            onClick={() => {
+              setFrom(toDateValue(points[0]?.timestamp ?? ""));
+              setTo(toDateValue(points.at(-1)?.timestamp ?? ""));
+            }}
+          >
+            Tout
+          </button>
+        </div>
         <div className="observability-history-actions">
-          <button type="button" className="action-btn" onClick={exportCsv} disabled={points.length === 0}>
+          <button type="button" className="action-btn" onClick={exportCsv} disabled={filteredPoints.length === 0}>
             Export CSV
           </button>
-          <button type="button" className="action-btn" onClick={exportPdfView} disabled={points.length === 0}>
+          <button type="button" className="action-btn" onClick={exportPdfView} disabled={filteredPoints.length === 0}>
             Export PDF
           </button>
         </div>
@@ -179,7 +246,7 @@ export default function ObservabilityHistoryExplorer({
         <article className="stat-tile">
           <div className="stat-label">Moyenne</div>
           <div className="stat-value">{formatMetricValue(metric, summary.average)}</div>
-          <div className="stat-subtle">Fenêtre {rangeLabel}</div>
+          <div className="stat-subtle">Période filtrée</div>
         </article>
         <article className="stat-tile">
           <div className="stat-label">Pic</div>
@@ -188,11 +255,11 @@ export default function ObservabilityHistoryExplorer({
         </article>
       </section>
 
-      {points.length === 0 ? (
+      {filteredPoints.length === 0 ? (
         <p className="muted">Aucune archive disponible sur cette fenêtre.</p>
       ) : (
         <div className="mini-list observability-history-list">
-          {[...points].reverse().slice(0, 80).map((point) => (
+          {[...filteredPoints].reverse().slice(0, 80).map((point) => (
             <article key={`${metric}-${point.timestamp}`} className="mini-list-item">
               <div>
                 <div className="item-title">{formatTimestamp(point.timestamp)}</div>

@@ -33,11 +33,6 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
           <p className="muted">
             Un wizard simple et large pour définir la machine, vérifier le résumé puis lancer la création sans quitter la page.
           </p>
-          <div className="provision-page-hero-chips" aria-label="Points clés création">
-            <span className="inventory-tag">5 étapes</span>
-            <span className="inventory-tag">VM et LXC</span>
-            <span className="inventory-tag">ISO local, URL ou template</span>
-          </div>
         </div>
         <div className="topbar-meta provision-page-topbar-meta">
           <span className="pill">Départ {kindLabel}</span>
@@ -47,24 +42,6 @@ export default async function ProvisionPage({ searchParams }: ProvisionPageProps
           </Link>
         </div>
       </header>
-
-      <section className="stats-grid provision-page-summary-strip">
-        <article className="stat-tile">
-          <div className="stat-label">Départ</div>
-          <div className="stat-value">{kindLabel}</div>
-          <div className="stat-subtle">Type modifiable à tout moment</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">Parcours</div>
-          <div className="stat-value">5 étapes</div>
-          <div className="stat-subtle">Identité, capacité, système, options, résumé</div>
-        </article>
-        <article className="stat-tile">
-          <div className="stat-label">Supports</div>
-          <div className="stat-value">ISO + CT</div>
-          <div className="stat-subtle">ISO local, URL ISO et template LXC</div>
-        </article>
-      </section>
 
       <ProvisioningStudio initialKind={kind} initialPreset={preset} mode="wizard" />
     </section>
